@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   AlertTriangle,
@@ -20,6 +20,7 @@ import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import {
   COLAB_PROFILE_ID,
+  COLAB_STATUS_EVENT,
   emptyColabSummary,
   isTauriRuntime,
   loadColabSummary,
@@ -27,16 +28,17 @@ import {
   type OAuthProfileSummary,
 } from "./connection";
 
-type ActiveAction = "load" | "save" | "connect" | "check" | "disconnect" | "delete" | null;
+type ActiveAction = "load" | "save" | "connect" | "restore" | "check" | "disconnect" | "delete" | null;
 
 function errorMessage(error: unknown) {
-  return typeof error === "string" ? error : "A operação não pôde ser concluída.";
+  return typeof error === "string" ? error : error instanceof Error ? error.message : "A operação não pôde ser concluída.";
 }
 
 export function ColabGate() {
   const desktopRuntime = useMemo(isTauriRuntime, []);
   const [summary, setSummary] = useState<OAuthProfileSummary>(emptyColabSummary);
   const [clientId, setClientId] = useState("");
+  const clientIdEditedRef = useRef(false);
   const [activeAction, setActiveAction] = useState<ActiveAction>(desktopRuntime ? "load" : null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -46,15 +48,28 @@ export function ColabGate() {
 
   useEffect(() => {
     if (!desktopRuntime) return;
-
+    let disposed = false;
+    let receivedUpdate = false;
+    const updateStatus = (event: Event) => {
+      receivedUpdate = true;
+      const configuration = (event as CustomEvent<OAuthProfileSummary>).detail;
+      setSummary(configuration);
+      if (!clientIdEditedRef.current) setClientId(configuration.clientId);
+    };
+    window.addEventListener(COLAB_STATUS_EVENT, updateStatus);
     void loadColabSummary()
       .then((configuration) => {
+        if (disposed || receivedUpdate) return;
         setSummary(configuration);
         setClientId(configuration.clientId);
         publishColabSummary(configuration);
       })
-      .catch((loadError) => setError(errorMessage(loadError)))
-      .finally(() => setActiveAction(null));
+      .catch((loadError) => !disposed && setError(errorMessage(loadError)))
+      .finally(() => !disposed && setActiveAction(null));
+    return () => {
+      disposed = true;
+      window.removeEventListener(COLAB_STATUS_EVENT, updateStatus);
+    };
   }, [desktopRuntime]);
 
   async function runAction(
@@ -70,10 +85,17 @@ export function ColabGate() {
       const updated = await invoke<OAuthProfileSummary>(command, args);
       setSummary(updated);
       publishColabSummary(updated);
+      clientIdEditedRef.current = false;
       setClientId(updated.clientId);
-      setNotice(successMessage);
+      setNotice(action === "restore" && !updated.connected
+        ? "Configuração anterior consultada. Clique em Conectar conta Google para autorizar novamente."
+        : successMessage);
     } catch (actionError) {
       setError(errorMessage(actionError));
+      void loadColabSummary().then((configuration) => {
+        setSummary(configuration);
+        publishColabSummary(configuration);
+      }).catch(() => undefined);
     } finally {
       setActiveAction(null);
     }
@@ -133,7 +155,7 @@ export function ColabGate() {
           <AlertTriangle size={17} />
           <div>
             <strong>Configuração disponível somente no aplicativo desktop</strong>
-            <span>Feche a prévia web e execute <code>npm run tauri dev</code> para acessar SQLite e Keychain.</span>
+            <span>Feche a prévia web e execute <code>npm run tauri dev</code> para conectar a conta neste dispositivo.</span>
           </div>
         </div>
       )}
@@ -153,7 +175,10 @@ export function ColabGate() {
             <input
               autoComplete="off"
               disabled={!desktopRuntime || activeAction !== null}
-              onChange={(event) => setClientId(event.target.value)}
+              onChange={(event) => {
+                clientIdEditedRef.current = true;
+                setClientId(event.target.value);
+              }}
               placeholder="000000000000-abc.apps.googleusercontent.com"
               spellCheck={false}
               value={clientId}
@@ -161,12 +186,12 @@ export function ColabGate() {
           </label>
           <div className="credential-storage-note">
             <Database size={15} />
-            <span>Clientes desktop usam <strong>PKCE</strong>. Depois de salvar o Client ID uma vez, basta usar <strong>Conectar conta Google</strong>; não é necessário informar um Client secret.</span>
+            <span>A configuração fica salva neste dispositivo. Se você já conectou antes da atualização, use <strong>Recuperar conexão anterior</strong> uma vez para aproveitar suas credenciais salvas.</span>
           </div>
 
           <div className="credential-actions">
             <Button
-              disabled={!desktopRuntime || !clientId.trim()}
+              disabled={!desktopRuntime || !clientId.trim() || activeAction !== null}
               icon={<Save size={16} />}
               loading={activeAction === "save"}
               type="submit"
@@ -210,14 +235,25 @@ export function ColabGate() {
           {summary.providerError && <div className="provider-error"><AlertTriangle size={14} /><span>{summary.providerError}</span></div>}
           <div className="colab-account-actions">
             {!summary.connected ? (
-              <Button
-                disabled={!desktopRuntime || !configured || activeAction !== null}
-                icon={<KeyRound size={17} />}
-                loading={activeAction === "connect"}
-                onClick={() => void runAction("connect", "start_google_auth", { profileId: COLAB_PROFILE_ID }, "Conta Google conectada.")}
-              >
-                Conectar conta Google
-              </Button>
+              <>
+                <Button
+                  disabled={!desktopRuntime || !configured || activeAction !== null}
+                  icon={<KeyRound size={17} />}
+                  loading={activeAction === "connect"}
+                  onClick={() => void runAction("connect", "start_google_auth", { profileId: COLAB_PROFILE_ID }, "Conta Google conectada.")}
+                >
+                  Conectar conta Google
+                </Button>
+                <Button
+                  disabled={!desktopRuntime || !configured || activeAction !== null}
+                  icon={<RefreshCw size={16} />}
+                  loading={activeAction === "restore"}
+                  onClick={() => void runAction("restore", "restore_legacy_google_session", { profileId: COLAB_PROFILE_ID }, "Conexão anterior recuperada neste dispositivo.")}
+                  variant="secondary"
+                >
+                  Recuperar conexão anterior
+                </Button>
+              </>
             ) : (
               <>
                 <Button
@@ -241,6 +277,8 @@ export function ColabGate() {
               </>
             )}
           </div>
+          {activeAction === "connect" && <p role="status">Conclua a autorização no navegador. A conexão será confirmada após salvar a sessão.</p>}
+          {!summary.connected && <small>A recuperação pode pedir permissão do macOS para ler as credenciais antigas. Depois de salvas no app, as análises usam a conexão local.</small>}
         </div>
       </section>
 

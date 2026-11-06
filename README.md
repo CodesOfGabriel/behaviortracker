@@ -14,7 +14,7 @@ Aplicação desktop para preparar, revisar e documentar análises comportamentai
 - métricas OFT locais e exportações CSV/JSON;
 - demonstração sintética acessível pelo dashboard.
 
-A tela Google Colab permite salvar um Client ID e Client secret por perfil local, autorizar a Conta Google com OAuth 2.0 + PKCE e consultar assinatura/runtimes elegíveis. O Client ID e o estado da conta ficam no SQLite do diretório de dados do app; o Client secret e o refresh token ficam no Keychain do sistema e nunca são devolvidos à interface.
+A tela Google Colab permite configurar o Client ID por perfil local, autorizar a Conta Google com OAuth 2.0 + PKCE e consultar assinatura/runtimes elegíveis. A configuração e a autorização ficam no SQLite do diretório de dados do app. Segredos e tokens não são devolvidos à interface nem devem ser versionados. O Keychain só é consultado pelo botão **Recuperar conexão anterior**, para importar credenciais de instalações antigas.
 
 No editor de um experimento real, **Analisar no Colab** cria ou reutiliza um runtime GPU elegível, transfere o vídeo pela API Jupyter, executa o DeepLabCut e importa o CSV canônico. O fluxo está implementado, mas a prova P0 com uma conta e um vídeo reais ainda deve ser registrada antes de tratá-lo como validado. O app não promete GPU gratuita e não contorna cotas, billing ou regras do provedor.
 
@@ -42,7 +42,9 @@ Além do Node, instale Rust estável e os [pré-requisitos oficiais do Tauri 2](
 npm run tauri dev
 ```
 
-No aplicativo, abra **Processamento → Google Colab**, cole as credenciais de um cliente OAuth do tipo **Desktop app** e clique em **Salvar credenciais**. Não é necessário criar um `.env`; essa configuração é persistida pelo backend nativo para o perfil local. A prévia aberta somente com `npm run dev` não acessa SQLite nem Keychain.
+No aplicativo, abra **Processamento → Google Colab**, salve o Client ID de um cliente OAuth do tipo **Desktop app** uma vez e clique em **Conectar conta Google**. Não é necessário criar um `.env`; essa configuração é persistida pelo backend nativo para o perfil local. A prévia aberta somente com `npm run dev` não acessa o armazenamento nativo.
+
+Se a conexão parou de funcionar após a mudança do Keychain para SQLite, clique em **Recuperar conexão anterior**. O macOS pode pedir permissão para ler as credenciais antigas. Após importar, o app valida a sessão; caso a autorização tenha expirado, use **Conectar conta Google** novamente. As análises seguintes acessam o SQLite, sem consultar o Keychain. A página do navegador confirma a conexão somente depois de salvar o e-mail e o token localmente; falhas na troca de tokens aparecem na interface.
 
 Para processar um vídeo:
 

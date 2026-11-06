@@ -10,12 +10,14 @@ import {
   Settings,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { useAppStore } from "../store/AppStore";
 import {
   COLAB_STATUS_EVENT,
   emptyColabSummary,
   isTauriRuntime,
   loadColabSummary,
+  publishColabSummary,
   type OAuthProfileSummary,
 } from "../features/colab/connection";
 import { BrandMark } from "./BrandMark";
@@ -34,12 +36,30 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
-    void loadColabSummary().then(setColabSummary).catch(() => undefined);
+    let disposed = false;
+    let revision = 0;
     const updateStatus = (event: Event) => {
+      revision += 1;
       setColabSummary((event as CustomEvent<OAuthProfileSummary>).detail);
     };
     window.addEventListener(COLAB_STATUS_EVENT, updateStatus);
-    return () => window.removeEventListener(COLAB_STATUS_EVENT, updateStatus);
+    const refresh = () => {
+      const requestRevision = ++revision;
+      void loadColabSummary().then((summary) => {
+        if (!disposed && revision === requestRevision) publishColabSummary(summary);
+      }).catch(() => undefined);
+    };
+    const unlisten = listen<OAuthProfileSummary>("google-oauth-status", ({ payload }) => {
+      if (!disposed) publishColabSummary(payload);
+    }).catch(() => undefined);
+    refresh();
+    window.addEventListener("focus", refresh);
+    return () => {
+      disposed = true;
+      window.removeEventListener(COLAB_STATUS_EVENT, updateStatus);
+      window.removeEventListener("focus", refresh);
+      void unlisten.then((stop) => stop?.());
+    };
   }, []);
 
   const navItems = [

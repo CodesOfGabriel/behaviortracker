@@ -30,6 +30,7 @@ pub fn run() {
             oauth::get_google_oauth_config,
             oauth::save_google_oauth_config,
             oauth::start_google_auth,
+            oauth::restore_legacy_google_session,
             oauth::check_colab_eligibility,
             oauth::disconnect_google_account,
             oauth::delete_google_oauth_config,

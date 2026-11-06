@@ -7,17 +7,21 @@ use std::{
 };
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use keyring::Entry;
 use rand::{distributions::Alphanumeric, Rng};
 use reqwest::blocking::Client;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
 use url::Url;
 
 const COLAB_SCOPE: &str = "https://www.googleapis.com/auth/colaboratory";
 const AUTH_TIMEOUT: Duration = Duration::from_secs(180);
+const CLIENT_SECRET_SERVICE: &str = "com.behavetracker.desktop.google-oauth-client";
+const REFRESH_TOKEN_SERVICE: &str = "com.behavetracker.desktop.google-oauth-refresh";
+const OAUTH_STATUS_EVENT: &str = "google-oauth-status";
 
 pub(crate) type CommandResult<T> = Result<T, String>;
 
@@ -186,7 +190,9 @@ fn migrate_credential_state(connection: &Connection) -> CommandResult<()> {
                  UPDATE google_oauth_profiles
                     SET has_client_secret = 0;",
             )
-            .map_err(|_| "Não foi possível migrar a credencial Google para o banco local.".to_string())?;
+            .map_err(|_| {
+                "Não foi possível migrar a credencial Google para o banco local.".to_string()
+            })?;
     }
     if !has_column("refresh_token")? {
         connection
@@ -202,7 +208,9 @@ fn migrate_credential_state(connection: &Connection) -> CommandResult<()> {
                         provider_error = NULL,
                         connected_at = NULL;",
             )
-            .map_err(|_| "Não foi possível migrar a autorização Google para o banco local.".to_string())?;
+            .map_err(|_| {
+                "Não foi possível migrar a autorização Google para o banco local.".to_string()
+            })?;
     }
     Ok(())
 }
@@ -221,12 +229,48 @@ fn credentials_from_database(
         .map_err(|_| "As credenciais OAuth não foram encontradas neste dispositivo.".to_string())
 }
 
+fn publish_connection(app: &AppHandle, summary: &OAuthProfileSummary) {
+    let _ = app.emit(OAUTH_STATUS_EVENT, summary);
+}
+
+fn persist_google_session(
+    connection: &Connection,
+    profile_id: &str,
+    client_id: &str,
+    email: &str,
+    refresh_token: Option<&str>,
+) -> CommandResult<()> {
+    let affected = connection
+        .execute(
+            "UPDATE google_oauth_profiles
+            SET refresh_token = COALESCE(NULLIF(?4, ''), refresh_token),
+                has_refresh_token = 1,
+                account_email = ?3,
+                provider_error = NULL,
+                subscription_tier = NULL,
+                eligible_runtime_count = 0,
+                eligible_gpu_count = 0,
+                connected_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          WHERE profile_id = ?1 AND google_client_id = ?2
+            AND length(COALESCE(NULLIF(?4, ''), refresh_token, '')) > 0",
+            params![profile_id, client_id, email, refresh_token],
+        )
+        .map_err(|_| "Não foi possível salvar a conexão Google neste dispositivo.".to_string())?;
+    if affected != 1 {
+        return Err("A conexão não foi salva: a configuração mudou ou o Google não retornou autorização persistente. Conecte novamente.".into());
+    }
+    Ok(())
+}
+
 fn summary_from_database(app: &AppHandle, profile_id: &str) -> CommandResult<OAuthProfileSummary> {
     validate_profile_id(profile_id)?;
     let connection = open_database(app)?;
     let summary = connection
         .query_row(
-            "SELECT profile_id, google_client_id, has_client_secret, has_refresh_token,
+            "SELECT profile_id, google_client_id,
+                    COALESCE(length(client_secret) > 0, 0),
+                    COALESCE(length(refresh_token) > 0, 0),
                     account_email, subscription_tier, eligible_runtime_count,
                     eligible_gpu_count, provider_error, updated_at
                FROM google_oauth_profiles
@@ -303,9 +347,10 @@ pub fn save_google_oauth_config(
         .map(validate_client_secret)
         .transpose()?;
     let has_client_secret = client_secret.is_some()
-        || previous_configuration
-            .as_ref()
-            .is_some_and(|(_, has_secret)| *has_secret);
+        || (!client_changed
+            && previous_configuration
+                .as_ref()
+                .is_some_and(|(_, has_secret)| *has_secret));
 
     connection
         .execute(
@@ -314,15 +359,13 @@ pub fn save_google_oauth_config(
              VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(profile_id) DO UPDATE SET
                google_client_id = excluded.google_client_id,
-               client_secret = COALESCE(excluded.client_secret, google_oauth_profiles.client_secret),
+               client_secret = CASE
+                 WHEN google_oauth_profiles.google_client_id = excluded.google_client_id
+                 THEN COALESCE(excluded.client_secret, google_oauth_profiles.client_secret)
+                 ELSE excluded.client_secret END,
                has_client_secret = excluded.has_client_secret,
                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
-            params![
-                &profile_id,
-                &client_id,
-                client_secret,
-                has_client_secret
-            ],
+            params![&profile_id, &client_id, client_secret, has_client_secret],
         )
         .map_err(|_| "Não foi possível salvar o Client ID no banco local.".to_string())?;
 
@@ -370,7 +413,7 @@ fn send_browser_response(stream: &mut TcpStream, success: bool) {
         "<!doctype html><html lang=\"pt-BR\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><title>{title}</title><style>body{{font-family:system-ui;background:#f5f6f2;color:#153c32;display:grid;place-items:center;min-height:100vh;margin:0}}main{{max-width:440px;background:white;border:1px solid #dfe4dd;border-radius:16px;padding:32px;box-shadow:0 12px 35px #153c3218}}h1{{font-size:24px}}p{{color:#65706b;line-height:1.6}}</style><main><h1>{title}</h1><p>{message}</p></main></html>"
     );
     let response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
         body.len(),
         body
     );
@@ -381,7 +424,7 @@ fn send_browser_response(stream: &mut TcpStream, success: bool) {
 fn wait_for_authorization_code(
     listener: TcpListener,
     expected_state: &str,
-) -> CommandResult<String> {
+) -> CommandResult<(String, TcpStream)> {
     listener
         .set_nonblocking(true)
         .map_err(|_| "Não foi possível preparar o callback OAuth local.".to_string())?;
@@ -389,6 +432,11 @@ fn wait_for_authorization_code(
     while started.elapsed() < AUTH_TIMEOUT {
         match listener.accept() {
             Ok((mut stream, _)) => {
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .map_err(|_| {
+                        "Não foi possível preparar a leitura do callback OAuth.".to_string()
+                    })?;
                 let mut buffer = [0_u8; 8192];
                 let bytes_read = stream
                     .read(&mut buffer)
@@ -404,6 +452,13 @@ fn wait_for_authorization_code(
                 let query: std::collections::HashMap<String, String> =
                     callback.query_pairs().into_owned().collect();
 
+                if callback.path() != "/" {
+                    let _ = stream.write_all(
+                        b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    );
+                    continue;
+                }
+
                 if query.get("state").map(String::as_str) != Some(expected_state) {
                     send_browser_response(&mut stream, false);
                     return Err("A validação de segurança do OAuth falhou. Tente novamente.".into());
@@ -415,12 +470,11 @@ fn wait_for_authorization_code(
                         _ => "O Google recusou a autorização OAuth.".into(),
                     });
                 }
-                let code = query
-                    .get("code")
-                    .cloned()
-                    .ok_or_else(|| "O Google não retornou um código de autorização.".to_string())?;
-                send_browser_response(&mut stream, true);
-                return Ok(code);
+                let Some(code) = query.get("code").filter(|code| !code.is_empty()).cloned() else {
+                    send_browser_response(&mut stream, false);
+                    return Err("O Google não retornou um código de autorização.".into());
+                };
+                return Ok((code, stream));
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(120));
@@ -429,6 +483,43 @@ fn wait_for_authorization_code(
         }
     }
     Err("A autorização expirou após 3 minutos. Tente novamente.".into())
+}
+
+fn token_error_message(status: u16, body: &str, context: &str) -> String {
+    let value: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
+    let code = value
+        .get("error")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    let description = value
+        .get("error_description")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    let detail = match code {
+        "invalid_request" if description.contains("client_secret") =>
+            "O Google exige a credencial deste cliente. Use Recuperar conexão anterior para importar a configuração já salva neste Mac.",
+        "invalid_client" =>
+            "O Google não reconheceu as credenciais deste aplicativo. Recupere a configuração anterior e tente conectar novamente.",
+        "invalid_grant" =>
+            "A autorização expirou ou foi revogada. Conecte a conta Google novamente.",
+        "access_denied" => "O Google recusou a permissão solicitada.",
+        _ => "O Google recusou a solicitação de autorização. Tente conectar novamente.",
+    };
+    format!("{context} (HTTP {status}). {detail}")
+}
+
+fn parse_token_response(
+    response: reqwest::blocking::Response,
+    context: &str,
+) -> CommandResult<TokenResponse> {
+    let status = response.status();
+    let body = response
+        .text()
+        .map_err(|_| "Não foi possível ler a resposta de autorização Google.".to_string())?;
+    if !status.is_success() {
+        return Err(token_error_message(status.as_u16(), &body, context));
+    }
+    serde_json::from_str(&body).map_err(|_| "A resposta de token do Google é inválida.".to_string())
 }
 
 fn exchange_authorization_code(
@@ -454,15 +545,7 @@ fn exchange_authorization_code(
         .form(&form)
         .send()
         .map_err(|_| "Falha de rede durante a troca do código OAuth.".to_string())?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "O Google recusou a troca do código OAuth (HTTP {}).",
-            response.status().as_u16()
-        ));
-    }
-    response
-        .json()
-        .map_err(|_| "A resposta de token do Google é inválida.".to_string())
+    parse_token_response(response, "A conexão Google não foi concluída")
 }
 
 fn refresh_access_token(
@@ -484,26 +567,15 @@ fn refresh_access_token(
         .form(&form)
         .send()
         .map_err(|_| "Falha de rede ao renovar a autorização Google.".to_string())?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "A autorização Google precisa ser refeita (HTTP {}).",
-            response.status().as_u16()
-        ));
-    }
-    response
-        .json::<TokenResponse>()
+    parse_token_response(response, "Não foi possível renovar a conexão Google")
         .map(|token| token.access_token)
-        .map_err(|_| "A resposta de renovação do Google é inválida.".to_string())
 }
 
 pub(crate) fn google_access_token(app: &AppHandle, profile_id: &str) -> CommandResult<String> {
     let configuration = summary_from_database(app, profile_id)?;
-    if !configuration.connected {
-        return Err("Conecte a Conta Google antes de iniciar a análise.".into());
-    }
     let (client_secret, refresh_token) = credentials_from_database(app, profile_id)?;
-    let refresh_token = refresh_token
-        .ok_or_else(|| "Conecte novamente a Conta Google.".to_string())?;
+    let refresh_token =
+        refresh_token.ok_or_else(|| "Conecte novamente a Conta Google.".to_string())?;
     let client = Client::builder()
         .timeout(Duration::from_secs(30))
         .build()
@@ -514,6 +586,84 @@ pub(crate) fn google_access_token(app: &AppHandle, profile_id: &str) -> CommandR
         client_secret.as_deref(),
         &refresh_token,
     )
+}
+
+fn legacy_keychain_secret(service: &str, profile_id: &str) -> CommandResult<Option<String>> {
+    let entry = Entry::new(service, profile_id)
+        .map_err(|_| "Não foi possível abrir a credencial antiga no Keychain.".to_string())?;
+    match entry.get_password() {
+        Ok(value) if value.trim().is_empty() => Ok(None),
+        Ok(value) => Ok(Some(value)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(_) => Err("O macOS não liberou o acesso à credencial antiga. Permita uma vez para migrar a conexão.".into()),
+    }
+}
+
+fn restore_legacy_google_session_blocking(
+    app: AppHandle,
+    profile_id: String,
+) -> CommandResult<OAuthProfileSummary> {
+    validate_profile_id(&profile_id)?;
+    let existing = summary_from_database(&app, &profile_id)?;
+    if existing.connected {
+        return Ok(existing);
+    }
+    if existing.client_id.is_empty() {
+        return Err("Salve o Client ID antes de recuperar a conexão anterior.".into());
+    }
+    let (client_secret, refresh_token) = credentials_from_database(&app, &profile_id)?;
+    let legacy_client_secret = if client_secret.is_none() {
+        legacy_keychain_secret(CLIENT_SECRET_SERVICE, &profile_id)?
+    } else {
+        None
+    };
+    let legacy_refresh_token = if refresh_token.is_none() {
+        legacy_keychain_secret(REFRESH_TOKEN_SERVICE, &profile_id)?
+    } else {
+        None
+    };
+    let connection = open_database(&app)?;
+    connection
+        .execute(
+            "UPDATE google_oauth_profiles
+                SET client_secret = COALESCE(?2, client_secret),
+                    has_client_secret = CASE WHEN ?2 IS NULL THEN has_client_secret ELSE 1 END,
+                    refresh_token = COALESCE(?3, refresh_token),
+                    has_refresh_token = CASE WHEN ?3 IS NULL THEN has_refresh_token ELSE 1 END,
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+              WHERE profile_id = ?1",
+            params![&profile_id, legacy_client_secret, legacy_refresh_token],
+        )
+        .map_err(|_| "Não foi possível migrar a conexão antiga para o banco local.".to_string())?;
+    let (_, recovered_token) = credentials_from_database(&app, &profile_id)?;
+    if recovered_token.is_none() {
+        return summary_from_database(&app, &profile_id);
+    }
+    let access_token = google_access_token(&app, &profile_id)?;
+    let client = Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|_| "Não foi possível iniciar o cliente HTTP seguro.".to_string())?;
+    let email = fetch_account_email(&client, &access_token)?;
+    persist_google_session(&connection, &profile_id, &existing.client_id, &email, None)?;
+    publish_connection(&app, &summary_from_database(&app, &profile_id)?);
+    let status = fetch_colab_status(&client, &access_token);
+    store_connected_account(&app, &profile_id, &email, status)?;
+    let summary = summary_from_database(&app, &profile_id)?;
+    publish_connection(&app, &summary);
+    Ok(summary)
+}
+
+#[tauri::command]
+pub async fn restore_legacy_google_session(
+    app: AppHandle,
+    profile_id: String,
+) -> CommandResult<OAuthProfileSummary> {
+    tauri::async_runtime::spawn_blocking(move || {
+        restore_legacy_google_session_blocking(app, profile_id)
+    })
+    .await
+    .map_err(|_| "A recuperação da conexão foi interrompida.".to_string())?
 }
 
 fn fetch_account_email(client: &Client, access_token: &str) -> CommandResult<String> {
@@ -659,39 +809,43 @@ fn authorize_blocking(app: AppHandle, profile_id: String) -> CommandResult<OAuth
     app.opener()
         .open_url(authorize_url.as_str(), None::<&str>)
         .map_err(|_| "Não foi possível abrir o navegador padrão.".to_string())?;
-    let code = wait_for_authorization_code(listener, &state)?;
-    let client = Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()
-        .map_err(|_| "Não foi possível iniciar o cliente HTTP seguro.".to_string())?;
-    let token = exchange_authorization_code(
-        &client,
-        &configuration.client_id,
-        client_secret.as_deref(),
-        &code,
-        &verifier,
-        &redirect_uri,
-    )?;
-    if let Some(refresh_token) = token.refresh_token.as_deref() {
-        open_database(&app)?
-            .execute(
-                "UPDATE google_oauth_profiles
-                    SET refresh_token = ?2, has_refresh_token = 1,
-                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                  WHERE profile_id = ?1",
-                params![&profile_id, refresh_token],
-            )
-            .map_err(|_| "Não foi possível salvar a autorização Google no banco local.".to_string())?;
-    } else if !configuration.connected {
-        return Err(
-            "O Google não retornou autorização persistente. Revogue o acesso do app e tente novamente."
-                .into(),
-        );
-    }
-    let email = fetch_account_email(&client, &token.access_token)?;
+    let (code, mut callback_stream) = wait_for_authorization_code(listener, &state)?;
+    let connected = (|| -> CommandResult<(Client, TokenResponse)> {
+        let client = Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .map_err(|_| "Não foi possível iniciar o cliente HTTP seguro.".to_string())?;
+        let token = exchange_authorization_code(
+            &client,
+            &configuration.client_id,
+            client_secret.as_deref(),
+            &code,
+            &verifier,
+            &redirect_uri,
+        )?;
+        let email = fetch_account_email(&client, &token.access_token)?;
+        persist_google_session(
+            &open_database(&app)?,
+            &profile_id,
+            &configuration.client_id,
+            &email,
+            token.refresh_token.as_deref(),
+        )?;
+        Ok((client, token))
+    })();
+    send_browser_response(&mut callback_stream, connected.is_ok());
+    let (client, token) = connected?;
+    let summary = summary_from_database(&app, &profile_id)?;
+    publish_connection(&app, &summary);
     let status = fetch_colab_status(&client, &token.access_token);
-    store_connected_account(&app, &profile_id, &email, status)?;
-    summary_from_database(&app, &profile_id)
+    let email = summary
+        .account_email
+        .as_deref()
+        .ok_or_else(|| "Não foi possível confirmar a conta salva.".to_string())?;
+    store_connected_account(&app, &profile_id, email, status)?;
+    let summary = summary_from_database(&app, &profile_id)?;
+    publish_connection(&app, &summary);
+    Ok(summary)
 }
 
 #[tauri::command]
@@ -710,8 +864,8 @@ fn check_eligibility_blocking(
 ) -> CommandResult<OAuthProfileSummary> {
     let configuration = summary_from_database(&app, &profile_id)?;
     let (client_secret, refresh_token) = credentials_from_database(&app, &profile_id)?;
-    let refresh_token = refresh_token
-        .ok_or_else(|| "Conecte novamente a Conta Google.".to_string())?;
+    let refresh_token =
+        refresh_token.ok_or_else(|| "Conecte novamente a Conta Google.".to_string())?;
     let client = Client::builder()
         .timeout(Duration::from_secs(30))
         .build()
@@ -811,10 +965,17 @@ pub async fn delete_google_oauth_config(app: AppHandle, profile_id: String) -> C
 #[cfg(test)]
 mod tests {
     use rusqlite::{params, Connection};
+    use std::{
+        io::{Read, Write},
+        net::{TcpListener, TcpStream},
+        thread,
+        time::Duration,
+    };
 
     use super::{
-        migrate_credential_state, validate_client_id, validate_client_secret,
-        validate_profile_id,
+        migrate_credential_state, persist_google_session, send_browser_response,
+        token_error_message, validate_client_id, validate_client_secret, validate_profile_id,
+        wait_for_authorization_code,
     };
 
     #[test]
@@ -868,5 +1029,125 @@ mod tests {
             )
             .unwrap();
         assert_eq!(flags, (false, false));
+    }
+
+    fn test_connection() -> Connection {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE google_oauth_profiles (
+                profile_id TEXT PRIMARY KEY, google_client_id TEXT NOT NULL,
+                account_email TEXT, refresh_token TEXT, client_secret TEXT,
+                has_client_secret INTEGER DEFAULT 0, has_refresh_token INTEGER DEFAULT 0,
+                subscription_tier TEXT, eligible_runtime_count INTEGER DEFAULT 0,
+                eligible_gpu_count INTEGER DEFAULT 0, provider_error TEXT,
+                connected_at TEXT, updated_at TEXT
+             );
+             INSERT INTO google_oauth_profiles (profile_id, google_client_id)
+             VALUES ('local-default', 'client.apps.googleusercontent.com');",
+            )
+            .unwrap();
+        connection
+    }
+
+    #[test]
+    fn saves_identity_and_token_together_and_preserves_them_on_migration() {
+        let connection = test_connection();
+        persist_google_session(
+            &connection,
+            "local-default",
+            "client.apps.googleusercontent.com",
+            "user@example.com",
+            Some("test-refresh-token"),
+        )
+        .unwrap();
+        migrate_credential_state(&connection).unwrap();
+        let saved: (String, String, bool) = connection
+            .query_row(
+                "SELECT account_email, refresh_token, has_refresh_token FROM google_oauth_profiles",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            saved,
+            ("user@example.com".into(), "test-refresh-token".into(), true)
+        );
+        persist_google_session(
+            &connection,
+            "local-default",
+            "client.apps.googleusercontent.com",
+            "user@example.com",
+            None,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn does_not_claim_connected_without_a_token_or_for_a_changed_client() {
+        let connection = test_connection();
+        assert!(persist_google_session(
+            &connection,
+            "local-default",
+            "client.apps.googleusercontent.com",
+            "user@example.com",
+            None
+        )
+        .is_err());
+        assert!(persist_google_session(
+            &connection,
+            "local-default",
+            "another.apps.googleusercontent.com",
+            "user@example.com",
+            Some("test-refresh-token")
+        )
+        .is_err());
+        let connected: bool = connection.query_row(
+            "SELECT account_email IS NOT NULL OR refresh_token IS NOT NULL FROM google_oauth_profiles",
+            [], |row| row.get(0),
+        ).unwrap();
+        assert!(!connected);
+    }
+
+    #[test]
+    fn explains_missing_client_credentials_without_exposing_oauth_payloads() {
+        let message = token_error_message(
+            400,
+            r#"{"error":"invalid_request","error_description":"client_secret is missing.","access_token":"do-not-display"}"#,
+            "Conexão não concluída",
+        );
+        assert!(message.contains("Recuperar conexão anterior"));
+        assert!(!message.contains("do-not-display"));
+    }
+
+    #[test]
+    fn browser_success_waits_for_the_app_to_complete_authentication() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let browser = thread::spawn(move || {
+            let mut stream = TcpStream::connect(address).unwrap();
+            stream
+                .write_all(
+                    b"GET /?state=test-state&code=test-code HTTP/1.1\r\nHost: localhost\r\n\r\n",
+                )
+                .unwrap();
+            stream
+        });
+        let (code, mut callback_stream) =
+            wait_for_authorization_code(listener, "test-state").unwrap();
+        assert_eq!(code, "test-code");
+        let mut browser_stream = browser.join().unwrap();
+        browser_stream
+            .set_read_timeout(Some(Duration::from_millis(100)))
+            .unwrap();
+        let mut buffer = [0_u8; 4096];
+        let error = browser_stream.read(&mut buffer).unwrap_err();
+        assert!(matches!(
+            error.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+        ));
+        send_browser_response(&mut callback_stream, true);
+        let bytes = browser_stream.read(&mut buffer).unwrap();
+        assert!(String::from_utf8_lossy(&buffer[..bytes]).contains("Conta conectada"));
     }
 }
