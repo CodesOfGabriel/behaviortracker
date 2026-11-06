@@ -420,7 +420,11 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
       const uploadId = await stageVideo(experiment.id, videoFile, (_progress, message) => {
         setAnalysisMessage(message);
       });
-      const started = await startColabJob(experiment.id, uploadId);
+      const started = await startColabJob(experiment.id, uploadId, {
+        width: experiment.video.width,
+        height: experiment.video.height,
+        durationSec: experiment.video.durationSec,
+      });
       setAnalysisJob(started);
       setAnalysisHistory((jobs) => [started, ...jobs.filter((job) => job.jobId !== started.jobId)]);
       const completed = await waitForColabJob(started.jobId, (job) => {

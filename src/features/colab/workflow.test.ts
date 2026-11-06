@@ -38,4 +38,18 @@ describe("checkpoints da análise", () => {
     expect(checkpoints(null, false, true)[0].state).toBe("failed");
     expect(checkpoints(job({ status: "succeeded", stage: "completed" })).every((step) => step.state === "done")).toBe(true);
   });
+
+  it("mostra a reutilização do ambiente como checkpoint concluído", () => {
+    const events = [event(1, "environment_check"), event(2, "environment_ready", "Reutilizando DeepLabCut")];
+    const steps = checkpoints(job({ stage: "environment_ready", events }));
+    expect(steps[4].state).toBe("done");
+    expect(steps[4].event?.message).toBe("Reutilizando DeepLabCut");
+    expect(steps[5].state).toBe("pending");
+  });
+
+  it("mantém a inferência ativa enquanto reconecta à mesma execução", () => {
+    const steps = checkpoints(job({ stage: "inference", events: [event(1, "inference", "Reconectando à mesma execução")] }));
+    expect(steps[5].state).toBe("active");
+    expect(steps[5].event?.message).toContain("Reconectando");
+  });
 });

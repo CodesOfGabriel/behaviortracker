@@ -25,6 +25,9 @@
 - [x] Pasta de trabalho confirmada entre a sessão Python e a raiz da API Jupyter antes do upload; testes locais com raízes `/` e `/content`.
 - [x] Fluxograma horizontal com GPU reportada por `nvidia-smi`, checkpoints persistidos e diário por execução; a falha mantém a etapa original.
 - [x] Execução remota resumível via MCP, instalação do DeepLabCut e SuperAnimal TopViewMouse.
+- [x] Leitura incremental SSE, retomada após interrupções com o mesmo executionId e preservação da sessão quando o resultado não pôde ser confirmado.
+- [x] Validação e reutilização do DeepLabCut/CUDA já disponíveis no runtime; instalação condicional com trava e segunda checagem.
+- [x] Seleção de GPU por resolução/duração do vídeo entre opções elegíveis, priorizando runtimes existentes; decisão registrada no diário.
 - [x] Conversão do H5 do DeepLabCut para CSV canônico e importação automática no editor.
 - [x] Persistência do CSV retornado no diretório de dados e restauração ao reabrir o experimento.
 
@@ -36,7 +39,7 @@
 - O conjunto sintético demonstra a interface, mas nunca deve ser usado como resultado experimental.
 - As metas de desempenho com vídeo 1080p/30 FPS ainda precisam de benchmark.
 - O fluxo Colab compila e possui testes locais de contrato, mas ainda precisa completar o gate P0 com um vídeo real e evidências sanitizadas da conta alvo.
-- A primeira execução instala o DeepLabCut no runtime e pode demorar; runtimes existentes são reutilizados, sem fallback pago automático.
+- A primeira execução em um runtime sem ambiente compatível prepara o DeepLabCut e pode demorar; instalações válidas são reutilizadas. O ranking de GPU é heurístico e ainda não tem benchmark por acelerador. Não há compra automática de recursos.
 
 ## Ainda não implementado
 

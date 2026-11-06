@@ -62,9 +62,10 @@ export async function stageVideo(
   return staging.uploadId;
 }
 
-export function startColabJob(experimentId: string, uploadId: string) {
+export function startColabJob(experimentId: string, uploadId: string,
+  workload: { width: number; height: number; durationSec: number }) {
   return invoke<ColabJob>("start_colab_analysis", {
-    request: { experimentId, uploadId },
+    request: { experimentId, uploadId, workload },
   });
 }
 

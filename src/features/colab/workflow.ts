@@ -5,7 +5,7 @@ export const workflowSteps = [
   { title: "Encontrar GPU", description: "Alocar GPU e abrir a sessão", stages: ["runtime", "workspace", "gpu_ready"] },
   { title: "Enviar vídeo", description: "Transferir para a pasta confirmada", stages: ["uploading"] },
   { title: "Validar arquivo", description: "Conferir tamanho e integridade", stages: ["verifying", "video_ready"] },
-  { title: "Preparar modelo", description: "Instalar DeepLabCut no Colab", stages: ["installing"] },
+  { title: "Preparar modelo", description: "Verificar e reutilizar DeepLabCut", stages: ["environment_check", "installing", "environment_ready"] },
   { title: "Processar vídeo", description: "Rastrear o animal com SuperAnimal", stages: ["inference"] },
   { title: "Receber resultado", description: "Baixar poses para revisar no editor", stages: ["downloading", "completed"] },
 ] as const;
@@ -29,7 +29,7 @@ export function checkpoints(job: ColabJob | null, preparing = false, localError 
     } else if (job.status === "succeeded") state = "done";
     else if (index === currentIndex) {
       state = job.status === "failed" ? "failed" : "active";
-      if (job.status !== "failed" && ["gpu_ready", "video_ready"].includes(job.stage)) state = "done";
+      if (job.status !== "failed" && ["gpu_ready", "video_ready", "environment_ready"].includes(job.stage)) state = "done";
     } else if (events.some((event) => stageIndex(event.stage) > index)) state = "done";
     return { ...step, state, event: lastEvent };
   });

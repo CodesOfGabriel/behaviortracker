@@ -48,7 +48,7 @@ export function AnalysisWorkflow({ job, preparing, message, localError, elapsedS
                 <div className="checkpoint-path"><span className="checkpoint-icon">{step.state === "done" ? <Check size={20} /> : step.state === "failed" ? <CircleAlert size={20} /> : step.state === "active" ? <LoaderCircle size={20} className="animate-spin" /> : <Icon size={20} />}</span>{index < steps.length - 1 && <ArrowRight size={15} className="checkpoint-arrow" />}</div>
                 <span className="checkpoint-number">Etapa {index + 1}</span>
                 <strong>{step.title}</strong>
-                <p>{index === 1 && gpu ? gpu : step.description}</p>
+                <p>{index === 1 && gpu ? gpu : step.event?.stage === "environment_ready" ? step.event.message : step.description}</p>
                 <small>{step.state === "done" ? "Concluído" : step.state === "failed" ? "Falhou nesta etapa" : step.state === "active" ? "Em andamento" : "Aguardando"}</small>
               </li>
             );

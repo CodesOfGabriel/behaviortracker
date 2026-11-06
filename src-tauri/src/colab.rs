@@ -1,6 +1,6 @@
 use std::{
     fs::{self, File, OpenOptions},
-    io::{Read, Write},
+    io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
     thread,
     time::Duration,
@@ -23,6 +23,7 @@ const MCP_ENDPOINT: &str = "https://colaboratory.googleapis.com/mcp";
 const LOCAL_CHUNK_LIMIT: usize = 8 * 1024 * 1024;
 const REMOTE_CHUNK_SIZE: usize = 1024 * 1024;
 const MAX_VIDEO_SIZE: i64 = 20 * 1024 * 1024 * 1024;
+const MAX_EXECUTION_ATTEMPTS: usize = 5;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -64,6 +65,82 @@ pub struct ColabJobEvent {
 pub struct StartAnalysisRequest {
     experiment_id: String,
     upload_id: String,
+    #[serde(default)]
+    workload: AnalysisWorkload,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AnalysisWorkload {
+    width: u32,
+    height: u32,
+    duration_sec: f64,
+}
+
+impl AnalysisWorkload {
+    fn validate(&self) -> CommandResult<()> {
+        if self.width > 16384
+            || self.height > 16384
+            || !self.duration_sec.is_finite()
+            || self.duration_sec < 0.0
+            || self.duration_sec > 172800.0
+        {
+            return Err("Metadados do vídeo inválidos para selecionar a GPU.".into());
+        }
+        Ok(())
+    }
+
+    fn demanding(&self) -> bool {
+        u64::from(self.width) * u64::from(self.height) >= 3840 * 2160 || self.duration_sec >= 1800.0
+    }
+
+    fn description(&self) -> &'static str {
+        if self.demanding() {
+            "vídeo 4K ou longo: preferência por L4/A100"
+        } else {
+            "inferência de um animal: preferência por T4/L4"
+        }
+    }
+}
+
+fn accelerator_rank(accelerator: &str, workload: &AnalysisWorkload) -> u8 {
+    let accelerator = accelerator.to_ascii_uppercase();
+    let order = if workload.demanding() {
+        ["L4", "A100", "H100", "T4"]
+    } else {
+        ["T4", "L4", "A100", "H100"]
+    };
+    order
+        .iter()
+        .position(|name| accelerator.contains(name))
+        .map(|index| index as u8)
+        .unwrap_or(10)
+}
+
+fn runtime_rank(spec: &RuntimeSpecKey, workload: &AnalysisWorkload) -> (u8, u8) {
+    (
+        accelerator_rank(&spec.accelerator, workload),
+        if spec.shape == "SHAPE_STANDARD" { 0 } else { 1 },
+    )
+}
+
+fn preferred_runtime(runtimes: Vec<Runtime>, workload: &AnalysisWorkload) -> Option<Runtime> {
+    runtimes
+        .into_iter()
+        .filter(|runtime| runtime.runtime_spec.variant == "VARIANT_GPU")
+        .min_by_key(|runtime| {
+            (
+                runtime_rank(&runtime.runtime_spec, workload),
+                runtime.name.clone(),
+            )
+        })
+}
+
+fn preferred_spec(specs: Vec<RuntimeSpec>, workload: &AnalysisWorkload) -> Option<RuntimeSpec> {
+    specs
+        .into_iter()
+        .filter(|spec| spec.eligible && spec.key.variant == "VARIANT_GPU")
+        .min_by_key(|spec| runtime_rank(&spec.key, workload))
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -519,7 +596,10 @@ fn get_runtime(client: &Client, access_token: &str, name: &str) -> CommandResult
     serde_json::from_value(value).map_err(|_| "Runtime Colab inválido.".to_string())
 }
 
-fn choose_or_create_runtime(access_token: &str) -> CommandResult<Runtime> {
+fn choose_or_create_runtime(
+    access_token: &str,
+    workload: &AnalysisWorkload,
+) -> CommandResult<(Runtime, String)> {
     let client = api_client()?;
     let response = client
         .get(format!("{COLAB_API}/v1beta/runtimes"))
@@ -527,14 +607,18 @@ fn choose_or_create_runtime(access_token: &str) -> CommandResult<Runtime> {
         .send()
         .map_err(|_| "Falha de rede ao listar runtimes Colab.".to_string())?;
     let value = response_json(response, "Não foi possível listar os runtimes Colab")?;
-    let mut runtimes: RuntimesResponse = serde_json::from_value(value)
+    let runtimes: RuntimesResponse = serde_json::from_value(value)
         .map_err(|_| "A lista de runtimes Colab é inválida.".to_string())?;
-    if let Some(runtime) = runtimes
-        .runtimes
-        .drain(..)
-        .find(|runtime| runtime.runtime_spec.variant == "VARIANT_GPU")
-    {
-        return get_runtime(&client, access_token, &runtime.name);
+    if let Some(runtime) = preferred_runtime(runtimes.runtimes, workload) {
+        let selected = get_runtime(&client, access_token, &runtime.name)?;
+        return Ok((
+            selected,
+            format!(
+                "Reutilizando GPU já alocada ({}) · {}. Nenhum runtime adicional foi criado.",
+                runtime.runtime_spec.accelerator,
+                workload.description()
+            ),
+        ));
     }
 
     let response = client
@@ -545,15 +629,16 @@ fn choose_or_create_runtime(access_token: &str) -> CommandResult<Runtime> {
     let value = response_json(response, "Não foi possível consultar os runtimes elegíveis")?;
     let specs: RuntimeSpecsResponse = serde_json::from_value(value)
         .map_err(|_| "A lista de runtimes elegíveis é inválida.".to_string())?;
-    let spec = specs
-        .runtime_specs
-        .into_iter()
-        .filter(|spec| spec.eligible && spec.key.variant == "VARIANT_GPU")
-        .min_by_key(|spec| if spec.key.shape == "SHAPE_STANDARD" { 0 } else { 1 })
+    let spec = preferred_spec(specs.runtime_specs, workload)
         .ok_or_else(|| {
             "A conta não possui um runtime GPU elegível agora. Verifique a disponibilidade no Colab e tente novamente."
                 .to_string()
         })?;
+    let selection_message = format!(
+        "Runtime criado com {} · {} · selecionado entre as opções elegíveis da conta",
+        spec.key.accelerator,
+        workload.description()
+    );
     let request_id = new_uuid_v4();
     let runtime_id = format!(
         "behavetracker-{}",
@@ -593,7 +678,10 @@ fn choose_or_create_runtime(access_token: &str) -> CommandResult<Runtime> {
             } else {
                 runtime_name.to_string()
             };
-            return get_runtime(&client, access_token, &name);
+            return Ok((
+                get_runtime(&client, access_token, &name)?,
+                selection_message,
+            ));
         }
         thread::sleep(Duration::from_secs(2));
         let response = client
@@ -782,16 +870,132 @@ fn parse_mcp_payload(body: &str) -> CommandResult<Value> {
     final_value.ok_or_else(|| "A resposta MCP do Colab é inválida.".to_string())
 }
 
+#[derive(Debug)]
+struct McpFailure {
+    message: String,
+    retryable: bool,
+}
+
+impl McpFailure {
+    fn transport(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            retryable: true,
+        }
+    }
+    fn terminal(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            retryable: false,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct AnalysisFailure {
+    message: String,
+    preserve_session: bool,
+}
+
+impl From<String> for AnalysisFailure {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            preserve_session: false,
+        }
+    }
+}
+
+impl From<&str> for AnalysisFailure {
+    fn from(message: &str) -> Self {
+        message.to_owned().into()
+    }
+}
+
+fn read_sse_reply(reader: &mut impl BufRead) -> Result<Value, McpFailure> {
+    let mut data = String::new();
+    let mut line = String::new();
+    loop {
+        line.clear();
+        let read = reader.read_line(&mut line).map_err(|_| {
+            McpFailure::transport(
+                "A conexão com o Colab foi interrompida durante a leitura da execução.",
+            )
+        })?;
+        if read == 0 || line.trim().is_empty() {
+            if !data.is_empty() {
+                let value: Value = serde_json::from_str(data.trim()).map_err(|_| {
+                    McpFailure::transport("O Colab enviou uma resposta incompleta da execução.")
+                })?;
+                data.clear();
+                if value.get("id").is_some()
+                    && (value.get("result").is_some() || value.get("error").is_some())
+                {
+                    return Ok(value);
+                }
+            }
+            if read == 0 {
+                return Err(McpFailure::transport(
+                    "A conexão do Colab terminou antes de confirmar o resultado.",
+                ));
+            }
+        } else if let Some(value) = line.strip_prefix("data:") {
+            data.push_str(value.trim_start());
+            data.push('\n');
+        }
+    }
+}
+
+fn transient_mcp_message(message: &str) -> bool {
+    let message = message.to_ascii_uppercase();
+    message.contains("DEADLINE_EXCEEDED")
+        || message.contains("UNAVAILABLE")
+        || message.contains("TIMED OUT")
+        || message.contains("TIMEOUT")
+}
+
+fn unwrap_mcp_result(value: Value) -> Result<Value, McpFailure> {
+    if let Some(message) = value.pointer("/error/message").and_then(Value::as_str) {
+        return Err(McpFailure {
+            message: format!("O Colab MCP retornou um erro: {message}"),
+            retryable: transient_mcp_message(message),
+        });
+    }
+    let result = value
+        .get("result")
+        .cloned()
+        .ok_or_else(|| McpFailure::terminal("O Colab MCP não retornou um resultado."))?;
+    if result.get("isError").and_then(Value::as_bool) == Some(true) {
+        let message = result
+            .get("content")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|item| item.get("text").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Err(McpFailure {
+            retryable: transient_mcp_message(&message),
+            message: if message.is_empty() {
+                "A execução no Colab falhou sem detalhes.".into()
+            } else {
+                message
+            },
+        });
+    }
+    Ok(result)
+}
+
 fn mcp_request(
     access_token: &str,
     tool: &str,
     arguments: Value,
     timeout: Duration,
-) -> CommandResult<Value> {
+) -> Result<Value, McpFailure> {
     let client = Client::builder()
         .timeout(timeout)
         .build()
-        .map_err(|_| "Não foi possível iniciar o cliente MCP do Colab.".to_string())?;
+        .map_err(|_| McpFailure::terminal("Não foi possível iniciar o cliente MCP do Colab."))?;
     let response = client
         .post(MCP_ENDPOINT)
         .bearer_auth(access_token)
@@ -803,45 +1007,37 @@ fn mcp_request(
             "params": { "name": tool, "arguments": arguments }
         }))
         .send()
-        .map_err(|error| format!("Falha ao chamar o Colab MCP: {error}"))?;
+        .map_err(|_| McpFailure::transport("Não foi possível manter a conexão com o Colab MCP."))?;
     let status = response.status();
-    let body = response
-        .text()
-        .map_err(|_| "A resposta MCP do Colab não pôde ser lida.".to_string())?;
     if !status.is_success() {
-        return Err(format!(
-            "O Colab MCP recusou a execução (HTTP {}): {}",
-            status.as_u16(),
-            body.chars().take(400).collect::<String>()
-        ));
-    }
-    let value = parse_mcp_payload(&body)?;
-    if let Some(message) = value.pointer("/error/message").and_then(Value::as_str) {
-        return Err(format!("O Colab MCP retornou um erro: {message}"));
-    }
-    let result = value
-        .get("result")
-        .cloned()
-        .ok_or_else(|| "O Colab MCP não retornou um resultado.".to_string())?;
-    if result.get("isError").and_then(Value::as_bool) == Some(true) {
-        let text = result
-            .get("content")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|item| item.get("text").and_then(Value::as_str))
-            .collect::<Vec<_>>()
-            .join("\n");
-        return Err(if text.is_empty() {
-            "A execução no Colab falhou sem detalhes.".to_string()
-        } else {
-            text
+        return Err(McpFailure {
+            message: format!("O Colab MCP recusou a execução (HTTP {}).", status.as_u16()),
+            retryable: matches!(status.as_u16(), 408 | 429 | 500 | 502 | 503 | 504),
         });
     }
-    Ok(result)
+    let streaming = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.contains("text/event-stream"));
+    let value = if streaming {
+        read_sse_reply(&mut BufReader::new(response))?
+    } else {
+        let body = response
+            .text()
+            .map_err(|_| McpFailure::transport("A resposta MCP do Colab não pôde ser lida."))?;
+        parse_mcp_payload(&body).map_err(McpFailure::transport)?
+    };
+    unwrap_mcp_result(value)
 }
 
-fn execute_code(access_token: &str, session: &str, code: &str) -> CommandResult<Value> {
+fn execute_with_recovery(
+    session: &str,
+    code: &str,
+    mut transport: impl FnMut(Value) -> Result<Value, McpFailure>,
+    mut on_retry: impl FnMut(usize, &str) -> CommandResult<()>,
+    mut wait: impl FnMut(usize),
+) -> Result<Value, AnalysisFailure> {
     let execution_id = new_uuid_v4();
     let arguments = json!({
         "session": session,
@@ -849,13 +1045,8 @@ fn execute_code(access_token: &str, session: &str, code: &str) -> CommandResult<
         "executionId": execution_id
     });
     let mut last_error = None;
-    for _ in 0..5 {
-        match mcp_request(
-            access_token,
-            "execute_code",
-            arguments.clone(),
-            Duration::from_secs(620),
-        ) {
+    for attempt in 1..=MAX_EXECUTION_ATTEMPTS {
+        match transport(arguments.clone()) {
             Ok(result) => {
                 let structured = result
                     .get("structuredContent")
@@ -891,23 +1082,64 @@ fn execute_code(access_token: &str, session: &str, code: &str) -> CommandResult<
                         .and_then(|value| value.get("stderr"))
                         .and_then(Value::as_str)
                         .unwrap_or("");
-                    return Err(format!("{name}: {message}\n{stderr}"));
+                    return Err(format!("{name}: {message}\n{stderr}").into());
                 }
                 return structured.ok_or_else(|| {
-                    "O Colab não retornou os detalhes da execução Python.".to_string()
+                    AnalysisFailure::from("O Colab não retornou os detalhes da execução Python.")
                 });
             }
-            Err(error)
-                if error.contains("DEADLINE_EXCEEDED")
-                    || error.contains("HTTP 504")
-                    || error.contains("timed out") =>
-            {
-                last_error = Some(error);
+            Err(error) if error.retryable => {
+                if attempt < MAX_EXECUTION_ATTEMPTS {
+                    on_retry(attempt + 1, &error.message).map_err(|message| AnalysisFailure {
+                        message,
+                        preserve_session: true,
+                    })?;
+                    wait(attempt);
+                }
+                last_error = Some(error.message);
             }
-            Err(error) => return Err(error),
+            Err(error) => {
+                return Err(AnalysisFailure {
+                    preserve_session: last_error.is_some(),
+                    message: if last_error.is_some() {
+                        format!("{} A sessão foi preservada porque o resultado da execução ainda não foi confirmado.", error.message)
+                    } else {
+                        error.message
+                    },
+                })
+            }
         }
     }
-    Err(last_error.unwrap_or_else(|| "A execução no Colab excedeu o tempo permitido.".to_string()))
+    Err(AnalysisFailure { preserve_session: true, message: format!(
+        "{} Não foi possível confirmar o resultado após {} tentativas. A sessão foi preservada e pode continuar processando no Colab.",
+        last_error.unwrap_or_else(|| "A conexão com o Colab foi interrompida.".into()), MAX_EXECUTION_ATTEMPTS) })
+}
+
+fn execute_job_code(
+    app: &AppHandle,
+    job_id: &str,
+    access_token: &str,
+    session: &str,
+    code: &str,
+) -> Result<Value, AnalysisFailure> {
+    let job = get_job(app, job_id)?;
+    execute_with_recovery(
+        session,
+        code,
+        |arguments| {
+            mcp_request(
+                access_token,
+                "execute_code",
+                arguments,
+                Duration::from_secs(620),
+            )
+        },
+        |attempt, reason| {
+            update_job(app, job_id, "running", &job.stage, job.progress,
+            &format!("{reason} Reconectando à mesma execução · tentativa {attempt}/{MAX_EXECUTION_ATTEMPTS}; o processamento não será reiniciado."))
+        },
+        |attempt| thread::sleep(Duration::from_secs((1_u64 << (attempt - 1)).min(8))),
+    )
 }
 
 fn best_effort_delete_session(access_token: &str, session: &str) {
@@ -919,8 +1151,126 @@ fn best_effort_delete_session(access_token: &str, session: &str) {
     );
 }
 
-fn inference_code(remote_video: &str, remote_output: &str, canonical_csv: &str) -> String {
+fn environment_probe_code() -> String {
+    format!("import subprocess, sys\ncheck = subprocess.run([sys.executable, '-c', {:?}], capture_output=True, text=True, check=True)\nprint(check.stdout)\n",
+        include_str!("../python/environment.py"))
+}
+
+fn environment_install_code() -> String {
     format!(
+        r#"import fcntl, json, subprocess, sys
+from pathlib import Path
+Path("/content/behavetracker").mkdir(parents=True, exist_ok=True)
+with open("/content/behavetracker/environment.lock", "a") as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    probe = subprocess.run([sys.executable, "-c", {probe:?}], capture_output=True, text=True, check=True)
+    reports = [line.split("=", 1)[1] for line in probe.stdout.splitlines() if line.startswith("BEHAVETRACKER_ENVIRONMENT=")]
+    if not reports:
+        raise RuntimeError("O ambiente não respondeu à validação anterior à instalação")
+    report = json.loads(reports[-1])
+    if not report.get("ready"):
+        if not report.get("installNeeded"):
+            raise RuntimeError(report.get("reason", "CUDA incompatível"))
+        subprocess.run([sys.executable, "-m", "pip", "install", "--pre", "--upgrade", "--upgrade-strategy", "only-if-needed", "deeplabcut[modelzoo]>=3.0.0rc1,<4"], check=True)
+    print("BEHAVETRACKER_SETUP_OK")
+"#,
+        probe = include_str!("../python/environment.py")
+    )
+}
+
+fn environment_report(payload: &Value) -> CommandResult<Value> {
+    payload
+        .get("stdout")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .lines()
+        .filter_map(|line| line.strip_prefix("BEHAVETRACKER_ENVIRONMENT="))
+        .find_map(|line| serde_json::from_str::<Value>(line).ok())
+        .ok_or_else(|| "O runtime não retornou a validação do DeepLabCut.".into())
+}
+
+fn prepare_environment(
+    app: &AppHandle,
+    job_id: &str,
+    token: &str,
+    session: &str,
+) -> Result<(), AnalysisFailure> {
+    prepare_environment_with(
+        |code| execute_job_code(app, job_id, token, session, code),
+        |stage, progress, message| update_job(app, job_id, "running", stage, progress, message),
+    )
+}
+
+fn prepare_environment_with(
+    mut execute: impl FnMut(&str) -> Result<Value, AnalysisFailure>,
+    mut record: impl FnMut(&str, i64, &str) -> CommandResult<()>,
+) -> Result<(), AnalysisFailure> {
+    record(
+        "environment_check",
+        52,
+        "Verificando DeepLabCut, SuperAnimal e CUDA já instalados no runtime",
+    )?;
+    let payload = execute(&environment_probe_code())?;
+    let mut report = environment_report(&payload)?;
+    let reused = report.get("ready").and_then(Value::as_bool) == Some(true);
+    if !reused {
+        if report.get("installNeeded").and_then(Value::as_bool) != Some(true) {
+            return Err(report
+                .get("reason")
+                .and_then(Value::as_str)
+                .unwrap_or("O runtime não tem um ambiente CUDA compatível.")
+                .into());
+        }
+        record(
+            "installing",
+            54,
+            &format!(
+                "Preparando as dependências ausentes ou incompatíveis · {}",
+                report
+                    .get("reason")
+                    .and_then(Value::as_str)
+                    .unwrap_or("DeepLabCut indisponível")
+            ),
+        )?;
+        execute(&environment_install_code())?;
+        let checked = execute(&environment_probe_code())?;
+        report = environment_report(&checked)?;
+        if report.get("ready").and_then(Value::as_bool) != Some(true) {
+            return Err(format!(
+                "A instalação terminou, mas o ambiente não passou na validação: {}",
+                report
+                    .get("reason")
+                    .and_then(Value::as_str)
+                    .unwrap_or("DeepLabCut/CUDA indisponível")
+            )
+            .into());
+        }
+    }
+    record(
+        "environment_ready",
+        60,
+        &format!(
+            "DeepLabCut {} e CUDA {} prontos · {}",
+            report
+                .get("version")
+                .and_then(Value::as_str)
+                .unwrap_or("3.x"),
+            report
+                .get("cuda")
+                .and_then(Value::as_str)
+                .unwrap_or("verificada"),
+            if reused {
+                "reutilizando a instalação deste runtime, sem executar pip"
+            } else {
+                "ambiente preparado e validado neste runtime"
+            }
+        ),
+    )?;
+    Ok(())
+}
+
+fn inference_code(remote_video: &str, remote_output: &str, canonical_csv: &str) -> String {
+    let source = format!(
         r#"import glob
 import math
 import os
@@ -1040,12 +1390,16 @@ for frame_position, frame_index in enumerate(poses.index):
 
 canonical = pd.DataFrame(rows, columns=["frame_index", "timestamp_sec", "animal_id", "keypoint", "x_px", "y_px", "likelihood", "status"])
 canonical.to_csv(canonical_path, index=False)
+Path(canonical_path + ".complete").write_text("ok", encoding="utf-8")
 print(f"BEHAVETRACKER_RESULT={{canonical_path}}|rows={{len(canonical)}}|fps={{fps:.6f}}")
 "#,
         remote_video = remote_video,
         remote_output = remote_output,
         canonical_csv = canonical_csv,
-    )
+    );
+    format!("from pathlib import Path\nif Path({canonical_csv:?}).is_file() and Path({:?}).is_file():\n    print('BEHAVETRACKER_RESULT_CACHED')\nelse:\n{}",
+        format!("{canonical_csv}.complete"),
+        source.lines().map(|line| format!("    {line}\n")).collect::<String>())
 }
 
 fn download_result(
@@ -1083,7 +1437,12 @@ fn download_result(
     Ok(())
 }
 
-fn run_analysis(app: AppHandle, job_id: String, upload_id: String) -> CommandResult<()> {
+fn run_analysis(
+    app: AppHandle,
+    job_id: String,
+    upload_id: String,
+    workload: AnalysisWorkload,
+) -> CommandResult<()> {
     prepare_tables(&app)?;
     let (local_path, original_filename, size, sha256, ready): (
         String,
@@ -1128,7 +1487,8 @@ fn run_analysis(app: AppHandle, job_id: String, upload_id: String) -> CommandRes
         10,
         "Localizando um runtime GPU elegível",
     )?;
-    let runtime = choose_or_create_runtime(&access_token)?;
+    let (runtime, selection_message) = choose_or_create_runtime(&access_token, &workload)?;
+    update_job(&app, &job_id, "running", "runtime", 12, &selection_message)?;
     if runtime.name.is_empty() {
         return Err("O Colab retornou um runtime sem identificador.".into());
     }
@@ -1161,7 +1521,7 @@ fn run_analysis(app: AppHandle, job_id: String, upload_id: String) -> CommandRes
             params![&job_id, &session],
         )
         .map_err(|_| "Não foi possível registrar a sessão do job.".to_string())?;
-    let session_result = (|| -> CommandResult<()> {
+    let session_result = (|| -> Result<(), AnalysisFailure> {
         update_job(
             &app,
             &job_id,
@@ -1170,7 +1530,9 @@ fn run_analysis(app: AppHandle, job_id: String, upload_id: String) -> CommandRes
             15,
             "Abrindo a sessão e identificando a GPU do Colab",
         )?;
-        let workspace = execute_code(
+        let workspace = execute_job_code(
+            &app,
+            &job_id,
             &access_token,
             &session,
             &prepare_workspace_code(&absolute_directory, &job_id),
@@ -1228,7 +1590,7 @@ fn run_analysis(app: AppHandle, job_id: String, upload_id: String) -> CommandRes
             size,
             sha256.unwrap_or_default()
         );
-        let verified = execute_code(&access_token, &session, &verification)?;
+        let verified = execute_job_code(&app, &job_id, &access_token, &session, &verification)?;
         if !verified
             .get("stdout")
             .and_then(Value::as_str)
@@ -1246,18 +1608,7 @@ fn run_analysis(app: AppHandle, job_id: String, upload_id: String) -> CommandRes
             "Vídeo recebido e validado · tamanho e SHA-256 conferem",
         )?;
 
-        update_job(
-            &app,
-            &job_id,
-            "running",
-            "installing",
-            52,
-            "Preparando o DeepLabCut no Colab",
-        )?;
-        let install_code = r#"import subprocess, sys
-subprocess.run([sys.executable, "-m", "pip", "install", "--pre", "deeplabcut"], check=True)
-print("BEHAVETRACKER_SETUP_OK")"#;
-        execute_code(&access_token, &session, install_code)?;
+        prepare_environment(&app, &job_id, &access_token, &session)?;
 
         update_job(
             &app,
@@ -1267,7 +1618,9 @@ print("BEHAVETRACKER_SETUP_OK")"#;
             65,
             "Executando SuperAnimal TopViewMouse",
         )?;
-        execute_code(
+        execute_job_code(
+            &app,
+            &job_id,
             &access_token,
             &session,
             &inference_code(&absolute_video, &remote_output, &remote_csv),
@@ -1313,8 +1666,14 @@ print("BEHAVETRACKER_SETUP_OK")"#;
         )?;
         Ok(())
     })();
-    best_effort_delete_session(&access_token, &session);
-    session_result?;
+    if !session_result
+        .as_ref()
+        .err()
+        .is_some_and(|error| error.preserve_session)
+    {
+        best_effort_delete_session(&access_token, &session);
+    }
+    session_result.map_err(|error| error.message)?;
     let _ = fs::remove_file(local_path);
     Ok(())
 }
@@ -1326,6 +1685,7 @@ pub fn start_colab_analysis(
 ) -> CommandResult<ColabJob> {
     validate_local_id(&request.experiment_id, "Experimento")?;
     validate_local_id(&request.upload_id, "Upload")?;
+    request.workload.validate()?;
     prepare_tables(&app)?;
     let connection = open_database(&app)?;
     let staging_experiment: Option<String> = connection
@@ -1381,7 +1741,12 @@ pub fn start_colab_analysis(
     let task_job_id = job_id.clone();
     let task_upload_id = request.upload_id;
     tauri::async_runtime::spawn_blocking(move || {
-        if let Err(error) = run_analysis(task_app.clone(), task_job_id.clone(), task_upload_id) {
+        if let Err(error) = run_analysis(
+            task_app.clone(),
+            task_job_id.clone(),
+            task_upload_id,
+            request.workload,
+        ) {
             let _ = fail_job(&task_app, &task_job_id, &error);
         }
     });
@@ -1478,8 +1843,11 @@ pub fn recover_interrupted_jobs(app: &AppHandle) -> CommandResult<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        job_events, new_uuid_v4, parse_mcp_payload, record_job_update, resolve_jupyter_workspace,
-        safe_extension, workspace_gpu, ConnectionInfo,
+        execute_with_recovery, inference_code, job_events, new_uuid_v4, parse_mcp_payload,
+        preferred_runtime, preferred_spec, prepare_environment_with, read_sse_reply,
+        record_job_update, resolve_jupyter_workspace, safe_extension, workspace_gpu,
+        AnalysisWorkload, ConnectionInfo, McpFailure, Runtime, RuntimeSpec, RuntimeSpecKey,
+        MAX_EXECUTION_ATTEMPTS,
     };
     use rusqlite::Connection;
     use serde_json::json;
@@ -1637,5 +2005,337 @@ mod tests {
             .query_row("SELECT stage FROM colab_jobs", [], |row| row.get(0))
             .unwrap();
         assert_eq!(stage, "verifying");
+    }
+
+    fn gpu_spec(accelerator: &str, eligible: bool) -> RuntimeSpec {
+        RuntimeSpec {
+            eligible,
+            key: RuntimeSpecKey {
+                variant: "VARIANT_GPU".into(),
+                accelerator: accelerator.into(),
+                shape: "SHAPE_STANDARD".into(),
+            },
+        }
+    }
+
+    #[test]
+    fn selects_gpu_by_workload_instead_of_api_order_and_excludes_ineligible_specs() {
+        let small = AnalysisWorkload {
+            width: 1920,
+            height: 1080,
+            duration_sec: 120.0,
+        };
+        let specs = || {
+            vec![
+                gpu_spec("NVIDIA_A100", true),
+                gpu_spec("NVIDIA_L4", true),
+                gpu_spec("NVIDIA_T4", true),
+            ]
+        };
+        assert_eq!(
+            preferred_spec(specs(), &small).unwrap().key.accelerator,
+            "NVIDIA_T4"
+        );
+        let large = AnalysisWorkload {
+            width: 3840,
+            height: 2160,
+            duration_sec: 120.0,
+        };
+        assert_eq!(
+            preferred_spec(specs(), &large).unwrap().key.accelerator,
+            "NVIDIA_L4"
+        );
+        assert_eq!(
+            preferred_spec(
+                vec![gpu_spec("NVIDIA_T4", false), gpu_spec("NVIDIA_A100", true)],
+                &small
+            )
+            .unwrap()
+            .key
+            .accelerator,
+            "NVIDIA_A100"
+        );
+        let existing = vec![
+            Runtime {
+                name: "runtimes/a100".into(),
+                runtime_spec: gpu_spec("NVIDIA_A100", true).key,
+                connection_info: None,
+            },
+            Runtime {
+                name: "runtimes/t4".into(),
+                runtime_spec: gpu_spec("NVIDIA_T4", true).key,
+                connection_info: None,
+            },
+        ];
+        assert_eq!(
+            preferred_runtime(existing, &small).unwrap().name,
+            "runtimes/t4"
+        );
+    }
+
+    #[test]
+    fn gpu_selection_handles_empty_unknown_and_high_memory_options() {
+        let small = AnalysisWorkload::default();
+        assert!(preferred_spec(Vec::new(), &small).is_none());
+        assert!(preferred_spec(vec![gpu_spec("NVIDIA_T4", false)], &small).is_none());
+        let mut high_mem = gpu_spec("NVIDIA_T4", true);
+        high_mem.key.shape = "SHAPE_HIGHMEM".into();
+        assert_eq!(
+            preferred_spec(vec![high_mem, gpu_spec("NVIDIA_T4", true)], &small)
+                .unwrap()
+                .key
+                .shape,
+            "SHAPE_STANDARD"
+        );
+        assert!(AnalysisWorkload {
+            width: 20000,
+            height: 1,
+            duration_sec: 1.0
+        }
+        .validate()
+        .is_err());
+        assert!(AnalysisWorkload {
+            width: 1,
+            height: 1,
+            duration_sec: f64::NAN
+        }
+        .validate()
+        .is_err());
+    }
+
+    struct InterruptedRead {
+        body: std::io::Cursor<Vec<u8>>,
+    }
+    impl Read for InterruptedRead {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            if self.body.position() == self.body.get_ref().len() as u64 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "connection dropped",
+                ));
+            }
+            self.body.read(buffer)
+        }
+    }
+
+    #[test]
+    fn sse_returns_the_terminal_result_before_waiting_for_connection_close() {
+        let body = b"event: message\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\"}\n\ndata: {\n data: \"id\": 1,\n data: \"result\": {}\n data: }\n\n";
+        let body = String::from_utf8_lossy(body).replace("\n data:", "\ndata:");
+        let mut reader = std::io::BufReader::new(InterruptedRead {
+            body: std::io::Cursor::new(body.into_bytes()),
+        });
+        assert_eq!(read_sse_reply(&mut reader).unwrap()["id"], 1);
+    }
+
+    #[test]
+    fn interrupted_sse_is_recoverable_instead_of_a_terminal_python_failure() {
+        let mut reader = std::io::BufReader::new(InterruptedRead {
+            body: std::io::Cursor::new(
+                b"data: {\"method\":\"notifications/progress\"}\n\n".to_vec(),
+            ),
+        });
+        assert!(read_sse_reply(&mut reader).unwrap_err().retryable);
+    }
+
+    #[test]
+    fn reconnection_reuses_exactly_the_same_execution_id_session_and_code() {
+        let mut requests = Vec::new();
+        let mut attempts = Vec::new();
+        let result = execute_with_recovery(
+            "runtimes/gpu/sessions/job",
+            "print('done')",
+            |arguments| {
+                requests.push(arguments);
+                if requests.len() == 1 {
+                    Err(McpFailure::transport("connection interrupted"))
+                } else {
+                    Ok(json!({"structuredContent": {"stdout": "done", "executionError": null}}))
+                }
+            },
+            |attempt, _| {
+                attempts.push(attempt);
+                Ok(())
+            },
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(result["stdout"], "done");
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0], requests[1]);
+        assert_eq!(attempts, vec![2]);
+        assert!(requests[0]["executionId"].as_str().unwrap().len() == 36);
+    }
+
+    #[test]
+    fn unknown_execution_outcome_preserves_the_session_after_exhausting_retries() {
+        let mut calls = 0;
+        let error = execute_with_recovery(
+            "session",
+            "code",
+            |_| {
+                calls += 1;
+                Err(McpFailure::transport("response interrupted"))
+            },
+            |_, _| Ok(()),
+            |_| {},
+        )
+        .unwrap_err();
+        assert_eq!(calls, MAX_EXECUTION_ATTEMPTS);
+        assert!(error.preserve_session);
+        assert!(error.message.contains("sessão foi preservada"));
+    }
+
+    #[test]
+    fn actual_python_errors_are_not_retried_as_network_errors() {
+        let mut calls = 0;
+        let error = execute_with_recovery("session", "code", |_| {
+            calls += 1;
+            Ok(json!({"structuredContent":{"executionError":{"name":"RuntimeError","value":"CUDA out of memory"}}}))
+        }, |_, _| panic!("Python error must not be retried"), |_| {}).unwrap_err();
+        assert_eq!(calls, 1);
+        assert!(!error.preserve_session);
+        assert!(error.message.contains("CUDA out of memory"));
+    }
+
+    fn environment_payload(ready: bool) -> serde_json::Value {
+        json!({"stdout": format!("BEHAVETRACKER_ENVIRONMENT={}\n", json!({"ready":ready,
+            "installNeeded": !ready, "version":"3.0.0", "cuda":"12.1", "reason":"package missing"}))})
+    }
+
+    #[test]
+    fn ready_environment_is_reused_without_invoking_pip() {
+        let mut codes = Vec::new();
+        let mut messages = Vec::new();
+        prepare_environment_with(
+            |code| {
+                codes.push(code.to_owned());
+                Ok(environment_payload(true))
+            },
+            |_, _, message| {
+                messages.push(message.to_owned());
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(codes.len(), 1);
+        assert!(!codes.iter().any(|code| code.contains("\"pip\"")));
+        assert!(messages.last().unwrap().contains("sem executar pip"));
+    }
+
+    #[test]
+    fn missing_environment_is_installed_once_then_validated() {
+        let mut codes = Vec::new();
+        prepare_environment_with(
+            |code| {
+                codes.push(code.to_owned());
+                Ok(if codes.len() == 1 {
+                    environment_payload(false)
+                } else {
+                    environment_payload(true)
+                })
+            },
+            |_, _, _| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(codes.len(), 3);
+        assert_eq!(
+            codes.iter().filter(|code| code.contains("\"pip\"")).count(),
+            1
+        );
+        assert!(codes[1].contains("deeplabcut[modelzoo]>=3.0.0rc1,<4"));
+    }
+
+    #[test]
+    fn confirmed_results_are_not_processed_again_when_a_reply_is_replayed() {
+        let directory =
+            std::env::temp_dir().join(format!("behavetracker-cached-test-{}", new_uuid_v4()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let csv = directory.join("pose.csv");
+        std::fs::write(&csv, b"frame_index,x_px,y_px\n0,1,1\n").unwrap();
+        std::fs::write(directory.join("pose.csv.complete"), b"ok").unwrap();
+        let output = std::process::Command::new("python3")
+            .arg("-B")
+            .arg("-c")
+            .arg(inference_code(
+                "video-not-needed.mp4",
+                directory.to_str().unwrap(),
+                csv.to_str().unwrap(),
+            ))
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("BEHAVETRACKER_RESULT_CACHED"));
+        std::fs::remove_file(&csv).unwrap();
+        std::fs::remove_file(directory.join("pose.csv.complete")).unwrap();
+        std::fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
+    fn generated_environment_and_inference_scripts_are_valid_python() {
+        use std::process::{Command, Stdio};
+        for source in [
+            super::environment_probe_code(),
+            super::environment_install_code(),
+            inference_code(
+                "/content/video.mp4",
+                "/content/output",
+                "/content/poses.csv",
+            ),
+        ] {
+            let mut child = Command::new("python3")
+                .arg("-B")
+                .arg("-c")
+                .arg("import ast, sys; ast.parse(sys.stdin.read())")
+                .stdin(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(source.as_bytes())
+                .unwrap();
+            let output = child.wait_with_output().unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+
+    #[test]
+    fn cuda_failure_does_not_trigger_a_package_reinstall_loop() {
+        let mut calls = 0;
+        let error = prepare_environment_with(|_| {
+            calls += 1;
+            Ok(json!({"stdout": "BEHAVETRACKER_ENVIRONMENT={\"ready\":false,\"installNeeded\":false,\"reason\":\"CUDA indisponível\"}\n"}))
+        }, |_, _, _| Ok(())).unwrap_err();
+        assert_eq!(calls, 1);
+        assert!(error.message.contains("CUDA indisponível"));
+    }
+
+    #[test]
+    fn permanent_permission_errors_are_not_retried() {
+        let mut calls = 0;
+        let error = execute_with_recovery(
+            "session",
+            "code",
+            |_| {
+                calls += 1;
+                Err(McpFailure::terminal("HTTP 403"))
+            },
+            |_, _| panic!("Permission errors must not be retried"),
+            |_| {},
+        )
+        .unwrap_err();
+        assert_eq!(calls, 1);
+        assert!(!error.preserve_session);
     }
 }

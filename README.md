@@ -21,6 +21,12 @@ No editor de um experimento real, **Analisar no Colab** cria ou reutiliza um run
 
 Antes do upload, o app cria uma pasta identificada na sessão Python e confirma que ela está acessível pela API Jupyter. Isso trata a diferença entre o caminho absoluto `/content/...` e os caminhos relativos à raiz do servidor Jupyter. O fluxo mostra preparação, GPU, envio, integridade do vídeo, instalação do modelo, inferência e recebimento do resultado. Falhas preservam o checkpoint e os eventos anteriores; registros de análises antigas podem não conter esse detalhamento.
 
+A preparação verifica DeepLabCut 3.x, a API SuperAnimal, suas dependências e o acesso CUDA. Um ambiente válido é reutilizado sem chamar pip. Dependências ausentes ou incompatíveis são preparadas e verificadas novamente; instalações concorrentes no mesmo runtime usam uma trava e uma segunda checagem. Se o Colab substituir a máquina, o novo ambiente precisa ser preparado novamente.
+
+A escolha da GPU usa uma heurística, não um benchmark: para vídeos abaixo de 4K e menores que 30 minutos, a preferência é T4 → L4 → A100 → H100; para 4K ou vídeos mais longos, L4 → A100 → H100 → T4. O app ordena primeiro os runtimes GPU já alocados para reutilizá-los. Só cria outro runtime quando não há GPU alocada, usando as specs elegíveis da conta e preferindo memória padrão entre opções equivalentes. A política não estima preço, garante desempenho nem compra recursos; o motivo da seleção e a GPU efetivamente reportada ficam no diário.
+
+Interrupções da resposta MCP e deadlines tentam se reanexar à mesma sessão e ao mesmo `executionId`, sem criar um novo job. A resposta em streaming é encerrada no resultado final, sem aguardar o fechamento da conexão HTTP. Um resultado já gravado com marcador de conclusão não executa a inferência novamente se a resposta for repetida. Se todas as tentativas falharem, o app informa que o resultado não foi confirmado e preserva a sessão remota, que pode continuar executando.
+
 ## Rodar localmente
 
 Requisitos do frontend: Node.js 22+.
@@ -35,6 +41,12 @@ Abra `http://localhost:1420`. Para validar o projeto:
 ```bash
 npm test
 npm run build
+```
+
+Para validar o verificador do ambiente sem instalar DeepLabCut nem usar GPU local:
+
+```bash
+python3 -B -m unittest discover -s src-tauri/python -v
 ```
 
 ## Rodar como desktop Tauri
