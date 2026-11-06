@@ -191,7 +191,7 @@ export function ColabGate() {
 
           <div className="credential-storage-note">
             <Database size={15} />
-            <span><strong>Client ID</strong> no SQLite por perfil; <strong>Client secret</strong> e tokens no Keychain do sistema.</span>
+            <span><strong>Client ID, Client secret e autorização</strong> ficam no SQLite deste perfil local. O app não acessa o Keychain durante a análise.</span>
           </div>
 
           <div className="credential-actions">

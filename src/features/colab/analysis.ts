@@ -66,6 +66,10 @@ export function loadLatestColabJob(experimentId: string) {
   return invoke<ColabJob | null>("get_latest_colab_job", { experimentId });
 }
 
+export function loadColabJobs(experimentId: string) {
+  return invoke<ColabJob[]>("list_colab_jobs", { experimentId });
+}
+
 export function loadColabResult(jobId: string) {
   return invoke<string>("get_colab_job_result", { jobId });
 }

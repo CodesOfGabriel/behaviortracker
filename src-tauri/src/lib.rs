@@ -39,7 +39,8 @@ pub fn run() {
             colab::start_colab_analysis,
             colab::get_colab_job,
             colab::get_colab_job_result,
-            colab::get_latest_colab_job
+            colab::get_latest_colab_job,
+            colab::list_colab_jobs
         ])
         .run(tauri::generate_context!())
         .expect("error while running BehaveTracker");

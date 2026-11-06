@@ -7,7 +7,6 @@ use std::{
 };
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use keyring::Entry;
 use rand::{distributions::Alphanumeric, Rng};
 use reqwest::blocking::Client;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -17,8 +16,6 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
 use url::Url;
 
-const CLIENT_SECRET_SERVICE: &str = "com.behavetracker.desktop.google-oauth-client";
-const REFRESH_TOKEN_SERVICE: &str = "com.behavetracker.desktop.google-oauth-refresh";
 const COLAB_SCOPE: &str = "https://www.googleapis.com/auth/colaboratory";
 const AUTH_TIMEOUT: Duration = Duration::from_secs(180);
 
@@ -134,6 +131,8 @@ pub(crate) fn open_database(app: &AppHandle) -> CommandResult<Connection> {
              CREATE TABLE IF NOT EXISTS google_oauth_profiles (
                profile_id TEXT PRIMARY KEY NOT NULL,
                google_client_id TEXT NOT NULL,
+               client_secret TEXT,
+               refresh_token TEXT,
                has_client_secret INTEGER NOT NULL DEFAULT 0,
                has_refresh_token INTEGER NOT NULL DEFAULT 0,
                account_email TEXT,
@@ -167,46 +166,59 @@ fn migrate_credential_state(connection: &Connection) -> CommandResult<()> {
         connection
             .execute_batch(
                 "ALTER TABLE google_oauth_profiles
-                   ADD COLUMN has_client_secret INTEGER NOT NULL DEFAULT 0;
-                 UPDATE google_oauth_profiles
-                    SET has_client_secret = CASE WHEN google_client_id <> '' THEN 1 ELSE 0 END;",
+                   ADD COLUMN has_client_secret INTEGER NOT NULL DEFAULT 0;",
             )
-            .map_err(|_| "Não foi possível migrar o estado da credencial Google.".to_string())?;
+            .map_err(|_| "Não foi possível preparar o estado da credencial Google.".to_string())?;
     }
     if !has_column("has_refresh_token")? {
         connection
             .execute_batch(
                 "ALTER TABLE google_oauth_profiles
-                   ADD COLUMN has_refresh_token INTEGER NOT NULL DEFAULT 0;
-                 UPDATE google_oauth_profiles
-                    SET has_refresh_token = CASE WHEN account_email IS NOT NULL THEN 1 ELSE 0 END;",
+                   ADD COLUMN has_refresh_token INTEGER NOT NULL DEFAULT 0;",
             )
-            .map_err(|_| "Não foi possível migrar o estado da autorização Google.".to_string())?;
+            .map_err(|_| "Não foi possível preparar o estado da autorização Google.".to_string())?;
+    }
+    if !has_column("client_secret")? {
+        connection
+            .execute_batch(
+                "ALTER TABLE google_oauth_profiles
+                   ADD COLUMN client_secret TEXT;
+                 UPDATE google_oauth_profiles
+                    SET has_client_secret = 0;",
+            )
+            .map_err(|_| "Não foi possível migrar a credencial Google para o banco local.".to_string())?;
+    }
+    if !has_column("refresh_token")? {
+        connection
+            .execute_batch(
+                "ALTER TABLE google_oauth_profiles
+                   ADD COLUMN refresh_token TEXT;
+                 UPDATE google_oauth_profiles
+                    SET has_refresh_token = 0,
+                        account_email = NULL,
+                        subscription_tier = NULL,
+                        eligible_runtime_count = 0,
+                        eligible_gpu_count = 0,
+                        provider_error = NULL,
+                        connected_at = NULL;",
+            )
+            .map_err(|_| "Não foi possível migrar a autorização Google para o banco local.".to_string())?;
     }
     Ok(())
 }
 
-fn secret_entry(service: &str, profile_id: &str) -> CommandResult<Entry> {
-    Entry::new(service, profile_id)
-        .map_err(|_| "O armazenamento seguro do sistema não está disponível.".to_string())
-}
-
-fn read_secret(service: &str, profile_id: &str) -> Option<String> {
-    secret_entry(service, profile_id)
-        .ok()
-        .and_then(|entry| entry.get_password().ok())
-}
-
-fn write_secret(service: &str, profile_id: &str, value: &str) -> CommandResult<()> {
-    secret_entry(service, profile_id)?
-        .set_password(value)
-        .map_err(|_| "Não foi possível salvar a credencial no armazenamento seguro.".to_string())
-}
-
-fn delete_secret(service: &str, profile_id: &str) {
-    if let Ok(entry) = secret_entry(service, profile_id) {
-        let _ = entry.delete_credential();
-    }
+fn credentials_from_database(
+    app: &AppHandle,
+    profile_id: &str,
+) -> CommandResult<(Option<String>, Option<String>)> {
+    open_database(app)?
+        .query_row(
+            "SELECT client_secret, refresh_token
+               FROM google_oauth_profiles WHERE profile_id = ?1",
+            params![profile_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|_| "As credenciais OAuth não foram encontradas neste dispositivo.".to_string())
 }
 
 fn summary_from_database(app: &AppHandle, profile_id: &str) -> CommandResult<OAuthProfileSummary> {
@@ -301,29 +313,26 @@ pub fn save_google_oauth_config(
         return Err("Informe o Client secret antes de salvar a configuração.".into());
     }
 
-    if let Some(secret) = client_secret.as_deref() {
-        write_secret(CLIENT_SECRET_SERVICE, &profile_id, secret)?;
-    }
-
     connection
         .execute(
             "INSERT INTO google_oauth_profiles
-             (profile_id, google_client_id, has_client_secret)
-             VALUES (?1, ?2, ?3)
+             (profile_id, google_client_id, client_secret, has_client_secret)
+             VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(profile_id) DO UPDATE SET
                google_client_id = excluded.google_client_id,
+               client_secret = COALESCE(excluded.client_secret, google_oauth_profiles.client_secret),
                has_client_secret = excluded.has_client_secret,
                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
             params![
                 &profile_id,
                 &client_id,
+                client_secret,
                 client_secret.is_some() || previously_had_secret
             ],
         )
         .map_err(|_| "Não foi possível salvar o Client ID no banco local.".to_string())?;
 
     if client_changed {
-        delete_secret(REFRESH_TOKEN_SERVICE, &profile_id);
         connection
             .execute(
                 "UPDATE google_oauth_profiles
@@ -333,7 +342,8 @@ pub fn save_google_oauth_config(
                         eligible_gpu_count = 0,
                         provider_error = NULL,
                         connected_at = NULL,
-                        has_refresh_token = 0
+                        has_refresh_token = 0,
+                        refresh_token = NULL
                   WHERE profile_id = ?1",
                 params![&profile_id],
             )
@@ -497,9 +507,9 @@ pub(crate) fn google_access_token(app: &AppHandle, profile_id: &str) -> CommandR
     if !configuration.connected {
         return Err("Conecte a Conta Google antes de iniciar a análise.".into());
     }
-    let refresh_token = read_secret(REFRESH_TOKEN_SERVICE, profile_id)
+    let (client_secret, refresh_token) = credentials_from_database(app, profile_id)?;
+    let refresh_token = refresh_token
         .ok_or_else(|| "Conecte novamente a Conta Google.".to_string())?;
-    let client_secret = read_secret(CLIENT_SECRET_SERVICE, profile_id);
     let client = Client::builder()
         .timeout(Duration::from_secs(30))
         .build()
@@ -626,7 +636,7 @@ fn authorize_blocking(app: AppHandle, profile_id: String) -> CommandResult<OAuth
     if configuration.client_id.is_empty() {
         return Err("Salve o Client ID antes de conectar a Conta Google.".into());
     }
-    let client_secret = read_secret(CLIENT_SECRET_SERVICE, &profile_id);
+    let (client_secret, _) = credentials_from_database(&app, &profile_id)?;
     let listener = TcpListener::bind("127.0.0.1:0")
         .map_err(|_| "Não foi possível abrir o callback OAuth local.".to_string())?;
     let port = listener
@@ -669,7 +679,15 @@ fn authorize_blocking(app: AppHandle, profile_id: String) -> CommandResult<OAuth
         &redirect_uri,
     )?;
     if let Some(refresh_token) = token.refresh_token.as_deref() {
-        write_secret(REFRESH_TOKEN_SERVICE, &profile_id, refresh_token)?;
+        open_database(&app)?
+            .execute(
+                "UPDATE google_oauth_profiles
+                    SET refresh_token = ?2, has_refresh_token = 1,
+                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                  WHERE profile_id = ?1",
+                params![&profile_id, refresh_token],
+            )
+            .map_err(|_| "Não foi possível salvar a autorização Google no banco local.".to_string())?;
     } else if !configuration.connected {
         return Err(
             "O Google não retornou autorização persistente. Revogue o acesso do app e tente novamente."
@@ -697,9 +715,9 @@ fn check_eligibility_blocking(
     profile_id: String,
 ) -> CommandResult<OAuthProfileSummary> {
     let configuration = summary_from_database(&app, &profile_id)?;
-    let refresh_token = read_secret(REFRESH_TOKEN_SERVICE, &profile_id)
+    let (client_secret, refresh_token) = credentials_from_database(&app, &profile_id)?;
+    let refresh_token = refresh_token
         .ok_or_else(|| "Conecte novamente a Conta Google.".to_string())?;
-    let client_secret = read_secret(CLIENT_SECRET_SERVICE, &profile_id);
     let client = Client::builder()
         .timeout(Duration::from_secs(30))
         .build()
@@ -747,10 +765,10 @@ pub async fn disconnect_google_account(
     let profile_for_task = profile_id.clone();
     tauri::async_runtime::spawn_blocking(move || -> CommandResult<()> {
         validate_profile_id(&profile_for_task)?;
-        if let Some(refresh_token) = read_secret(REFRESH_TOKEN_SERVICE, &profile_for_task) {
+        let (_, refresh_token) = credentials_from_database(&app_for_task, &profile_for_task)?;
+        if let Some(refresh_token) = refresh_token {
             revoke_refresh_token(refresh_token);
         }
-        delete_secret(REFRESH_TOKEN_SERVICE, &profile_for_task);
         let connection = open_database(&app_for_task)?;
         connection
             .execute(
@@ -762,6 +780,7 @@ pub async fn disconnect_google_account(
                         provider_error = NULL,
                         connected_at = NULL,
                         has_refresh_token = 0,
+                        refresh_token = NULL,
                         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                   WHERE profile_id = ?1",
                 params![&profile_for_task],
@@ -778,11 +797,10 @@ pub async fn disconnect_google_account(
 pub async fn delete_google_oauth_config(app: AppHandle, profile_id: String) -> CommandResult<()> {
     tauri::async_runtime::spawn_blocking(move || {
         validate_profile_id(&profile_id)?;
-        if let Some(refresh_token) = read_secret(REFRESH_TOKEN_SERVICE, &profile_id) {
+        let (_, refresh_token) = credentials_from_database(&app, &profile_id)?;
+        if let Some(refresh_token) = refresh_token {
             revoke_refresh_token(refresh_token);
         }
-        delete_secret(CLIENT_SECRET_SERVICE, &profile_id);
-        delete_secret(REFRESH_TOKEN_SERVICE, &profile_id);
         let connection = open_database(&app)?;
         connection
             .execute(
@@ -825,14 +843,20 @@ mod tests {
     }
 
     #[test]
-    fn migrates_keychain_presence_without_reading_the_keychain() {
+    fn legacy_profiles_require_a_fresh_database_authorization() {
         let connection = Connection::open_in_memory().unwrap();
         connection
             .execute_batch(
                 "CREATE TABLE google_oauth_profiles (
                    profile_id TEXT PRIMARY KEY NOT NULL,
                    google_client_id TEXT NOT NULL,
-                   account_email TEXT
+                   account_email TEXT,
+                   subscription_tier TEXT,
+                   eligible_runtime_count INTEGER NOT NULL DEFAULT 0,
+                   eligible_gpu_count INTEGER NOT NULL DEFAULT 0,
+                   provider_error TEXT,
+                   connected_at TEXT,
+                   updated_at TEXT
                  );
                  INSERT INTO google_oauth_profiles
                    (profile_id, google_client_id, account_email)
@@ -849,6 +873,6 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .unwrap();
-        assert_eq!(flags, (true, true));
+        assert_eq!(flags, (false, false));
     }
 }

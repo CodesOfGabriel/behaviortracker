@@ -1063,7 +1063,6 @@ fn run_analysis(app: AppHandle, job_id: String, upload_id: String) -> CommandRes
 subprocess.run([sys.executable, "-m", "pip", "install", "--pre", "deeplabcut"], check=True)
 print("BEHAVETRACKER_SETUP_OK")"#;
         execute_code(&access_token, &session, install_code)?;
-        best_effort_delete_session(&access_token, &session);
 
         update_job(
             &app,
@@ -1245,6 +1244,28 @@ pub fn get_latest_colab_job(
         )
         .optional()
         .map_err(|_| "Não foi possível consultar o último job do experimento.".to_string())
+}
+
+#[tauri::command]
+pub fn list_colab_jobs(app: AppHandle, experiment_id: String) -> CommandResult<Vec<ColabJob>> {
+    validate_local_id(&experiment_id, "Experimento")?;
+    prepare_tables(&app)?;
+    let connection = open_database(&app)?;
+    let mut statement = connection
+        .prepare(
+            "SELECT job_id, experiment_id, status, stage, progress, message,
+                    runtime_name, error, created_at, updated_at
+               FROM colab_jobs
+              WHERE experiment_id = ?1
+              ORDER BY created_at DESC",
+        )
+        .map_err(|_| "Não foi possível consultar o histórico de análises.".to_string())?;
+    let jobs = statement
+        .query_map(params![experiment_id], row_to_job)
+        .map_err(|_| "Não foi possível ler o histórico de análises.".to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "Não foi possível montar o histórico de análises.".to_string())?;
+    Ok(jobs)
 }
 
 pub fn recover_interrupted_jobs(app: &AppHandle) -> CommandResult<()> {

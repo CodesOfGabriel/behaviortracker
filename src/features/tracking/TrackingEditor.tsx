@@ -7,9 +7,9 @@ import {
   ChevronRight,
   CircleDot,
   CloudCog,
+  Clock3,
   Eye,
   EyeOff,
-  FileUp,
   Flag,
   Gauge,
   History,
@@ -42,6 +42,7 @@ import { useAppStore } from "../../store/AppStore";
 import type { CorrectionEvent, Point, PoseSample, PoseStatus } from "../../types";
 import {
   loadColabResult,
+  loadColabJobs,
   loadLatestColabJob,
   stageVideo,
   startColabJob,
@@ -97,6 +98,20 @@ function timelineBins(samples: PoseSample[], count = 120) {
   });
 }
 
+function jobElapsedSeconds(job: ColabJob, now: number) {
+  const startedAt = Date.parse(job.createdAt);
+  const endedAt = job.status === "queued" || job.status === "running" ? now : Date.parse(job.updatedAt);
+  if (!Number.isFinite(startedAt) || !Number.isFinite(endedAt)) return 0;
+  return Math.max(0, (endedAt - startedAt) / 1000);
+}
+
+function jobStatusLabel(job: ColabJob) {
+  if (job.status === "succeeded") return "Concluída";
+  if (job.status === "failed") return "Falhou";
+  if (job.status === "queued") return "Na fila";
+  return "Processando";
+}
+
 export function TrackingEditor({ experimentId }: { experimentId: string }) {
   const {
     getExperiment,
@@ -110,7 +125,6 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   const experiment = getExperiment(experimentId);
   const asset = assets[experimentId];
   const videoRef = useRef<HTMLVideoElement>(null);
-  const csvRef = useRef<HTMLInputElement>(null);
   const videoFileRef = useRef<HTMLInputElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const restoredJobRef = useRef(false);
@@ -126,6 +140,8 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [analysisMessage, setAnalysisMessage] = useState("");
   const [analysisStarting, setAnalysisStarting] = useState(false);
+  const [analysisHistory, setAnalysisHistory] = useState<ColabJob[]>([]);
+  const [jobClock, setJobClock] = useState(() => Date.now());
   const [drag, setDrag] = useState<{ keypoint: string; before: Point; current: Point } | null>(null);
 
   useEffect(() => {
@@ -160,6 +176,27 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
       })
       .catch(() => undefined);
   }, [experiment, experimentId, setTrackingData, trackingData, updateExperiment]);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let cancelled = false;
+    const refreshHistory = () => {
+      void loadColabJobs(experimentId)
+        .then((jobs) => {
+          if (!cancelled) setAnalysisHistory(jobs);
+        })
+        .catch(() => undefined);
+    };
+    refreshHistory();
+    const timer = window.setInterval(() => {
+      setJobClock(Date.now());
+      refreshHistory();
+    }, 2_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [experimentId]);
 
   const rawSamples = trackingData[experimentId] ?? [];
   const correctedSamples = useMemo(
@@ -331,22 +368,6 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     }
   };
 
-  const handleCsv = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    try {
-      const samples = parseCanonicalPoseCsv(await file.text());
-      setTrackingData(experiment.id, samples);
-      updateExperiment(experiment.id, { status: "review", referencePoint: samples.some((sample) => sample.keypoint === "body_center") ? "body_center" : samples[0].keypoint });
-      setCurrentTime(samples[0].timestampSec);
-      setCsvError(null);
-    } catch (error) {
-      setCsvError(error instanceof Error ? error.message : "Não foi possível importar o CSV.");
-    } finally {
-      event.target.value = "";
-    }
-  };
-
   const attachVideoFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -403,10 +424,12 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
       });
       const started = await startColabJob(experiment.id, uploadId);
       setAnalysisJob(started);
+      setAnalysisHistory((jobs) => [started, ...jobs.filter((job) => job.jobId !== started.jobId)]);
       const completed = await waitForColabJob(started.jobId, (job) => {
         setAnalysisJob(job);
         setAnalysisProgress(job.progress);
         setAnalysisMessage(job.message);
+        setAnalysisHistory((jobs) => [job, ...jobs.filter((item) => item.jobId !== job.jobId)]);
       });
       if (completed.status === "failed") {
         throw new Error(completed.error || "O job Colab falhou sem detalhes.");
@@ -435,13 +458,12 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
 
   return (
     <div className="tracking-page">
-      <input ref={csvRef} type="file" accept=".csv,text/csv" className="sr-only" onChange={handleCsv} />
       <input ref={videoFileRef} type="file" accept="video/*" className="sr-only" onChange={attachVideoFile} />
       <header className="editor-header">
         <button className="back-link" onClick={() => navigate({ name: "dashboard" })}><ArrowLeft size={16} /> Experimentos</button>
         <div className="editor-title"><div><h1>{experiment.title}</h1><p>{experiment.subjectId}{experiment.group ? ` · ${experiment.group}` : ""} · Campo aberto</p></div><Badge tone={rawSamples.length ? "warning" : "neutral"} dot>{rawSamples.length ? "Em revisão" : "Sem tracking"}</Badge></div>
         <div className="editor-header-actions">
-          <Button variant="secondary" icon={<FileUp size={16} />} onClick={() => csvRef.current?.click()}>Importar pose CSV</Button>
+          {!rawSamples.length && <Button className="analyze-button header-analyze" icon={<CloudCog size={16} />} onClick={() => void runColabAnalysis()}>Analisar no Colab</Button>}
           <Button disabled={!rawSamples.length} icon={<BarChart3 size={16} />} onClick={() => navigate({ name: "results", experimentId })}>Ver resultados</Button>
         </div>
       </header>
@@ -461,11 +483,8 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
             </div>
           ) : (
             <div className="tracking-empty-actions">
-              <Button icon={<CloudCog size={17} />} onClick={() => void runColabAnalysis()}>
+              <Button className="analyze-button" size="lg" icon={<CloudCog size={19} />} onClick={() => void runColabAnalysis()}>
                 Analisar no Colab
-              </Button>
-              <Button variant="secondary" icon={<FileUp size={17} />} onClick={() => csvRef.current?.click()}>
-                Importar CSV
               </Button>
             </div>
           )}
@@ -475,6 +494,20 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
               : "Ao reabrir o projeto, selecione novamente o vídeo original antes de analisar."}
           </small>
           <small>O SuperAnimal TopViewMouse foi desenvolvido para camundongos; resultados em ratos exigem validação manual.</small>
+          {analysisHistory.length > 0 && (
+            <section className="analysis-history" aria-label="Execuções do Colab">
+              <div className="analysis-history-heading"><span>Execuções no Colab</span><small>{analysisHistory.length} registro{analysisHistory.length === 1 ? "" : "s"}</small></div>
+              <div className="analysis-history-list">
+                {analysisHistory.slice(0, 4).map((job) => (
+                  <article className={`analysis-run analysis-run-${job.status}`} key={job.jobId}>
+                    <div className="analysis-run-status">{job.status === "succeeded" ? <CheckCircle2 size={16} /> : job.status === "failed" ? <AlertCircle size={16} /> : <CloudCog size={16} />}</div>
+                    <div><strong>{jobStatusLabel(job)}</strong><span>{job.error || job.message}</span></div>
+                    <time><Clock3 size={13} /> {formatDuration(jobElapsedSeconds(job, jobClock))}</time>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
         </section>
       ) : (
         <div className="editor-workspace">
@@ -615,6 +648,18 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
               <div><History size={16} /><span>{activeEvents.length} intervenções ativas</span></div>
               <small>Dados brutos preservados</small>
             </section>
+            {analysisHistory.length > 0 && (
+              <section className="inspector-section editor-run-summary">
+                <div className="inspector-label">Última execução Colab</div>
+                {analysisHistory.slice(0, 2).map((job) => (
+                  <div className={`editor-run-item editor-run-${job.status}`} key={job.jobId}>
+                    <strong>{jobStatusLabel(job)}</strong>
+                    <span>{job.error || job.message}</span>
+                    <small>{formatDuration(jobElapsedSeconds(job, jobClock))} · {job.progress}%</small>
+                  </div>
+                ))}
+              </section>
+            )}
           </aside>
         </div>
       )}
