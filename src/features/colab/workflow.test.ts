@@ -52,4 +52,9 @@ describe("checkpoints da análise", () => {
     expect(steps[5].state).toBe("active");
     expect(steps[5].event?.message).toContain("Reconectando");
   });
+  it("mantém renderização separada sem reabrir a etapa de inferência", () => {
+    const steps = checkpoints(job({stage:"rendering",resultsReady:true,events:[event(1,"inference"),event(2,"downloading"),event(3,"rendering")]}));
+    expect(steps[5].state).toBe("done");
+    expect(steps[6].state).toBe("active");
+  });
 });

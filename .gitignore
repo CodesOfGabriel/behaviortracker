@@ -5,6 +5,8 @@ src-tauri/target/
 .DS_Store
 *.log
 *.tsbuildinfo
+__pycache__/
+*.py[cod]
 .env
 .env.*
 !.env.example

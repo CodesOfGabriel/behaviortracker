@@ -50,6 +50,7 @@ import {
   type ColabJob,
 } from "../colab/analysis";
 import { AnalysisWorkflow } from "../colab/AnalysisWorkflow";
+import { DiagnosticPanel } from "../colab/DiagnosticPanel";
 import { BehaviorReview } from "./BehaviorReview";
 import {
   COLAB_PROFILE_ID,
@@ -150,12 +151,16 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   const [analysisJob, setAnalysisJob] = useState<ColabJob | null>(null);
   const [analysisMessage, setAnalysisMessage] = useState("");
   const [analysisStarting, setAnalysisStarting] = useState(false);
+  const [diagnosticOpen, setDiagnosticOpen] = useState(false);
+  const [diagnosticBusy, setDiagnosticBusy] = useState(false);
   const [analysisHistory, setAnalysisHistory] = useState<ColabJob[]>([]);
   const [jobClock, setJobClock] = useState(() => Date.now());
   const [localStartedAt, setLocalStartedAt] = useState<number | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [drag, setDrag] = useState<{ keypoint: string; before: Point; current: Point } | null>(null);
-  const latestSuccessfulJobId = analysisHistory.find((job) => job.status === "succeeded")?.jobId;
+  const latestResultJob = analysisHistory.find((job) => job.resultsReady || job.status === "succeeded");
+  const latestSuccessfulJobId = latestResultJob?.jobId;
+  const latestResultStage = `${latestResultJob?.stage}:${latestResultJob?.status}`;
 
   useEffect(() => {
     if (!latestSuccessfulJobId || !isTauriRuntime()) return;
@@ -165,7 +170,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
       .catch((error) => { if (!cancelled) setDlcVideo({ jobId: latestSuccessfulJobId, videoUrl: null, videoError: typeof error === "string" ? error : "Não foi possível abrir o vídeo do DeepLabCut." }); })
       .finally(() => { if (!cancelled) setDlcVideoLoading(false); });
     return () => { cancelled = true; };
-  }, [latestSuccessfulJobId]);
+  }, [latestSuccessfulJobId, latestResultStage]);
 
   useEffect(() => {
     if (!experiment || trackingData[experimentId]) return;
@@ -176,8 +181,8 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
 
   useEffect(() => {
     const job = analysisHistory[0];
-    if (!experiment || !job || analysisStarting || !isTauriRuntime()) return;
-    if (job.status === "succeeded" && !trackingData[experimentId] && importedJobRef.current !== job.jobId) {
+    if (!experiment || !job || !isTauriRuntime()) return;
+    if ((job.resultsReady || job.status === "succeeded") && !trackingData[experimentId] && importedJobRef.current !== job.jobId) {
       importedJobRef.current = job.jobId;
       void loadColabResult(job.jobId).then((csv) => {
         const samples = parseCanonicalPoseCsv(csv);
@@ -189,7 +194,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
             ? "body_center"
             : samples[0].keypoint,
         });
-      }).catch((error) => setCsvError(typeof error === "string" ? error : "Não foi possível carregar o resultado da análise."));
+      }).catch((error) => { importedJobRef.current = null; setCsvError(typeof error === "string" ? error : "Não foi possível carregar o resultado da análise."); });
     } else if (job.status === "failed" && experiment.status === "processing") {
       updateExperiment(experimentId, { status: "failed" });
       setCsvError(job.error);
@@ -202,7 +207,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     const refreshHistory = () => {
       void loadColabJobs(experimentId)
         .then((jobs) => {
-          if (!cancelled) setAnalysisHistory(jobs);
+          if (!cancelled) setAnalysisHistory(jobs.filter((job) => !job.diagnostic));
         })
         .catch(() => undefined);
     };
@@ -297,6 +302,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
+      if ((event.target as HTMLElement)?.closest(".diagnostic-panel")) return;
       if (videoView === "deeplabcut") return;
       if ((event.target as HTMLElement)?.matches("input, textarea, select")) return;
       if (event.code === "Space") {
@@ -465,7 +471,8 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
         setAnalysisHistory((jobs) => [job, ...jobs.filter((item) => item.jobId !== job.jobId)]);
       });
       if (completed.status === "failed") {
-        throw new Error(completed.error || "O job Colab falhou sem detalhes.");
+        if (!completed.resultsReady) throw new Error(completed.error || "O job Colab falhou sem detalhes.");
+        setCsvError(`Poses preservadas para revisão. A execução parou após a inferência: ${completed.error || completed.message}`);
       }
       const samples = parseCanonicalPoseCsv(await loadColabResult(completed.jobId));
       setTrackingData(experiment.id, samples);
@@ -509,13 +516,16 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
         <button className="back-link" onClick={() => navigate({ name: "dashboard" })}><ArrowLeft size={16} /> Experimentos</button>
         <div className="editor-title"><div><h1>{experiment.title}</h1><p>{experiment.subjectId}{experiment.group ? ` · ${experiment.group}` : ""} · Campo aberto</p></div><Badge tone={rawSamples.length ? "warning" : "neutral"} dot>{rawSamples.length ? "Em revisão" : "Sem tracking"}</Badge></div>
         <div className="editor-header-actions">
-          <Button className="analyze-button header-analyze" disabled={analysisBusy} icon={<CloudCog size={16} />} onClick={() => void runColabAnalysis()}>{rawSamples.length ? "Reprocessar no Colab" : "Analisar no Colab"}</Button>
+          <Button variant="secondary" icon={<ScanSearch size={16} />} onClick={() => setDiagnosticOpen((value) => !value)}>Testar rastreamento</Button>
+          <Button className="analyze-button header-analyze" disabled={analysisBusy || diagnosticBusy} icon={<CloudCog size={16} />} onClick={() => void runColabAnalysis()}>{rawSamples.length ? "Reprocessar no Colab" : "Analisar no Colab"}</Button>
           <Button disabled={!rawSamples.length} icon={<BarChart3 size={16} />} onClick={() => navigate({ name: "results", experimentId })}>Ver resultados</Button>
         </div>
       </header>
+      <DiagnosticPanel key={experiment.id} experiment={experiment} file={asset?.file} open={diagnosticOpen} disabled={analysisBusy} onAttach={() => videoFileRef.current?.click()} onBusy={setDiagnosticBusy} />
 
       {csvError && csvError !== visibleJob?.error && <div className="editor-error"><AlertCircle size={16} /> {csvError}</div>}
       {inputSamples[0]?.recoveryState === "unavailable" && <div className="editor-error"><AlertCircle size={16} /> A segunda passagem visual não estava disponível neste runtime. As detecções originais foram preservadas; consulte o diário da execução antes de considerar a recuperação concluída.</div>}
+      {inputSamples[0]?.recoveryState === "limited" && <div className="editor-error"><AlertCircle size={16} /> A recuperação atingiu seu limite de tentativas ou tempo. Lacunas restantes foram preservadas para revisão, sem inventar posições.</div>}
       {rawSamples.length > 0 && analysisBusy && <AnalysisWorkflow job={visibleJob} preparing={analysisStarting && !currentJob}
         message={analysisMessage} localError={null} elapsedSec={elapsedSec} />}
 
@@ -528,7 +538,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
             message={analysisMessage} localError={!visibleJob ? csvError : null} elapsedSec={elapsedSec} />
           {!analysisBusy && (
             <div className="tracking-empty-actions">
-              <Button className="analyze-button" size="lg" icon={<CloudCog size={19} />} onClick={() => void runColabAnalysis()}>
+              <Button className="analyze-button" size="lg" disabled={diagnosticBusy} icon={<CloudCog size={19} />} onClick={() => void runColabAnalysis()}>
                 Analisar no Colab
               </Button>
             </div>

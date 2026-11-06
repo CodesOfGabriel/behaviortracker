@@ -47,6 +47,8 @@ pub struct ColabJob {
     created_at: String,
     updated_at: String,
     events: Vec<ColabJobEvent>,
+    diagnostic: Option<DiagnosticRange>,
+    results_ready: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -69,6 +71,22 @@ pub struct StartAnalysisRequest {
     workload: AnalysisWorkload,
     #[serde(default)]
     arena: Option<AnalysisArena>,
+    #[serde(default)]
+    diagnostic: Option<DiagnosticRange>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticRange { start_sec: f64, end_sec: f64 }
+
+impl DiagnosticRange {
+    fn validate(&self, duration: f64) -> CommandResult<()> {
+        if !self.start_sec.is_finite() || !self.end_sec.is_finite() || self.start_sec < 0.0
+            || self.end_sec <= self.start_sec || self.end_sec - self.start_sec > 60.0 || self.end_sec > duration + 0.001 {
+            return Err("Selecione um trecho válido de até 60 segundos dentro do vídeo.".into());
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -347,6 +365,12 @@ pub(crate) fn prepare_tables(app: &AppHandle) -> CommandResult<()> {
                labeled_video_path TEXT,
                video_error TEXT
              );
+             CREATE TABLE IF NOT EXISTS colab_job_diagnostics (
+               job_id TEXT PRIMARY KEY REFERENCES colab_jobs(job_id),
+               range_json TEXT NOT NULL,
+               report_path TEXT,
+               raw_pose_path TEXT
+             );
              CREATE TABLE IF NOT EXISTS colab_job_geometry (
                job_id TEXT PRIMARY KEY REFERENCES colab_jobs(job_id),
                geometry_json TEXT NOT NULL
@@ -524,6 +548,8 @@ fn row_to_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<ColabJob> {
         created_at: row.get(8)?,
         updated_at: row.get(9)?,
         events: Vec::new(),
+        diagnostic: None,
+        results_ready: false,
     })
 }
 
@@ -539,7 +565,16 @@ fn get_job(app: &AppHandle, job_id: &str) -> CommandResult<ColabJob> {
         )
         .map_err(|_| "Job Colab não encontrado.".to_string())?;
     job.events = job_events(&connection, job_id)?;
+    enrich_job(&connection, &mut job)?;
     Ok(job)
+}
+
+fn enrich_job(connection: &Connection, job: &mut ColabJob) -> CommandResult<()> {
+    let range: Option<String> = connection.query_row("SELECT range_json FROM colab_job_diagnostics WHERE job_id=?1", [&job.job_id], |row| row.get(0))
+        .optional().map_err(|_| "Não foi possível consultar o tipo da execução")?;
+    job.diagnostic = range.map(|text| serde_json::from_str(&text).map_err(|_| "Trecho diagnóstico inválido")).transpose()?;
+    job.results_ready = connection.query_row("SELECT result_path IS NOT NULL FROM colab_jobs WHERE job_id=?1", [&job.job_id], |row| row.get(0)).map_err(|_| "Não foi possível consultar as poses")?;
+    Ok(())
 }
 
 fn job_events(connection: &Connection, job_id: &str) -> CommandResult<Vec<ColabJobEvent>> {
@@ -1364,6 +1399,10 @@ fn run_background_task(
         &background_poll_code(directory, task),
         if task == "setup" {
             "Preparando DeepLabCut"
+        } else if task == "render" {
+            "Gerando vídeo rotulado · poses já disponíveis"
+        } else if job.diagnostic.is_some() {
+            "Diagnóstico curto do detector e da pose"
         } else {
             "SuperAnimal em execução"
         },
@@ -1515,6 +1554,31 @@ fn prepare_environment_with(
     Ok(())
 }
 
+fn diagnostic_code(video: &str, output: &str, csv: &str, arena: Option<&AnalysisArena>, range: &DiagnosticRange) -> String {
+    format!(r#"import json, runpy
+from pathlib import Path
+output = Path({output:?})
+output.mkdir(parents=True, exist_ok=True)
+if not (Path({csv:?} + '.complete').is_file() and (output / 'diagnostic_report.json').is_file()):
+    (output / 'arena_helpers.py').write_text({geometry:?}, encoding='utf-8')
+    (output / 'diagnostic_helpers.py').write_text({diagnostic:?}, encoding='utf-8')
+    runpy.run_path(str(output / 'diagnostic_helpers.py'))['run_diagnostic']({video:?}, str(output), {csv:?}, json.loads({arena:?}), runpy.run_path(str(output / 'arena_helpers.py')), json.loads({selection:?}))
+"#, geometry = include_str!("../python/arena.py"), diagnostic = include_str!("../python/diagnostic.py"), arena = serde_json::to_string(&arena).unwrap(), selection = serde_json::to_string(range).unwrap())
+}
+
+fn render_code(output: &str) -> String {
+    format!(r#"import json, runpy, time
+from pathlib import Path
+output = Path({output:?})
+helper = output / 'labeled_video_helpers.py'
+helper.write_text({helper:?}, encoding='utf-8')
+request = json.loads((output / 'render_request.json').read_text())
+started = time.perf_counter()
+runpy.run_path(str(helper))['render_labeled_video'](request['video'], request['h5'], request['fps'], request['geometry'], str(output), request['frames'])
+print('BEHAVETRACKER_RENDER_SEC=' + str(time.perf_counter() - started), flush=True)
+"#, helper = include_str!("../python/labeled_video.py"))
+}
+
 fn inference_code(
     remote_video: &str,
     remote_output: &str,
@@ -1527,6 +1591,7 @@ import math
 import os
 import json
 import runpy
+import time
 from pathlib import Path
 
 import cv2
@@ -1543,9 +1608,6 @@ geometry_api = runpy.run_path(str(helpers))
 recovery_helpers = Path(output_dir) / "recovery_helpers.py"
 recovery_helpers.write_text({recovery_helpers:?}, encoding="utf-8")
 recovery_api = runpy.run_path(str(recovery_helpers))
-video_helpers = Path(output_dir) / "labeled_video_helpers.py"
-video_helpers.write_text({labeled_video_helpers:?}, encoding="utf-8")
-video_api = runpy.run_path(str(video_helpers))
 capture = cv2.VideoCapture(video_path)
 fps = float(capture.get(cv2.CAP_PROP_FPS))
 video_width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -1559,6 +1621,7 @@ geometry["recoveryPolicy"] = recovery_api["POLICY"]
 Path(output_dir, "arena_geometry.json").write_text(json.dumps(geometry, ensure_ascii=False, indent=2), encoding="utf-8")
 print("BEHAVETRACKER_GEOMETRY=" + json.dumps(geometry), flush=True)
 
+inference_started = time.perf_counter()
 video_inference_superanimal(
     videos=video_path,
     superanimal_name="superanimal_topviewmouse",
@@ -1570,7 +1633,10 @@ video_inference_superanimal(
     create_labeled_video=False,
     plot_trajectories=False,
     cropping=geometry["cropping"],
+    batch_size=2,
+    detector_batch_size=2,
 )
+inference_sec = time.perf_counter() - inference_started
 
 h5_files = sorted(glob.glob(os.path.join(output_dir, "*.h5")), key=os.path.getmtime)
 if not h5_files:
@@ -1634,8 +1700,10 @@ raw_frames = [{{name: raw_point(name, position) for name in all_bodyparts}} for 
 if any(int(frame) != position for position, frame in enumerate(poses.index)):
     raise RuntimeError("Índices de frames não consecutivos: recuperação temporal cancelada para preservar sincronização")
 recovery = recovery_api["VisualRecovery"](video_path, geometry)
+recovery.attempt_limit = min(recovery_api["POLICY"]["maxAttempts"], max(1, math.ceil(len(raw_frames) * recovery_api["POLICY"]["maxRetryFraction"])))
 print("Recuperando detecções parciais com evidência visual e histórico curto", flush=True)
 print(f"BEHAVETRACKER_RECOVERY_PROGRESS=0/{{len(raw_frames)}}", flush=True)
+recovery_started = time.perf_counter()
 recovered_frames = recovery_api["recover_frames"](raw_frames, fps, geometry, recovery.retry)
 
 def append_row(frame, name, point, original, support, total, recovered, original_support):
@@ -1662,14 +1730,18 @@ for numeric_frame, (points, recovered_names) in enumerate(recovered_frames):
         append_row(numeric_frame, canonical_name, point, point_at(bodypart, raw), int(point[3] != "missing"), 1,
             bodypart in recovered_names, int(point_at(bodypart, raw)[3] != "missing"))
 recovery.close()
+recovery_sec = time.perf_counter() - recovery_started
+export_started = time.perf_counter()
 print(f"BEHAVETRACKER_RECOVERY_PROGRESS={{len(raw_frames)}}/{{len(raw_frames)}}", flush=True)
 print("BEHAVETRACKER_RECOVERY=" + json.dumps({{"attempted": recovery.attempted, "accepted": recovery.accepted,
-    "unavailable": recovery.disabled_reason, "policy": recovery_api["POLICY"]}}), flush=True)
+    "unavailable": recovery.disabled_reason, "skippedBudget": recovery.skipped_budget, "policy": recovery_api["POLICY"]}}), flush=True)
 
-recovery_state = "unavailable" if recovery.disabled_reason else "ready" if recovery.attempted else "not_needed"
+recovery_state = "unavailable" if recovery.disabled_reason else "limited" if recovery.skipped_budget else "ready" if recovery.attempted else "not_needed"
 canonical = pd.DataFrame([row + [recovery_state] for row in rows], columns=["frame_index", "timestamp_sec", "animal_id", "keypoint", "x_px", "y_px", "likelihood", "status", "spatial_region", "support_count", "support_total", "source", "raw_x_px", "raw_y_px", "raw_likelihood", "raw_status", "raw_spatial_region", "raw_support_count", "raw_support_total", "recovery_state"])
 canonical.to_csv(canonical_path, index=False)
-video_api["render_labeled_video"](video_path, h5_files[-1], fps, geometry, output_dir, len(poses.index))
+Path(output_dir, "render_request.json").write_text(json.dumps({{"video": video_path, "h5": h5_files[-1], "fps": fps, "geometry": geometry, "frames": len(poses.index)}}), encoding="utf-8")
+Path(output_dir, "analysis_profile.json").write_text(json.dumps({{"inferenceSec": inference_sec, "recoverySec": recovery_sec, "exportSec": time.perf_counter() - export_started, "recoveryAttempts": recovery.attempted, "recoveryAccepted": recovery.accepted, "recoverySkippedBudget": recovery.skipped_budget}}), encoding="utf-8")
+print(f"BEHAVETRACKER_TIMINGS inference={{inference_sec:.2f}}s recovery={{recovery_sec:.2f}}s export={{time.perf_counter() - export_started:.2f}}s", flush=True)
 Path(canonical_path + ".complete").write_text("ok", encoding="utf-8")
 print(f"BEHAVETRACKER_RESULT={{canonical_path}}|rows={{len(canonical)}}|fps={{fps:.6f}}")
 "#,
@@ -1678,7 +1750,6 @@ print(f"BEHAVETRACKER_RESULT={{canonical_path}}|rows={{len(canonical)}}|fps={{fp
         canonical_csv = canonical_csv,
         arena_helpers = include_str!("../python/arena.py"),
         recovery_helpers = include_str!("../python/recovery.py"),
-        labeled_video_helpers = include_str!("../python/labeled_video.py"),
         arena_json = serde_json::to_string(&arena).expect("validated arena is serializable"),
     );
     format!("from pathlib import Path\nif Path({canonical_csv:?}).is_file() and Path({:?}).is_file():\n    print('BEHAVETRACKER_RESULT_CACHED')\nelse:\n{}",
@@ -1759,12 +1830,20 @@ fn run_analysis(
     upload_id: String,
     workload: AnalysisWorkload,
     arena: Option<AnalysisArena>,
+    diagnostic: Option<DiagnosticRange>,
 ) -> CommandResult<()> {
     prepare_tables(&app)?;
     update_job(&app, &job_id, "running", "authorizing", 2, "Preparando o vídeo local sem reduzir resolução ou FPS")?;
-    let preparation = crate::video::prepare_staged_video(&app, &upload_id, workload.width, workload.height)?;
-    update_job(&app, &job_id, "running", "authorizing", 3, &format!("{} · {} → {} bytes", preparation.message, preparation.original_bytes, preparation.upload_bytes))?;
-    let upload_id = preparation.upload_id;
+    let upload_id = if let Some(range) = &diagnostic {
+        let clip = crate::video::prepare_diagnostic_video(&app, &upload_id, &job_id, range.start_sec, range.end_sec, workload.width, workload.height)?;
+        update_job(&app, &job_id, "running", "authorizing", 3, "Trecho curto preparado e pixels conferidos; o vídeo completo não será enviado")?;
+        clip
+    } else {
+        let preparation = crate::video::prepare_staged_video(&app, &upload_id, workload.width, workload.height)?;
+        update_job(&app, &job_id, "running", "authorizing", 3, &format!("{} · {} → {} bytes", preparation.message, preparation.original_bytes, preparation.upload_bytes))?;
+        preparation.upload_id
+    };
+    let runtime_workload = AnalysisWorkload { duration_sec: diagnostic.as_ref().map_or(workload.duration_sec, |range| range.end_sec - range.start_sec), ..workload };
     let (local_path, original_filename, size, sha256, ready): (
         String,
         String,
@@ -1808,7 +1887,7 @@ fn run_analysis(
         10,
         "Localizando um runtime GPU elegível",
     )?;
-    let (runtime, selection_message) = choose_or_create_runtime(&access_token, &workload)?;
+    let (runtime, selection_message) = choose_or_create_runtime(&access_token, &runtime_workload)?;
     update_job(&app, &job_id, "running", "runtime", 12, &selection_message)?;
     if runtime.name.is_empty() {
         return Err("O Colab retornou um runtime sem identificador.".into());
@@ -1937,7 +2016,7 @@ fn run_analysis(
             "running",
             "inference",
             65,
-            if arena
+            if diagnostic.is_some() { "Diagnóstico curto · medindo detector e pose separadamente, sem recuperação ou adaptação" } else if arena
                 .as_ref()
                 .is_some_and(|geometry| geometry.rim_corners_px.is_some())
             {
@@ -1946,13 +2025,18 @@ fn run_analysis(
                 "Executando SuperAnimal no vídeo inteiro · projeto sem borda calibrada; não será aplicado recorte só no chão"
             },
         )?;
+        let code = if let Some(range) = &diagnostic {
+            diagnostic_code(&absolute_video, &remote_output, &remote_csv, arena.as_ref(), range)
+        } else {
+            inference_code(&absolute_video, &remote_output, &remote_csv, arena.as_ref())
+        };
         run_background_task(
             &app,
             &job_id,
             &session,
             &absolute_directory,
             "inference",
-            &inference_code(&absolute_video, &remote_output, &remote_csv, arena.as_ref()),
+            &code,
         )?;
         update_job(
             &app,
@@ -1986,6 +2070,22 @@ fn run_analysis(
                 params![&job_id, result_path.to_string_lossy().as_ref()],
             )
             .map_err(|_| "Não foi possível registrar o resultado do job.".to_string())?;
+        if diagnostic.is_some() {
+            let report_path = result_directory.join(format!("{job_id}-diagnostic.json"));
+            download_result(&refreshed_connection, &format!("{remote_directory}/output/diagnostic_report.json"), &report_path)?;
+            let report: Value = serde_json::from_str(&fs::read_to_string(&report_path).map_err(|_| "Não foi possível ler o diagnóstico")?).map_err(|_| "Relatório diagnóstico inválido")?;
+            if report["schemaVersion"].as_u64() != Some(1) { return Err("Versão de diagnóstico não reconhecida".into()); }
+            open_database(&app)?.execute("UPDATE colab_job_diagnostics SET report_path=?2, raw_pose_path=?3 WHERE job_id=?1",
+                params![&job_id, report_path.to_string_lossy().as_ref(), result_path.to_string_lossy().as_ref()]).map_err(|_| "Não foi possível registrar o diagnóstico")?;
+            update_job(&app, &job_id, "succeeded", "completed", 100, "Diagnóstico disponível · revise caixas, pontos brutos e tempos; as métricas do experimento não foram alteradas")?;
+            return Ok(());
+        }
+        download_result(&refreshed_connection, &format!("{remote_directory}/output/analysis_profile.json"), &result_directory.join(format!("{job_id}-profile.json")))?;
+        update_job(&app, &job_id, "running", "rendering", 94, "Poses disponíveis para revisão · gerando o vídeo rotulado em tarefa separada")?;
+        run_background_task(&app, &job_id, &session, &absolute_directory, "render", &render_code(&remote_output))?;
+        let video_token = google_access_token(&app, PROFILE_ID)?;
+        let video_runtime = get_runtime(&api_client()?, &video_token, &runtime.name)?;
+        let refreshed_connection = video_runtime.connection_info.ok_or("O runtime não renovou a conexão para receber o vídeo")?;
         update_job(&app, &job_id, "running", "downloading", 96, "Recebendo o vídeo rotulado pelo DeepLabCut")?;
         let video_result = download_labeled_video(&refreshed_connection, &format!("{remote_directory}/output"), &result_directory, &job_id);
         let (video_path, video_error) = match video_result {
@@ -2014,7 +2114,6 @@ fn run_analysis(
         }
     }
     session_result.map_err(|error| error.message)?;
-    let _ = fs::remove_file(local_path);
     Ok(())
 }
 
@@ -2026,6 +2125,7 @@ pub fn start_colab_analysis(
     validate_local_id(&request.experiment_id, "Experimento")?;
     validate_local_id(&request.upload_id, "Upload")?;
     request.workload.validate()?;
+    if let Some(range) = &request.diagnostic { range.validate(request.workload.duration_sec)?; }
     if let Some(arena) = &request.arena {
         arena.validate(&request.workload)?;
     }
@@ -2055,7 +2155,9 @@ pub fn start_colab_analysis(
         .optional()
         .map_err(|_| "Não foi possível verificar jobs ativos.".to_string())?
     {
-        return get_job(&app, &active.job_id);
+        let active = get_job(&app, &active.job_id)?;
+        if active.diagnostic != request.diagnostic { return Err("Já existe outra execução ativa neste experimento. Aguarde antes de iniciar este teste.".into()); }
+        return Ok(active);
     }
     let job_id = new_uuid_v4();
     let transaction = connection
@@ -2079,11 +2181,14 @@ pub fn start_colab_analysis(
             "INSERT INTO colab_job_geometry(job_id, geometry_json) VALUES (?1, ?2)",
             params![
                 &job_id,
-                serde_json::to_string(&json!({"poseAdapterVersion":"superanimal-canonical-3", "recoveryVersion":"visual-recovery-1", "arena": &request.arena}))
+                serde_json::to_string(&json!({"poseAdapterVersion":"superanimal-canonical-3", "recoveryVersion":"visual-recovery-2", "arena": &request.arena}))
                     .map_err(|_| "Não foi possível serializar a geometria.")?
             ],
         )
         .map_err(|_| "Não foi possível registrar a borda e o chão deste job.".to_string())?;
+    if let Some(range) = &request.diagnostic {
+        transaction.execute("INSERT INTO colab_job_diagnostics(job_id,range_json) VALUES (?1,?2)", params![&job_id, serde_json::to_string(range).map_err(|_| "Intervalo inválido")?]).map_err(|_| "Não foi possível registrar o intervalo diagnóstico")?;
+    }
     transaction
         .commit()
         .map_err(|_| "Não foi possível concluir o registro do job.".to_string())?;
@@ -2106,6 +2211,7 @@ pub fn start_colab_analysis(
             task_upload_id,
             request.workload,
             request.arena,
+            request.diagnostic,
         ) {
             let _ = fail_job(&task_app, &task_job_id, &error);
         }
@@ -2118,7 +2224,12 @@ pub fn get_colab_job_log(app: AppHandle, job_id: String) -> CommandResult<String
     validate_local_id(&job_id, "Job")?;
     get_job(&app, &job_id)?;
     let mut sections = Vec::new();
-    for task in ["setup", "inference"] {
+    let profile = app.path().app_data_dir().map_err(|_| "Pasta do app indisponível")?.join("results").join(format!("{job_id}-profile.json"));
+    if profile.is_file() {
+        let body = fs::read_to_string(profile).map_err(|_| "Perfil de tempos indisponível")?;
+        sections.push(format!("=== Medições da análise (segundos) ===\n{body}\nrecoverySec inclui recuperação e conversão dos pontos; o vídeo é medido no log render."));
+    }
+    for task in ["setup", "inference", "render"] {
         let path = job_log_path(&app, &job_id, task)?;
         if !path.is_file() {
             continue;
@@ -2154,14 +2265,14 @@ pub fn get_colab_job_log(app: AppHandle, job_id: String) -> CommandResult<String
 pub fn get_colab_job_result(app: AppHandle, job_id: String) -> CommandResult<String> {
     validate_local_id(&job_id, "Job")?;
     prepare_tables(&app)?;
-    let (status, result_path): (String, Option<String>) = open_database(&app)?
+    let (_status, result_path): (String, Option<String>) = open_database(&app)?
         .query_row(
             "SELECT status, result_path FROM colab_jobs WHERE job_id = ?1",
             params![&job_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .map_err(|_| "Job Colab não encontrado.".to_string())?;
-    if status != "succeeded" {
+    if result_path.is_none() {
         return Err("O resultado ainda não está disponível.".into());
     }
     fs::read_to_string(
@@ -2171,16 +2282,35 @@ pub fn get_colab_job_result(app: AppHandle, job_id: String) -> CommandResult<Str
 }
 
 #[tauri::command]
+pub fn get_colab_diagnostic_result(app: AppHandle, job_id: String) -> CommandResult<Value> {
+    validate_local_id(&job_id, "Job")?;
+    let job = get_job(&app, &job_id)?;
+    if job.diagnostic.is_none() || job.status != "succeeded" { return Err("Diagnóstico ainda não disponível".into()); }
+    let (report, poses): (Option<String>, Option<String>) = open_database(&app)?.query_row(
+        "SELECT report_path,raw_pose_path FROM colab_job_diagnostics WHERE job_id=?1", [&job_id], |row| Ok((row.get(0)?,row.get(1)?))).map_err(|_| "Diagnóstico não encontrado")?;
+    let directory = app.path().app_data_dir().map_err(|_| "Diretório do app indisponível")?.join("results");
+    let expected_report = directory.join(format!("{job_id}-diagnostic.json"));
+    let expected_poses = directory.join(format!("{job_id}.csv"));
+    if report.as_deref().map(Path::new) != Some(expected_report.as_path()) || poses.as_deref().map(Path::new) != Some(expected_poses.as_path()) { return Err("Arquivos diagnósticos fora da pasta de resultados".into()); }
+    let report: Value = serde_json::from_str(&fs::read_to_string(expected_report).map_err(|_| "Relatório diagnóstico indisponível")?).map_err(|_| "Relatório diagnóstico inválido")?;
+    let csv = fs::read_to_string(expected_poses).map_err(|_| "Pontos brutos indisponíveis")?;
+    let clip = directory.join(format!("{job_id}-clip.mp4"));
+    Ok(json!({"report": report, "rawPoseCsv": csv, "clipPath": if clip.is_file() {Some(clip.to_string_lossy().into_owned())} else {None}}))
+}
+
+#[tauri::command]
 pub fn get_colab_job_video(app: AppHandle, job_id: String) -> CommandResult<Value> {
     validate_local_id(&job_id, "Job")?;
     prepare_tables(&app)?;
     let connection = open_database(&app)?;
     let status: String = connection.query_row("SELECT status FROM colab_jobs WHERE job_id = ?1", [&job_id], |row| row.get(0)).map_err(|_| "Job não encontrado")?;
-    if status != "succeeded" { return Err("O vídeo ainda não está disponível".into()); }
     let artifact: Option<(Option<String>, Option<String>)> = connection.query_row(
         "SELECT labeled_video_path,video_error FROM colab_job_artifacts WHERE job_id = ?1", [&job_id], |row| Ok((row.get(0)?, row.get(1)?)))
         .optional().map_err(|_| "Não foi possível consultar o vídeo local")?;
-    let (mut path, mut error) = artifact.unwrap_or((None, Some("Esta execução não possui vídeo rotulado. Reprocesse no Colab para gerá-lo.".into())));
+    let absent = if status == "running" || status == "queued" { "O vídeo rotulado ainda está sendo preparado. As poses já recebidas podem ser revisadas no editor." }
+        else if status == "failed" { "A execução foi interrompida antes de disponibilizar o vídeo. As poses recebidas foram preservadas; consulte o diário." }
+        else { "Esta execução não possui vídeo rotulado. Reprocesse no Colab para gerá-lo." };
+    let (mut path, mut error) = artifact.unwrap_or((None, Some(absent.into())));
     if let Some(candidate) = &path {
         let expected = app.path().app_data_dir().map_err(|_| "Diretório do app indisponível")?.join("results").join(format!("{job_id}-dlc.mp4"));
         if Path::new(candidate) != expected || !expected.is_file() { path = None; error = Some("O vídeo de resultado não está mais no dispositivo. Reprocesse no Colab.".into()); }
@@ -2199,7 +2329,7 @@ pub fn get_latest_colab_job(
         .query_row(
             "SELECT job_id
                FROM colab_jobs
-              WHERE experiment_id = ?1
+              WHERE experiment_id = ?1 AND NOT EXISTS (SELECT 1 FROM colab_job_diagnostics d WHERE d.job_id = colab_jobs.job_id)
               ORDER BY created_at DESC LIMIT 1",
             params![experiment_id],
             |row| row.get(0),
@@ -2230,6 +2360,7 @@ pub fn list_colab_jobs(app: AppHandle, experiment_id: String) -> CommandResult<V
         .map_err(|_| "Não foi possível montar o histórico de análises.".to_string())?;
     for job in &mut jobs {
         job.events = job_events(&connection, &job.job_id)?;
+        enrich_job(&connection, job)?;
     }
     Ok(jobs)
 }
@@ -2272,6 +2403,30 @@ mod tests {
         net::TcpListener,
         thread,
     };
+
+    #[test]
+    fn diagnostic_range_must_be_short_finite_and_inside_the_video() {
+        for (start,end,duration) in [(0.,60.,120.),(28./24.,120./24.,306.)] {
+            assert!(super::DiagnosticRange { start_sec:start,end_sec:end }.validate(duration).is_ok());
+        }
+        for (start,end,duration) in [(0.,61.,120.),(-1.,10.,20.),(4.,4.,20.),(10.,9.,20.),(0.,21.,20.),(f64::NAN,10.,20.),(0.,f64::INFINITY,20.)] {
+            assert!(super::DiagnosticRange { start_sec:start,end_sec:end }.validate(duration).is_err());
+        }
+    }
+
+    #[test]
+    fn generated_diagnostic_measures_detector_and_pose_without_touching_main_results() {
+        use std::process::{Command,Stdio};
+        let directory = std::env::temp_dir().join(format!("behavetracker-diagnostic-contract-{}",new_uuid_v4()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let source = super::diagnostic_code("fake.mp4", directory.join("output").to_str().unwrap(), directory.join("canonical.csv").to_str().unwrap(), Some(&calibrated_arena()), &super::DiagnosticRange { start_sec:1.,end_sec:2. });
+        let mut child = Command::new("python3").arg("-B").arg(concat!(env!("CARGO_MANIFEST_DIR"),"/python/check_diagnostic_contract.py")).arg(&directory).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+        child.stdin.take().unwrap().write_all(source.as_bytes()).unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
+        assert!(String::from_utf8_lossy(&output.stdout).contains("DIAGNOSTIC_CONTRACT_OK"));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn generates_a_uuid_v4_request_id() {
@@ -2990,6 +3145,8 @@ mod tests {
             super::environment_install_code(),
             background_launch_code("/content/behavetracker/job", "inference", "print('ready')"),
             background_poll_code("/content/behavetracker/job", "inference"),
+            super::render_code("/content/output"),
+            background_launch_code("/content/behavetracker/job", "render", "print('render')"),
             inference_code(
                 "/content/video.mp4",
                 "/content/output",

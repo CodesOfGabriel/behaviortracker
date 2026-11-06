@@ -62,7 +62,7 @@ export function AnalysisWorkflow({ job, preparing, message, localError, elapsedS
         <ol className="workflow-checkpoints">
           {steps.map((step, index) => {
             const Icon = icons[index];
-            const liveMessage = step.event?.stage === "environment_ready" || (step.state === "active" && [4, 5].includes(index));
+            const liveMessage = step.event?.stage === "environment_ready" || (step.state === "active" && [4, 5, 6].includes(index));
             const description = index === 1 && gpu ? gpu : liveMessage ? step.event?.message ?? step.description : step.description;
             return (
               <li key={step.title} className={`checkpoint checkpoint-${step.state}`} aria-current={step.state === "active" ? "step" : undefined}>

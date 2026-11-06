@@ -2,7 +2,7 @@ import types
 import unittest
 from unittest.mock import patch
 
-from recovery import POLICY, VisualRecovery, anchors, bounding_box, compatible, recover_frames
+from recovery import POLICY, VisualRecovery, anchors, bounding_box, compatible, recover_frames, needs_recovery
 
 
 def pose(x=50):
@@ -23,6 +23,30 @@ class RecoveryTests(unittest.TestCase):
 
     def test_nan_and_missing_scores_are_not_anchors(self):
         self.assertEqual(anchors({"a": (-1, -1, -1), "b": (1, 2, float("nan")), "c": (1, 2, 1.1)}), {})
+
+    def test_missing_ears_and_distal_tail_do_not_repeat_pose_inference(self):
+        points = pose()
+        points["left_ear"] = points["tail_tip"] = (-1, -1, -1)
+        self.assertFalse(needs_recovery(points))
+        points["hip"] = (-1, -1, -1)
+        self.assertTrue(needs_recovery(points))
+        calls = []
+        result = list(recover_frames([pose(), {**pose(), "left_ear": (-1,-1,-1)}], 24, self.geometry, lambda *args: calls.append(args) or {}))
+        self.assertFalse(calls)
+        self.assertFalse(result[-1][1])
+
+    def test_recovery_stops_starting_attempts_after_budget_without_inventing_points(self):
+        recovery = VisualRecovery("fake.mp4", self.geometry)
+        recovery.attempt_limit = 0
+        with patch.object(recovery, "_prepare", side_effect=AssertionError("budget exceeded")):
+            self.assertEqual(recovery.retry(1, pose(), 200, 200), {})
+        self.assertEqual(recovery.skipped_budget, 1)
+        self.assertEqual(recovery.attempted, 0)
+        recovery.attempt_limit = 1
+        recovery._started = 1
+        with patch("recovery.time.monotonic", return_value=62):
+            self.assertEqual(recovery.retry(2, pose(), 200, 200), {})
+        self.assertEqual(recovery.skipped_budget, 2)
 
     def test_rejects_inconsistent_visual_candidates(self):
         previous = pose()
@@ -72,7 +96,7 @@ class RecoveryTests(unittest.TestCase):
                 capture_calls.append(slices)
                 return self
         class Capture:
-            def set(self, prop, index): capture_calls.append((prop, index))
+            def grab(self): capture_calls.append("grab"); return True
             def read(self): return True, Image()
             def release(self): capture_calls.append("released")
         class Points(list):
@@ -105,6 +129,7 @@ class RecoveryTests(unittest.TestCase):
             recovery.close()
         self.assertEqual(len(builds), 1)
         self.assertEqual(recovery.accepted, 2)
+        self.assertEqual(capture_calls.count("grab"), 28)
         self.assertEqual(model_calls[0]["bboxes"][0], bounding_box(pose(), 200, 200))
         self.assertIn((slice(40, 240), slice(20, 220)), capture_calls)
 

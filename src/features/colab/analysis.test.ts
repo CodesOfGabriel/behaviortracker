@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { defaultArena } from "../../lib/demo-data";
-import { loadColabVideo, prepareVideo, startColabJob } from "./analysis";
+import { loadColabVideo, loadDiagnosticResult, prepareVideo, startColabJob } from "./analysis";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn().mockResolvedValue({}), convertFileSrc: (path: string) => `asset://${path}` }));
 
@@ -19,6 +19,14 @@ describe("geometria enviada ao backend Colab", () => {
     await startColabJob("legacy", "upload", { width: 1280, height: 720, durationSec: 10 }, legacy);
     const request = vi.mocked(invoke).mock.lastCall?.[1] as { request: { arena: unknown } };
     expect(request.request.arena).not.toHaveProperty("rimCornersPx");
+  });
+  it("identifica o teste curto sem alterar a geometria nem a duração do vídeo original", async () => {
+    await startColabJob("exp", "upload", { width:1280,height:720,durationSec:306 }, defaultArena, {startSec:1,endSec:6});
+    expect(invoke).toHaveBeenLastCalledWith("start_colab_analysis", {request:{experimentId:"exp",uploadId:"upload",workload:{width:1280,height:720,durationSec:306},arena:{...defaultArena,videoWidth:1280,videoHeight:720},diagnostic:{startSec:1,endSec:6}}});
+  });
+  it("recusa relatório diagnóstico incompleto antes de abrir o player", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({report:{schemaVersion:1},rawPoseCsv:"",clipPath:null});
+    await expect(loadDiagnosticResult("bad")).rejects.toThrow("incompatível ou incompleto");
   });
   it("prepara a cópia local antes de iniciar qualquer upload remoto", async () => {
     vi.mocked(invoke).mockImplementation(async (command) => command === "begin_video_staging" ? { uploadId: "original" }

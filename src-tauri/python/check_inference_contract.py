@@ -64,8 +64,8 @@ class Capture:
     def release(self):
         pass
 
-    def set(self, prop, frame):
-        assert prop == 1 and frame in (2, 3)
+    def grab(self):
+        return True
 
     def read(self):
         return True, Image()
@@ -92,6 +92,7 @@ class Runner:
 def inference(**kwargs):
     assert kwargs["cropping"] == [120, 780, 65, 835], kwargs
     assert kwargs["max_individuals"] == 1
+    assert kwargs["batch_size"] == kwargs["detector_batch_size"] == 2
     destination = Path(kwargs["dest_folder"])
     (destination / "raw.h5").write_bytes(b"raw sentinel -1 must remain")
 
@@ -135,7 +136,12 @@ assert recovered["recovery_state"] == "ready", recovered
 geometry = json.loads((root / "output" / "arena_geometry.json").read_text())
 assert geometry["cropping"] == [120, 780, 65, 835]
 assert geometry["postureClassification"] == "not_performed"
-assert geometry["recoveryPolicy"]["version"] == "visual-recovery-1"
+assert geometry["recoveryPolicy"]["version"] == "visual-recovery-2"
 assert (root / "output" / "raw.h5").read_bytes() == b"raw sentinel -1 must remain"
 assert (root / "canonical.csv.complete").is_file()
+assert (root / "output" / "render_request.json").is_file()
+assert not (root / "output" / "video_artifact.json").is_file(), "Video rendering must run after poses are available"
+profile = json.loads((root / "output" / "analysis_profile.json").read_text())
+assert profile["recoveryAttempts"] == 1
+assert profile["recoverySec"] > 0
 print("INFERENCE_CONTRACT_OK")

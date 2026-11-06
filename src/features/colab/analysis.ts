@@ -15,7 +15,33 @@ export type ColabJob = {
   createdAt: string;
   updatedAt: string;
   events: ColabJobEvent[];
+  diagnostic?: DiagnosticRange | null;
+  resultsReady?: boolean;
 };
+
+export type DiagnosticRange = { startSec: number; endSec: number };
+export type DiagnosticFrame = { frameIndex: number; timestampSec: number; state: string;
+  bbox: { x: number; y: number; width: number; height: number; score: number } | null;
+  availablePoints: number; totalPoints: number; strongPoints: number; canonicalCenterAvailable: boolean };
+export type DiagnosticReport = { schemaVersion: number; selection: DiagnosticRange; fps: number; durationSec: number;
+  geometry: { videoWidth: number; videoHeight: number }; frames: DiagnosticFrame[]; timings: Record<string, number>;
+  summary: { frameCount: number; states: Record<string, number>; detectorCoveragePct: number; centerCoveragePct: number; accuracyMeasured: false };
+  warning: string };
+export async function loadDiagnosticResult(jobId: string) {
+  const result = await invoke<{ report: DiagnosticReport; rawPoseCsv: string; clipPath: string | null }>("get_colab_diagnostic_result", { jobId });
+  const r = result.report;
+  if (!r || r.schemaVersion !== 1 || !Number.isFinite(r.fps) || r.fps <= 0 || r.fps > 240
+    || !Number.isFinite(r.durationSec) || r.durationSec <= 0 || r.durationSec > 61
+    || !r.geometry || !Number.isFinite(r.geometry.videoWidth) || !Number.isFinite(r.geometry.videoHeight) || r.geometry.videoWidth <= 0 || r.geometry.videoHeight <= 0
+    || !Array.isArray(r.frames) || !r.frames.length || r.frames.length > 14401
+    || !r.timings || Object.values(r.timings).some((n) => !Number.isFinite(n) || n < 0)
+    || !r.summary || !Number.isFinite(r.summary.detectorCoveragePct) || !Number.isFinite(r.summary.centerCoveragePct)
+    || !r.summary.states || Object.values(r.summary.states).some((n) => !Number.isInteger(n) || n < 0)
+    || !r.selection || !Number.isFinite(r.selection.startSec) || !Number.isFinite(r.selection.endSec)
+    || r.frames.some((frame, index) => frame.frameIndex !== index || !Number.isFinite(frame.timestampSec)
+      || (frame.bbox && Object.values(frame.bbox).some((n) => !Number.isFinite(n))))) throw new Error("Relatório diagnóstico incompatível ou incompleto. Consulte o log técnico.");
+  return { ...result, clipUrl: result.clipPath ? convertFileSrc(result.clipPath) : null };
+}
 
 export type ColabJobEvent = {
   id: number;
@@ -64,9 +90,9 @@ export async function stageVideo(
 }
 
 export function startColabJob(experimentId: string, uploadId: string,
-  workload: { width: number; height: number; durationSec: number }, arena: ArenaConfig) {
+  workload: { width: number; height: number; durationSec: number }, arena: ArenaConfig, diagnostic?: DiagnosticRange) {
   return invoke<ColabJob>("start_colab_analysis", {
-    request: { experimentId, uploadId, workload, arena: { ...arena, videoWidth: workload.width, videoHeight: workload.height } },
+    request: { experimentId, uploadId, workload, arena: { ...arena, videoWidth: workload.width, videoHeight: workload.height }, ...(diagnostic ? { diagnostic } : {}) },
   });
 }
 

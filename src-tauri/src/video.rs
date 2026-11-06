@@ -15,7 +15,7 @@ use std::{
     thread,
     time::Duration,
 };
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -71,15 +71,38 @@ fn probe(program: &Path, input: &Path) -> CommandResult<Value> {
 
 // Decodifica em streaming: somente hashes/tempos ficam na memória, não os pixels.
 fn fingerprints(program: &Path, input: &Path) -> CommandResult<Vec<(i64, String)>> {
-    let mut child = Command::new(program)
-        .args(["-v", "error", "-noautorotate", "-i"])
-        .arg(input)
+    fingerprints_window(program, input, None)
+}
+
+fn fingerprints_window(
+    program: &Path,
+    input: &Path,
+    window: Option<(f64, f64)>,
+) -> CommandResult<Vec<(i64, String)>> {
+    let mut command = Command::new(program);
+    command.args(["-v", "error", "-noautorotate"]);
+    if let Some((start, _)) = window {
+        command.args(["-ss", &start.to_string()]);
+    }
+    if let Some((start, end)) = window {
+        command.args(["-t", &(end - start).to_string()]);
+    }
+    command.arg("-i").arg(input);
+    let filter = if let Some((start, end)) = window {
+        format!(
+            "trim=start=0:end={},settb=1/1000000,setpts=PTS-STARTPTS",
+            end - start
+        )
+    } else {
+        "settb=1/1000000,setpts=PTS-STARTPTS".into()
+    };
+    let mut child = command
         .args([
             "-map",
             "0:v:0",
             "-an",
             "-vf",
-            "settb=1/1000000,setpts=PTS-STARTPTS",
+            &filter,
             "-enc_time_base",
             "1/1000000",
             "-fps_mode",
@@ -388,9 +411,209 @@ pub async fn prepare_analysis_video(
     .map_err(|_| "Preparação do vídeo interrompida".to_string())?
 }
 
+fn cut_diagnostic(
+    input: &Path,
+    output: &Path,
+    start: f64,
+    end: f64,
+    width: u32,
+    height: u32,
+) -> CommandResult<u64> {
+    let ffmpeg = binary("ffmpeg").ok_or("FFmpeg é necessário para preparar somente o trecho diagnóstico; nenhum vídeo completo será enviado como alternativa.")?;
+    let ffprobe =
+        binary("ffprobe").ok_or("ffprobe é necessário para validar o trecho diagnóstico.")?;
+    let info = probe(&ffprobe, input)?;
+    let stream = &info["streams"][0];
+    let pixel = stream["pix_fmt"]
+        .as_str()
+        .ok_or("Formato de pixel desconhecido")?;
+    if stream["width"].as_u64() != Some(width.into())
+        || stream["height"].as_u64() != Some(height.into())
+        || ![
+            "yuv420p",
+            "yuv422p",
+            "yuv444p",
+            "yuv420p10le",
+            "yuv422p10le",
+            "yuv444p10le",
+        ]
+        .contains(&pixel)
+    {
+        return Err("Formato/resolução incompatível com recorte diagnóstico sem perda.".into());
+    }
+    if stream["side_data_list"].as_array().is_some_and(|items| {
+        items
+            .iter()
+            .any(|item| item["rotation"].as_i64().is_some_and(|v| v != 0))
+    }) || stream["tags"]["rotate"]
+        .as_str()
+        .is_some_and(|v| v.parse::<f64>().map_or(true, |v| v != 0.0))
+    {
+        return Err("Normalize a rotação do vídeo antes de testar; o app não alterará sua calibração automaticamente.".into());
+    }
+    let status = Command::new(&ffmpeg)
+        .args([
+            "-v",
+            "error",
+            "-nostdin",
+            "-n",
+            "-noautorotate",
+            "-ss",
+            &start.to_string(),
+            "-t",
+            &(end - start).to_string(),
+            "-i",
+        ])
+        .arg(input)
+        .args([
+            "-vf",
+            &format!(
+                "trim=start=0:end={},settb=1/1000000,setpts=PTS-STARTPTS",
+                end - start
+            ),
+            "-map",
+            "0:v:0",
+            "-an",
+            "-sn",
+            "-dn",
+            "-c:v",
+            "libx264",
+            "-crf",
+            "0",
+            "-preset",
+            "fast",
+            "-threads",
+            "2",
+            "-pix_fmt",
+            pixel,
+            "-enc_time_base",
+            "1/1000000",
+            "-fps_mode",
+            "passthrough",
+            "-movflags",
+            "+faststart",
+            "-fs",
+            "21474836480",
+        ])
+        .arg(output)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|_| "Não foi possível recortar o trecho local")?;
+    if !status.success() {
+        return Err("O FFmpeg não conseguiu preparar o trecho diagnóstico sem perda.".into());
+    }
+    let encoded = probe(&ffprobe, output)?;
+    for field in [
+        "width",
+        "height",
+        "pix_fmt",
+        "sample_aspect_ratio",
+        "color_range",
+        "color_space",
+        "color_transfer",
+        "color_primaries",
+    ] {
+        if stream[field] != encoded["streams"][0][field] {
+            return Err(format!(
+                "Metadado visual {field} mudou no trecho; envio cancelado."
+            ));
+        }
+    }
+    let before = fingerprints_window(&ffmpeg, input, Some((start, end)))?;
+    let after = fingerprints(&ffmpeg, output)?;
+    if !identical_frames(&before, &after) {
+        return Err("O trecho não passou na validação de pixels/tempos; envio cancelado.".into());
+    }
+    Ok(after.len() as u64)
+}
+
+pub(crate) fn prepare_diagnostic_video(
+    app: &AppHandle,
+    upload_id: &str,
+    job_id: &str,
+    start: f64,
+    end: f64,
+    width: u32,
+    height: u32,
+) -> CommandResult<String> {
+    let connection = open_database(app)?;
+    let (input, experiment): (String, String) = connection
+        .query_row(
+            "SELECT local_path,experiment_id FROM video_staging WHERE upload_id=?1 AND ready=1",
+            [upload_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|_| "Vídeo original não encontrado no cache. Selecione-o novamente.")?;
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "Pasta do aplicativo indisponível")?
+        .join("results");
+    fs::create_dir_all(&directory)
+        .map_err(|_| "Não foi possível preparar os resultados diagnósticos")?;
+    let output = directory.join(format!("{job_id}-clip.mp4"));
+    if output.exists() {
+        return Err("O trecho deste job já existe; não será sobrescrito.".into());
+    }
+    if let Err(error) = cut_diagnostic(Path::new(&input), &output, start, end, width, height) {
+        let _ = fs::remove_file(&output);
+        return Err(error);
+    }
+    let id = new_uuid_v4();
+    let size = fs::metadata(&output)
+        .map_err(|_| "Trecho diagnóstico indisponível")?
+        .len() as i64;
+    let digest = sha256(&output)?;
+    connection.execute("INSERT INTO video_staging (upload_id,experiment_id,local_path,original_filename,expected_size,received_size,sha256,ready) VALUES (?1,?2,?3,'diagnostic.mp4',?4,?4,?5,1)",
+        params![&id,experiment,output.to_string_lossy(),size,digest]).map_err(|_| "Falha ao registrar o trecho diagnóstico")?;
+    Ok(id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn diagnostic_clip_is_short_pixel_exact_and_does_not_change_the_original() {
+        let Some(ffmpeg) = binary("ffmpeg") else {
+            return;
+        };
+        let root = std::env::temp_dir().join(format!("behavetracker-clip-test-{}", new_uuid_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let input = root.join("original.mp4");
+        assert!(Command::new(&ffmpeg)
+            .args([
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc2=size=160x120:rate=24",
+                "-t",
+                "3",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p"
+            ])
+            .arg(&input)
+            .status()
+            .unwrap()
+            .success());
+        let digest = sha256(&input).unwrap();
+        let output = root.join("clip.mp4");
+        assert_eq!(
+            cut_diagnostic(&input, &output, 0.5, 1.5, 160, 120).unwrap(),
+            24
+        );
+        assert_eq!(sha256(&input).unwrap(), digest);
+        assert_eq!(fingerprints(&ffmpeg, &output).unwrap().len(), 24);
+        assert_eq!(
+            cut_diagnostic(&input, &root.join("off-grid.mp4"), 0.13, 1.37, 160, 120).unwrap(),
+            29
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn frame_validation_requires_exact_pixels_and_no_missing_frames() {
         let original = vec![(0, "a".into()), (40_000, "b".into())];

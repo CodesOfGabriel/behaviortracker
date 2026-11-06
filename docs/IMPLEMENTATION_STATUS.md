@@ -40,6 +40,10 @@
 - [x] Método `oft-0.2`: exclusão de baixa confiança/saltos/recuperações não confirmadas; intervalos inválidos ou longos são desconhecidos, não tempo de ocupação.
 - [x] Persistência do CSV retornado no diretório de dados e restauração ao reabrir o experimento.
 - [x] Renderização do H5 bruto pelo DeepLabCut, MP4 compatível com o player, validação SHA-256 no download e aba de reprodução sem intervenções do editor.
+- [x] Diagnóstico curto (até 60 s), com recorte local sem perda verificado, detector/pose separados e todos os pontos brutos sobre o vídeo local; histórico e exportações isolados da análise científica.
+- [x] Relatório diagnóstico com frames sem caixa/pose/centro, cobertura (não acurácia) e tempos sincronizados de detector/pose/decoder/carregamento/exportação.
+- [x] Inferência principal e diagnóstico em lotes de dois frames; recuperação v2 sequencial, sem retries por orelha/cauda isoladas e com orçamento explícito de tentativas/tempo.
+- [x] Worker separado para renderização; CSV recebido e disponível antes do vídeo, inclusive se a renderização for interrompida. Cache preparado não é removido ao concluir o job.
 
 ## Implementado como protótipo, ainda não validado para uso científico
 
@@ -56,6 +60,9 @@
 - A primeira execução em um runtime sem ambiente compatível prepara o DeepLabCut e pode demorar; instalações válidas são reutilizadas. O ranking de GPU é heurístico e ainda não tem benchmark por acelerador. Não há compra automática de recursos.
 - A compactação sem perda foi testada localmente com FFmpeg real e vídeo sintético. Ela pode não reduzir vídeos já comprimidos; não há redução automática de resolução/FPS nem promessa de ganho de velocidade na GPU. FFmpeg ainda não é empacotado.
 - O renderizador de vídeo rotulado foi testado por contrato, sem executar DeepLabCut no Colab. O transporte possui testes HTTP locais de integridade; falta validar a renderização e reprodução com uma execução real na conta alvo.
+- O diagnóstico usa APIs internas dos runners e caixas pós-filtro, não scores pré-filtro da rede. Contratos locais simulados verificam a separação entre falha de detector/pose/centro, lotes e coordenadas; falta validar compatibilidade, desempenho e ganho real no Colab. Caixa/ponto presente não é comprovação de acerto.
+- Os limites da recuperação v2 evitam novas tentativas após o orçamento, mas não interrompem chamadas em andamento. Os valores são heurísticos e podem reduzir recuperações; não há benchmark remoto antes/depois nem promessa de rastreamento sem perdas.
+- Testes de recorte usam FFmpeg real e vídeo sintético, inclusive limites entre frames; o player diagnóstico usa índice/FPS, não PTS reais. Seu alinhamento em vídeo VFR continua aproximado e é identificado na interface/exportação.
 
 ## Ainda não implementado
 
@@ -66,6 +73,7 @@
 - [ ] Heatmap ponderado por duração e pacote ZIP completo com proveniência/checksums.
 - [ ] Transporte alternativo por Drive/object storage para retomada entre runtimes; o transporte atual usa a API de conteúdo Jupyter em blocos.
 - [ ] Validação externa com vídeos de ratos e dois avaliadores.
+- [ ] Dataset anotado de ratos, treino/adaptação de detector/pose e avaliação independente por animal/vídeo; diagnóstico não substitui esses passos.
 - [ ] Assinatura, notarização e instaladores.
 
 Consulte também [P0_COLAB_FEASIBILITY.md](./P0_COLAB_FEASIBILITY.md).

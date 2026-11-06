@@ -17,7 +17,7 @@ LOG_TAIL_BYTES = 16 * 1024
 
 
 def paths(directory, task):
-    if task not in ("setup", "inference"):
+    if task not in ("setup", "inference", "render"):
         raise ValueError("Tarefa desconhecida")
     root = Path(directory)
     return {name: root / (task + suffix) for name, suffix in (
@@ -88,6 +88,10 @@ def snapshot(directory, task):
         report["progressText"] = f"Recuperação visual: {current}/{total} frames verificados"
     video_phase = list(re.finditer(r"BEHAVETRACKER_VIDEO_PHASE=([^\r\n]+)", clean))
     last_progress = max(matches[-1].start() if matches else -1, recovery[-1].start() if recovery else -1)
+    diagnostic = list(re.finditer(r"BEHAVETRACKER_DIAGNOSTIC_PROGRESS=([^\r\n]+)", clean))
+    if diagnostic and diagnostic[-1].start() > last_progress:
+        report["progressText"] = "Diagnóstico: " + diagnostic[-1].group(1)
+        last_progress = diagnostic[-1].start()
     if video_phase and video_phase[-1].start() > last_progress:
         report["progressText"] = video_phase[-1].group(1)
     return report

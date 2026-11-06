@@ -108,7 +108,7 @@ export interface PoseSample {
   supportCount?: number;
   supportTotal?: number;
   source?: PoseSource;
-  recoveryState?: "ready" | "unavailable" | "not_needed";
+  recoveryState?: "ready" | "unavailable" | "limited" | "not_needed";
   original?: Pick<PoseSample, "xPx" | "yPx" | "likelihood" | "status" | "spatialRegion" | "supportCount" | "supportTotal">;
 }
 

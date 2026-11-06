@@ -6,10 +6,13 @@ Importações de ML são tardias para permitir testes sem GPU e reutilizar o run
 
 import math
 import statistics
+import time
 
-POLICY = {"version": "visual-recovery-1", "minScore": .6, "minAnchors": 3,
+POLICY = {"version": "visual-recovery-2", "minScore": .6, "minAnchors": 3,
           "maxHistorySec": .75, "marginBodyLengths": .8,
           "maxDisplacementBodyLengths": 1.5,
+          "minTorsoSupport": 2, "maxAttempts": 1200, "maxRetryFraction": .15,
+          "maxRecoveryWallSec": 60, "decoder": "sequential",
           "metricEligibility": "detected_valid_or_manually_confirmed"}
 
 
@@ -22,6 +25,16 @@ def anchors(points):
     # A cauda distal aumenta artificialmente o tamanho da caixa.
     return {name: point for name, point in points.items() if reliable(point)
             and ("tail" not in name or name in ("tail_base", "tailbase", "tail_root"))}
+
+
+def needs_recovery(points):
+    torso = [point for name, point in points.items()
+             if any(token in name for token in ("spine", "body", "center", "centre", "shoulder", "hip", "back"))
+             and not any(token in name for token in ("tail", "paw", "ear", "nose", "snout"))]
+    # Orelha/cauda pouco confiáveis não justificam executar o modelo novamente.
+    if torso:
+        return sum(reliable(point) for point in torso) < min(POLICY["minTorsoSupport"], len(torso))
+    return len(anchors(points)) < POLICY["minAnchors"]
 
 
 def bounding_box(points, width, height):
@@ -59,6 +72,10 @@ class VisualRecovery:
         self.capture = self.runner = None
         self.disabled_reason = None
         self.attempted = self.accepted = 0
+        self.skipped_budget = 0
+        self._started = None
+        self._next_frame = 0
+        self.attempt_limit = POLICY["maxAttempts"]
 
     def _prepare(self):
         import cv2
@@ -86,14 +103,26 @@ class VisualRecovery:
         bbox = bounding_box(previous, crop_width, crop_height)
         if bbox is None or self.disabled_reason:
             return {}
+        if self._started is None:
+            self._started = time.monotonic()
+        if self.attempted >= self.attempt_limit or time.monotonic() - self._started >= POLICY["maxRecoveryWallSec"]:
+            self.skipped_budget += 1
+            return {}
         self.attempted += 1
         try:
             if self.runner is None:
                 self._prepare()
             import cv2
             import numpy as np
-            self.capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+            # Avança o decoder uma única vez: não busca um keyframe para cada tentativa.
+            if frame_index < self._next_frame:
+                raise RuntimeError("Frames fora de ordem na recuperação sequencial")
+            while self._next_frame < frame_index:
+                if not self.capture.grab():
+                    return {}
+                self._next_frame += 1
             ok, image = self.capture.read()
+            self._next_frame += 1
             if not ok:
                 return {}
             crop = self.geometry["cropping"]
@@ -119,6 +148,7 @@ class VisualRecovery:
     def close(self):
         if self.capture is not None:
             self.capture.release()
+        self.capture = self.runner = None
 
 
 def recover_frames(frames, fps, geometry, retry, report=print):
@@ -132,10 +162,9 @@ def recover_frames(frames, fps, geometry, retry, report=print):
     previous, last_visual = None, -math.inf
     for index, raw in enumerate(frames):
         points, recovered = dict(raw), set()
-        good = anchors(raw)
         if previous and index / fps - last_visual <= POLICY["maxHistorySec"]:
             # Também tenta recuperar pontos parciais; nunca substitui um ponto original confiável.
-            if any(not reliable(point) for point in raw.values()):
+            if needs_recovery(raw):
                 candidate = retry(index, previous, width, height)
                 for name, point in candidate.items():
                     if name in raw and reliable(point) and not reliable(raw[name]):

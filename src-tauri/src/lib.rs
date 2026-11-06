@@ -44,6 +44,7 @@ pub fn run() {
             colab::get_colab_job_log,
             colab::get_colab_job_result,
             colab::get_colab_job_video,
+            colab::get_colab_diagnostic_result,
             colab::get_latest_colab_job,
             colab::list_colab_jobs
         ])

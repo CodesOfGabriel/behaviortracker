@@ -104,6 +104,16 @@ class WorkerTests(unittest.TestCase):
         self.assertIn("raise ValueError", report["traceback"])
         self.assertEqual(worker.launch(self.directory, "inference", "pass")["state"], "failed")
 
+    def test_diagnostic_timings_replace_older_model_progress(self):
+        files = worker.paths(self.directory, "inference")
+        worker.write_status(files["status"], {"state": "running"})
+        files["log"].write_text("100%|████| 2/2\nBEHAVETRACKER_DIAGNOSTIC_PROGRESS=24 frames · detector 2.00s · pose 1.00s\n")
+        self.assertIn("Diagnóstico: 24 frames",worker.snapshot(self.directory,"inference")["progressText"])
+
+    def test_render_has_its_own_worker_and_lock(self):
+        self.assertNotEqual(worker.paths(self.directory,"render")["status"], worker.paths(self.directory,"inference")["status"])
+        with self.assertRaises(ValueError): worker.paths(self.directory,"../render")
+
     def test_visual_recovery_replaces_old_detector_percentage_in_progress(self):
         files = worker.paths(self.directory, "inference")
         worker.write_status(files["status"], {"state": "succeeded"})

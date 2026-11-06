@@ -81,7 +81,7 @@ export function parseCanonicalPoseCsv(text: string): PoseSample[] {
       }
     }
     const recoveryState = values[indexOf("recovery_state")];
-    if (recoveryState && ["ready", "unavailable", "not_needed"].includes(recoveryState)) sample.recoveryState = recoveryState as PoseSample["recoveryState"];
+    if (recoveryState && ["ready", "unavailable", "limited", "not_needed"].includes(recoveryState)) sample.recoveryState = recoveryState as PoseSample["recoveryState"];
     if (sample.source === "recovered" && !sample.original) throw new Error(`Recuperação sem observação original na linha ${rowIndex + 2}.`);
     return sample;
   });
