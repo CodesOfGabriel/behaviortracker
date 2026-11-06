@@ -44,6 +44,7 @@ import {
   loadColabResult,
   loadColabVideo,
   loadColabJobs,
+  checkVideoStaging,
   prepareVideo,
   startColabJob,
   waitForColabJob,
@@ -443,8 +444,14 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     setJobClock(Date.now());
     setAnalysisMessage("Verificando a conexão com o Colab");
     setCsvError(null);
-    updateExperiment(experiment.id, { status: "processing" });
     try {
+      if (preparation && !await checkVideoStaging(experiment.id, preparation.uploadId)) preparation = undefined;
+      if (!preparation && !videoFile) {
+        setCsvError("O vídeo não está mais no cache. Selecione novamente o original; o experimento e suas correções foram preservados.");
+        analysisRequestedRef.current = true;
+        videoFileRef.current?.click();
+        return;
+      }
       const connection = await loadColabSummary();
       if (!connection.connected) {
         throw new Error("A Conta Google não está conectada. Abra Google Colab na barra lateral.");
@@ -453,6 +460,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
       if (connection.eligibleGpuCount < 1) {
         throw new Error("Sua conta não possui um runtime GPU elegível neste momento.");
       }
+      updateExperiment(experiment.id, { status: "processing" });
       if (!preparation) {
         preparation = await prepareVideo(experiment.id, videoFile!, experiment.video, (_progress, message) => setAnalysisMessage(message));
         updateExperiment(experiment.id, { video: { ...experiment.video, preparation } });
@@ -521,7 +529,11 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
           <Button disabled={!rawSamples.length} icon={<BarChart3 size={16} />} onClick={() => navigate({ name: "results", experimentId })}>Ver resultados</Button>
         </div>
       </header>
-      <DiagnosticPanel key={experiment.id} experiment={experiment} file={asset?.file} open={diagnosticOpen} disabled={analysisBusy} onAttach={() => videoFileRef.current?.click()} onBusy={setDiagnosticBusy} />
+      <DiagnosticPanel key={experiment.id} experiment={experiment} file={asset?.file} open={diagnosticOpen} disabled={analysisBusy} onAttach={() => { analysisRequestedRef.current = false; videoFileRef.current?.click(); }} onBusy={setDiagnosticBusy}
+        onVideoRestaged={(uploadId) => { if (asset?.file) updateExperiment(experiment.id, { video: { ...experiment.video, preparation: {
+          uploadId, originalBytes: asset.file.size, uploadBytes: asset.file.size, status: "original", policyVersion: "lossless-upload-1",
+          message: "Vídeo original restaurado no cache local. Compactação será verificada na análise completa.", pixelVerified: false, frameCount: null,
+        } } }); }} />
 
       {csvError && csvError !== visibleJob?.error && <div className="editor-error"><AlertCircle size={16} /> {csvError}</div>}
       {inputSamples[0]?.recoveryState === "unavailable" && <div className="editor-error"><AlertCircle size={16} /> A segunda passagem visual não estava disponível neste runtime. As detecções originais foram preservadas; consulte o diário da execução antes de considerar a recuperação concluída.</div>}

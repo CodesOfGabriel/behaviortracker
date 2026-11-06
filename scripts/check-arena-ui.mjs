@@ -166,7 +166,7 @@ try {
   const clipBase64 = (await readFile(clipPath)).toString("base64");
   await command("Page.addScriptToEvaluateOnNewDocument", { source: `(() => {
     const saved = JSON.parse(localStorage.getItem('behavetracker.experiments.v1'))[0];
-    saved.video.timingSource = 'browser-estimate'; saved.video.durationSec = 1; saved.corrections = [];
+    saved.video.timingSource = 'browser-estimate'; saved.video.durationSec = 1; saved.corrections = []; saved.video.sizeBytes = ${Buffer.from(clipBase64,"base64").length};
     saved.video.preparation = {uploadId:'local-prepared-fixture',originalBytes:100,uploadBytes:100,status:'original',message:'Fixture',policyVersion:'lossless-upload-1',pixelVerified:false,frameCount:null};
     localStorage.setItem('behavetracker.experiments.v1', JSON.stringify([saved]));
     const url = URL.createObjectURL(new Blob([Uint8Array.from(atob(${JSON.stringify(clipBase64)}), c => c.charCodeAt(0))], {type:'video/mp4'}));
@@ -176,6 +176,7 @@ try {
     const report = {schemaVersion:1,selection:{startSec:0,endSec:1},fps:24,durationSec:1,geometry:{videoWidth:160,videoHeight:120},frames,timings:{modelLoadSec:.3,decodeSec:.1,detectorSec:2,poseSec:1,exportSec:.1,totalSec:3.5},summary:{frameCount:24,states:{detector_missing:1,pose_missing:1,center_missing:1,points_available:21},detectorCoveragePct:100*23/24,centerCoveragePct:87.5,accuracyMeasured:false},warning:'Fixture'};
     const raw = 'frame_index,timestamp_sec,keypoint,x_px,y_px,likelihood,status\\n' + frames.flatMap((f) => ['nose','mid_back','hip'].map((name,n) => [f.frameIndex,f.timestampSec,name,f.frameIndex<2?'':80+n*10,f.frameIndex<2?'':50+n*10,f.frameIndex<2?0:.9,f.frameIndex<2?'missing':'valid'].join(','))).join('\\n');
     window.__MOCK_CALLS = [];
+    window.__CACHE_AVAILABLE = true;
     let mockJobs = [diagnostic,job];
     window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {unregisterListener: () => {}};
     window.__TAURI_INTERNALS__ = {
@@ -185,6 +186,7 @@ try {
         if (name.startsWith('plugin:event|')) return 1;
         if (name === 'get_google_oauth_config') return {connected:false,eligibleGpuCount:0,providerError:null};
         if (name === 'list_colab_jobs') return mockJobs;
+        if (name === 'check_video_staging') return window.__CACHE_AVAILABLE;
         if (name === 'get_colab_diagnostic_result') return {report,rawPoseCsv:raw,clipPath:'/fake/results/clip.mp4'};
         if (name === 'begin_video_staging') return {uploadId:'local-staged-fixture'};
         if (name === 'append_video_staging_chunk' || name === 'finish_video_staging') return {};
@@ -229,16 +231,26 @@ try {
   await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false});
   assert.ok(await evaluate(`document.querySelector('.diagnostic-panel').scrollWidth <= document.querySelector('.diagnostic-panel').clientWidth + 1`),'Overflow interno no painel diagnóstico');
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1080,deviceScaleFactor:1,mobile:false});
+  await evaluate(`window.__CACHE_AVAILABLE = false`);
+  const preserved = await evaluate(`JSON.stringify(JSON.parse(localStorage.getItem('behavetracker.experiments.v1'))[0].corrections)`);
+  await click('Testar trecho no Colab');
+  await waitFor(`!!${button('Selecionar vídeo original')}`);
+  assert.equal(await evaluate(`window.__MOCK_CALLS.filter(c=>c.name === 'start_colab_analysis').length`),0,'Cache ausente não pode criar job nem enviar vídeo');
+  assert.equal(await evaluate(`JSON.stringify(JSON.parse(localStorage.getItem('behavetracker.experiments.v1'))[0].corrections)`),preserved);
+  const dom = await command('DOM.getDocument');
+  const fileInput = await command('DOM.querySelector',{nodeId:dom.root.nodeId,selector:'.tracking-page input[type=file]'});
+  await command('DOM.setFileInputFiles',{nodeId:fileInput.nodeId,files:[clipPath]});
   await click('Testar trecho no Colab');
   await waitFor(`window.__MOCK_CALLS.some(c => c.name === 'start_colab_analysis')`);
   const startedRequest = await evaluate(`window.__MOCK_CALLS.find(c => c.name === 'start_colab_analysis').args.request`);
   assert.deepEqual(startedRequest.diagnostic,{startSec:0,endSec:.5});
-  assert.equal(startedRequest.uploadId,'local-prepared-fixture');
+  assert.equal(startedRequest.uploadId,'local-staged-fixture');
+  assert.equal(await evaluate(`JSON.parse(localStorage.getItem('behavetracker.experiments.v1'))[0].video.preparation.uploadId`),'local-staged-fixture');
   assert.equal(startedRequest.workload.durationSec,1);
   await waitFor(`${button('Reprocessar no Colab')}.disabled`);
   assert.equal(await evaluate(`window.__MOCK_CALLS.filter(c => c.name === 'start_colab_analysis' && !c.args.request.diagnostic).length`),0);
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ dualSelection: "passed", confirmation: "passed", pointerAndKeyboard: "passed", persistence: "passed", desktopAndMobile: "passed", behaviorIntervalsUndoAndResults: "passed", separateDlcVideoView: "passed", realMp4PlaybackWithMockNativeBridge: "passed", diagnosticRawOverlayAndIsolation: "passed", directory }));
+  console.log(JSON.stringify({ dualSelection: "passed", confirmation: "passed", pointerAndKeyboard: "passed", persistence: "passed", desktopAndMobile: "passed", behaviorIntervalsUndoAndResults: "passed", separateDlcVideoView: "passed", realMp4PlaybackWithMockNativeBridge: "passed", diagnosticRawOverlayAndIsolation: "passed", missingCacheRecovery: "passed", directory }));
 } finally {
   if (ws?.readyState === WebSocket.OPEN) {
     await command("Browser.close").catch(() => {});

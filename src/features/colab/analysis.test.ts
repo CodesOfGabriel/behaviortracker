@@ -1,7 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { defaultArena } from "../../lib/demo-data";
-import { loadColabVideo, loadDiagnosticResult, prepareVideo, startColabJob } from "./analysis";
+import { loadColabVideo, loadDiagnosticResult, prepareVideo, startColabJob, resolveDiagnosticUpload } from "./analysis";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn().mockResolvedValue({}), convertFileSrc: (path: string) => `asset://${path}` }));
 
@@ -42,5 +42,31 @@ describe("geometria enviada ao backend Colab", () => {
     expect((await loadColabVideo("job")).videoUrl).toBe("asset:///results/job-dlc.mp4");
     vi.mocked(invoke).mockResolvedValueOnce({ jobId: "old", videoPath: null, videoError: "Reprocesse" });
     expect((await loadColabVideo("old")).videoUrl).toBeNull();
+  });
+});
+
+describe("cache de vídeo antes do diagnóstico", () => {
+  beforeEach(() => vi.mocked(invoke).mockReset());
+  it("reutiliza somente um cache confirmado no backend", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(true);
+    expect(await resolveDiagnosticUpload("exp","cached",undefined,vi.fn())).toBe("cached");
+    expect(invoke).toHaveBeenCalledExactlyOnceWith("check_video_staging",{experimentId:"exp",uploadId:"cached"});
+  });
+  it("solicita o original quando ready no banco aponta para arquivo removido", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(false);
+    expect(await resolveDiagnosticUpload("exp","deleted",undefined,vi.fn())).toBeNull();
+    expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).toEqual(["check_video_staging"]);
+  });
+  it("refaz o staging a partir do arquivo selecionado sem tentar usar o cache removido", async () => {
+    vi.mocked(invoke).mockImplementation(async (command) => command === "check_video_staging" ? false
+      : command === "begin_video_staging" ? {uploadId:"restored"} : {});
+    const file = {name:"original.mp4",size:4,slice:()=>({arrayBuffer:async()=>new Uint8Array([1,2,3,4]).buffer})} as unknown as File;
+    expect(await resolveDiagnosticUpload("exp","deleted",file,vi.fn())).toBe("restored");
+    expect(vi.mocked(invoke).mock.calls.map(([command])=>command)).toEqual(["check_video_staging","begin_video_staging","append_video_staging_chunk","finish_video_staging"]);
+    expect(invoke).not.toHaveBeenCalledWith("start_colab_analysis",expect.anything());
+  });
+  it("não confunde falha ao consultar o banco com cache inexistente", async () => {
+    vi.mocked(invoke).mockRejectedValueOnce("Banco indisponível");
+    await expect(resolveDiagnosticUpload("exp","cached",undefined,vi.fn())).rejects.toBe("Banco indisponível");
   });
 });

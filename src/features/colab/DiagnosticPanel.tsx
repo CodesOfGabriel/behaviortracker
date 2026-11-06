@@ -5,7 +5,7 @@ import { downloadText, parseCanonicalPoseCsv } from "../../lib/csv";
 import { formatDuration } from "../../lib/format";
 import type { Experiment } from "../../types";
 import { isTauriRuntime } from "./connection";
-import { loadColabJobs, loadDiagnosticResult, stageVideo, startColabJob, type ColabJob, type DiagnosticReport } from "./analysis";
+import { loadColabJobs, loadDiagnosticResult, resolveDiagnosticUpload, startColabJob, type ColabJob, type DiagnosticReport } from "./analysis";
 import { AnalysisWorkflow } from "./AnalysisWorkflow";
 import "./diagnostic.css";
 
@@ -16,8 +16,8 @@ const states: Record<string, string> = {
 const timings: Record<string, string> = { modelLoadSec: "Carregar modelos", decodeSec: "Decodificar vídeo", detectorSec: "Detector", poseSec: "Estimar pontos", exportSec: "Exportar dados", totalSec: "Total no worker" };
 type Result = { report: DiagnosticReport; rawPoseCsv: string; clipUrl: string | null };
 
-export function DiagnosticPanel({ experiment, file, open, disabled, onAttach, onBusy }: {
-  experiment: Experiment; file?: File; open: boolean; disabled: boolean; onAttach: () => void; onBusy: (busy: boolean) => void;
+export function DiagnosticPanel({ experiment, file, open, disabled, onAttach, onBusy, onVideoRestaged }: {
+  experiment: Experiment; file?: File; open: boolean; disabled: boolean; onAttach: () => void; onBusy: (busy: boolean) => void; onVideoRestaged: (uploadId: string) => void;
 }) {
   const [start, setStart] = useState(0);
   const [end, setEnd] = useState(Math.min(60, experiment.video.durationSec));
@@ -26,6 +26,8 @@ export function DiagnosticPanel({ experiment, file, open, disabled, onAttach, on
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [needsVideo, setNeedsVideo] = useState(false);
+  const stagedId = useRef<string | undefined>(experiment.video.preparation?.uploadId);
   const [result, setResult] = useState<Result | null>(null);
   const [time, setTime] = useState(0);
   const [clock, setClock] = useState(Date.now());
@@ -70,10 +72,12 @@ export function DiagnosticPanel({ experiment, file, open, disabled, onAttach, on
   const run = async () => {
     if (!validRange || active || disabled) return;
     if (!isTauriRuntime()) { setError("Abra a versão desktop para executar o teste no Colab."); return; }
-    if (!file && !experiment.video.preparation) { setError("Selecione o vídeo original e clique em testar novamente."); onAttach(); return; }
-    setStarting(true); setError(null); setMessage("Preparando somente o trecho selecionado");
+    setStarting(true); setError(null); setNeedsVideo(false); setMessage("Conferindo o vídeo no cache local");
     try {
-      const uploadId = experiment.video.preparation?.uploadId ?? await stageVideo(experiment.id, file!, (_, text) => setMessage(text));
+      const uploadId = await resolveDiagnosticUpload(experiment.id, stagedId.current, file, (_, text) => setMessage(text));
+      if (!uploadId) { setNeedsVideo(true); setError("O vídeo não está mais no cache. Selecione o original e clique em testar novamente. Seu experimento e suas correções foram preservados."); onAttach(); return; }
+      stagedId.current = uploadId;
+      if (uploadId !== experiment.video.preparation?.uploadId) onVideoRestaged(uploadId);
       const started = await startColabJob(experiment.id, uploadId, experiment.video, experiment.arena, { startSec: start, endSec: end });
       setJobs((items) => [started, ...items.filter((item) => item.jobId !== started.jobId)]); setSelected(started.jobId);
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
@@ -87,6 +91,7 @@ export function DiagnosticPanel({ experiment, file, open, disabled, onAttach, on
       <label>Fim (segundos)<input aria-label="Fim do diagnóstico" type="number" min="0" max={experiment.video.durationSec} step="0.1" value={Number.isNaN(end) ? "" : end} disabled={active} onChange={(e) => setEnd(e.target.valueAsNumber)} /></label>
       <span>{validRange ? `${(end - start).toFixed(1)} s · resolução e pixels preservados` : "Selecione um intervalo de até 60 s dentro do vídeo"}</span></div>
     {error && <p role="alert" className="editor-error">{error}</p>}
+    {needsVideo && <Button variant="secondary" onClick={onAttach}>Selecionar vídeo original</Button>}
     {jobs.length > 0 && <label className="diagnostic-history">Teste salvo <select aria-label="Teste diagnóstico salvo" value={job?.jobId ?? ""} onChange={(e) => { setSelected(e.target.value); setError(null); }}>
       {jobs.map((item) => <option key={item.jobId} value={item.jobId}>{item.diagnostic?.startSec}–{item.diagnostic?.endSec} s · {item.status} · {item.createdAt}</option>)}</select></label>}
     {(job || starting) && <AnalysisWorkflow job={job ?? null} preparing={starting} message={message} localError={error} elapsedSec={job ? Math.max(0, ((["running", "queued"].includes(job.status) ? clock : Date.parse(job.updatedAt)) - Date.parse(job.createdAt)) / 1000) : 0} />}

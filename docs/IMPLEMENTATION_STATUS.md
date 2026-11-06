@@ -44,6 +44,7 @@
 - [x] Relatório diagnóstico com frames sem caixa/pose/centro, cobertura (não acurácia) e tempos sincronizados de detector/pose/decoder/carregamento/exportação.
 - [x] Inferência principal e diagnóstico em lotes de dois frames; recuperação v2 sequencial, sem retries por orelha/cauda isoladas e com orçamento explícito de tentativas/tempo.
 - [x] Worker separado para renderização; CSV recebido e disponível antes do vídeo, inclusive se a renderização for interrompida. Cache preparado não é removido ao concluir o job.
+- [x] Pré-validação do cache (experimento, arquivo presente, tamanho e estado pronto) antes de criar jobs. Cache antigo removido solicita o original e permite refazer o staging sem perder calibração/correções; arquivo ausente não é reportado como falha genérica de ffprobe.
 
 ## Implementado como protótipo, ainda não validado para uso científico
 

@@ -50,6 +50,7 @@ fn binary(name: &str) -> Option<PathBuf> {
 }
 
 fn probe(program: &Path, input: &Path) -> CommandResult<Value> {
+    require_local_video(input)?;
     let result = Command::new(program)
         .args([
             "-v",
@@ -64,9 +65,54 @@ fn probe(program: &Path, input: &Path) -> CommandResult<Value> {
         .output()
         .map_err(|_| "Não foi possível inspecionar o vídeo.".to_string())?;
     if !result.status.success() {
-        return Err("O ffprobe não conseguiu ler o vídeo.".into());
+        return Err("O arquivo existe, mas o ffprobe não conseguiu ler seus metadados. Selecione novamente o vídeo original; ele pode estar incompleto ou em formato incompatível.".into());
     }
     serde_json::from_slice(&result.stdout).map_err(|_| "Metadados de vídeo ilegíveis.".into())
+}
+
+fn require_local_video(input: &Path) -> CommandResult<()> {
+    let metadata = fs::metadata(input).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            "O vídeo não está mais no cache deste dispositivo. Selecione novamente o vídeo original; seu experimento e suas correções foram preservados.".to_string()
+        } else {
+            "Não foi possível acessar o vídeo local. Confira as permissões e selecione novamente o arquivo original.".to_string()
+        }
+    })?;
+    if !metadata.is_file() || metadata.len() == 0 {
+        return Err(
+            "O vídeo local está vazio ou incompleto. Selecione novamente o arquivo original."
+                .into(),
+        );
+    }
+    Ok(())
+}
+
+fn staged_video_available(
+    connection: &rusqlite::Connection,
+    experiment_id: &str,
+    upload_id: &str,
+) -> CommandResult<bool> {
+    let staged: Option<(String,i64,i64)> = connection.query_row(
+        "SELECT local_path,expected_size,ready FROM video_staging WHERE upload_id=?1 AND experiment_id=?2",
+        params![upload_id,experiment_id], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional()
+        .map_err(|_| "Não foi possível consultar o vídeo preparado")?;
+    Ok(staged.is_some_and(|(path, size, ready)| {
+        size > 0
+            && ready == 1
+            && fs::metadata(path).is_ok_and(|info| info.is_file() && info.len() == size as u64)
+    }))
+}
+
+#[tauri::command]
+pub fn check_video_staging(
+    app: AppHandle,
+    experiment_id: String,
+    upload_id: String,
+) -> CommandResult<bool> {
+    validate_local_id(&experiment_id, "Experimento")?;
+    validate_local_id(&upload_id, "Upload")?;
+    prepare_tables(&app)?;
+    staged_video_available(&open_database(&app)?, &experiment_id, &upload_id)
 }
 
 // Decodifica em streaming: somente hashes/tempos ficam na memória, não os pixels.
@@ -573,6 +619,43 @@ pub(crate) fn prepare_diagnostic_video(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn staging_status_requires_a_ready_file_of_the_expected_size_owned_by_the_experiment() {
+        let root = std::env::temp_dir().join(format!("behavetracker-cache-test-{}", new_uuid_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let input = root.join("cached.mp4");
+        let connection = rusqlite::Connection::open_in_memory().unwrap();
+        connection.execute_batch("CREATE TABLE video_staging(upload_id TEXT,experiment_id TEXT,local_path TEXT,expected_size INTEGER,ready INTEGER);").unwrap();
+        connection
+            .execute(
+                "INSERT INTO video_staging VALUES ('upload','experiment',?1,4,1)",
+                [input.to_string_lossy().as_ref()],
+            )
+            .unwrap();
+        // Um registro ready=1 não comprova que o arquivo ainda existe.
+        assert!(!staged_video_available(&connection, "experiment", "upload").unwrap());
+        fs::write(&input, b"test").unwrap();
+        assert!(staged_video_available(&connection, "experiment", "upload").unwrap());
+        assert!(!staged_video_available(&connection, "other", "upload").unwrap());
+        fs::write(&input, b"bad").unwrap();
+        assert!(!staged_video_available(&connection, "experiment", "upload").unwrap());
+        fs::write(&input, b"test").unwrap();
+        connection
+            .execute("UPDATE video_staging SET ready=0", [])
+            .unwrap();
+        assert!(!staged_video_available(&connection, "experiment", "upload").unwrap());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_missing_cache_file_is_reported_before_launching_ffprobe() {
+        let input =
+            std::env::temp_dir().join(format!("behavetracker-missing-{}.mp4", new_uuid_v4()));
+        let error = probe(Path::new("ffprobe-that-must-not-be-called"), &input).unwrap_err();
+        assert!(error.contains("cache"));
+        assert!(error.contains("Selecione novamente"));
+        assert!(!error.contains("ffprobe"));
+    }
     #[test]
     fn diagnostic_clip_is_short_pixel_exact_and_does_not_change_the_original() {
         let Some(ffmpeg) = binary("ffmpeg") else {

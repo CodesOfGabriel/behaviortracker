@@ -39,6 +39,7 @@ pub fn run() {
             colab::append_video_staging_chunk,
             colab::finish_video_staging,
             video::prepare_analysis_video,
+            video::check_video_staging,
             colab::start_colab_analysis,
             colab::get_colab_job,
             colab::get_colab_job_log,

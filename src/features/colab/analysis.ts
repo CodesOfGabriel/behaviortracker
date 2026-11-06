@@ -58,6 +58,16 @@ type VideoStaging = {
   receivedSize: number;
 };
 
+export function checkVideoStaging(experimentId: string, uploadId: string) {
+  return invoke<boolean>("check_video_staging", { experimentId, uploadId });
+}
+
+export async function resolveDiagnosticUpload(experimentId: string, cachedId: string | undefined, file: File | undefined,
+  onProgress: (progress: number, message: string) => void): Promise<string | null> {
+  if (cachedId && await checkVideoStaging(experimentId, cachedId)) return cachedId;
+  return file ? stageVideo(experimentId, file, onProgress) : null;
+}
+
 export async function stageVideo(
   experimentId: string,
   file: File,
