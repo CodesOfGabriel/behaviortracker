@@ -1,0 +1,6 @@
+frame_index,timestamp_sec,animal_id,keypoint,x_px,y_px,likelihood,status
+0,0.000000,animal_1,body_center,320.0,245.0,0.98,valid
+1,0.033367,animal_1,body_center,322.0,247.0,0.97,valid
+2,0.066733,animal_1,body_center,,,0.21,missing
+3,0.100100,animal_1,body_center,326.0,250.0,0.93,valid
+

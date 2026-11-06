@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://behavetracker.local/schemas/experiment.schema.json",
+  "title": "BehaveTracker Open Field Experiment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "analysis_method_version", "id", "test_type", "subject_id", "video", "arena", "tracking"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "analysis_method_version": { "const": "oft-0.1" },
+    "id": { "type": "string", "format": "uuid" },
+    "test_type": { "const": "open_field" },
+    "subject_id": { "type": "string", "minLength": 1 },
+    "group": { "type": "string" },
+    "video": {
+      "type": "object",
+      "required": ["filename", "width", "height", "durationSec", "timingSource"],
+      "properties": {
+        "filename": { "type": "string" },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "durationSec": { "type": "number", "exclusiveMinimum": 0 },
+        "timingSource": { "enum": ["browser-estimate", "ffprobe", "synthetic"] }
+      }
+    },
+    "arena": {
+      "type": "object",
+      "required": ["revision", "shape", "corners_px", "width_cm", "height_cm", "center_area_fraction", "boundary_policy"],
+      "properties": {
+        "revision": { "type": "integer", "minimum": 1 },
+        "shape": { "const": "quadrilateral" },
+        "corners_px": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "required": ["x", "y"],
+            "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
+          }
+        },
+        "width_cm": { "type": "number", "exclusiveMinimum": 0 },
+        "height_cm": { "type": "number", "exclusiveMinimum": 0 },
+        "center_area_fraction": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "boundary_policy": { "const": "center_inclusive" }
+      }
+    },
+    "tracking": {
+      "type": "object",
+      "required": ["reference_point", "max_animals"],
+      "properties": {
+        "reference_point": { "type": "string", "minLength": 1 },
+        "max_animals": { "const": 1 }
+      }
+    }
+  }
+}
+

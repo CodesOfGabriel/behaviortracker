@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://behavetracker.local/schemas/corrections.schema.json",
+  "title": "BehaveTracker Correction Event",
+  "type": "object",
+  "required": ["id", "type", "createdAt", "source"],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "type": { "enum": ["MOVE_POINT", "MARK_MISSING", "ANNOTATE_BEHAVIOR", "REVERT_EVENT"] },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "source": { "const": "manual" },
+    "frameIndex": { "type": "integer", "minimum": 0 },
+    "keypoint": { "type": "string" },
+    "before": { "$ref": "#/$defs/nullablePoint" },
+    "after": { "$ref": "#/$defs/nullablePoint" },
+    "targetEventId": { "type": "string", "format": "uuid" },
+    "startSec": { "type": "number", "minimum": 0 },
+    "endSec": { "type": "number", "minimum": 0 },
+    "label": { "enum": ["rearing", "grooming", "freezing", "other"] }
+  },
+  "$defs": {
+    "nullablePoint": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "object", "required": ["x", "y"], "properties": { "x": { "type": "number" }, "y": { "type": "number" } } }
+      ]
+    }
+  }
+}
+
