@@ -82,6 +82,10 @@ def snapshot(directory, task):
     if matches:
         percent, current, total = matches[-1].groups()
         report["progressText"] = f"{current}/{total} ({percent}%)"
+    recovery = list(re.finditer(r"BEHAVETRACKER_RECOVERY_PROGRESS=(\d+)/(\d+)", clean))
+    if recovery and (not matches or recovery[-1].start() > matches[-1].start()):
+        current, total = recovery[-1].groups()
+        report["progressText"] = f"Recuperação visual: {current}/{total} frames verificados"
     return report
 
 

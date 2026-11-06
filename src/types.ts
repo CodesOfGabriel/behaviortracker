@@ -40,7 +40,7 @@ export interface ArenaConfig {
 
 export interface CorrectionEvent {
   id: string;
-  type: "MOVE_POINT" | "MARK_MISSING" | "ANNOTATE_BEHAVIOR" | "REVERT_EVENT";
+  type: "MOVE_POINT" | "MARK_MISSING" | "CONFIRM_POINT" | "ANNOTATE_BEHAVIOR" | "REJECT_CANDIDATE" | "REVERT_EVENT";
   createdAt: string;
   frameIndex?: number;
   keypoint?: string;
@@ -50,13 +50,14 @@ export interface CorrectionEvent {
   startSec?: number;
   endSec?: number;
   label?: "rearing" | "grooming" | "freezing" | "other";
+  candidateId?: string;
   source: "manual";
 }
 
 export interface Experiment {
   id: string;
   schemaVersion: "1.0";
-  analysisMethodVersion: "oft-0.1";
+  analysisMethodVersion: "oft-0.1" | "oft-0.2";
   title: string;
   subjectId: string;
   group?: string;
@@ -69,6 +70,7 @@ export interface Experiment {
   arena: ArenaConfig;
   referencePoint: string;
   corrections: CorrectionEvent[];
+  behaviorReviewed?: Partial<Record<BehaviorLabel, boolean>>;
 }
 
 export interface VideoAsset {
@@ -79,6 +81,8 @@ export interface VideoAsset {
 }
 
 export type PoseStatus = "valid" | "low_confidence" | "jump" | "missing" | "out_of_arena";
+export type BehaviorLabel = "rearing" | "grooming" | "freezing";
+export type PoseSource = "detected" | "recovered" | "predicted" | "manual";
 
 export interface PoseSample {
   frameIndex: number;
@@ -91,6 +95,9 @@ export interface PoseSample {
   spatialRegion?: "floor" | "wall_projection" | "outside" | "unknown";
   supportCount?: number;
   supportTotal?: number;
+  source?: PoseSource;
+  recoveryState?: "ready" | "unavailable" | "not_needed";
+  original?: Pick<PoseSample, "xPx" | "yPx" | "likelihood" | "status" | "spatialRegion" | "supportCount" | "supportTotal">;
 }
 
 export interface OftMetrics {

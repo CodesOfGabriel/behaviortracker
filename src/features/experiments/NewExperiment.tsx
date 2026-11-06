@@ -351,7 +351,7 @@ export function NewExperiment() {
     const experiment: Experiment = {
       id,
       schemaVersion: "1.0",
-      analysisMethodVersion: "oft-0.1",
+      analysisMethodVersion: "oft-0.2",
       title: title.trim() || `Campo aberto · ${subjectId.trim()}`,
       subjectId: subjectId.trim(),
       group: group.trim() || undefined,

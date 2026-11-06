@@ -9,7 +9,9 @@
 - [x] Validação de quadrilátero e visualização da região central por fração da área.
 - [x] Importação do CSV canônico de pose.
 - [x] Player/timeline, inspeção de QC e navegação até o próximo problema.
-- [x] Correção por arraste, marcação de ponto ausente, anotação manual de rearing e undo por evento reversor.
+- [x] Correção por arraste/clique, marcação de ponto ausente, confirmação explícita e undo auditável para pontos e comportamentos.
+- [x] Anotação de início/fim de rearing, grooming e freezing, revisão completa por classe, frequência/duração e exportação de episódios sem duplicar sobreposições.
+- [x] Sugestões exploratórias de comportamento, com descarte/confirmação humana; ausência de anotação não é tratada como zero.
 - [x] Alternância entre dados brutos e revisados.
 - [x] Homografia pixel → piso e métricas locais de distância, velocidade, zonas, entradas, latência, cobertura e imobilidade operacional.
 - [x] Exportação de `experiment.json`, `poses_reviewed.csv`, `corrections.jsonl` e `metrics.csv`.
@@ -33,6 +35,8 @@
 - [x] Conversão do H5 do DeepLabCut para CSV canônico e importação automática no editor.
 - [x] Geometria das duas áreas enviada e registrada por job; ROI inclui borda, chão e margem de 5%, com reposicionamento das coordenadas no vídeo original e sem alterar o H5.
 - [x] Preservação de pontos disponíveis em detecções parciais, suporte anatômico do centro explícito, sentinelas normalizadas e trajetória sem ligar lacunas.
+- [x] Segunda passagem visual com ROI temporal, pose runner reutilizado, procedência e dados originais no CSV; partes ocultas não são interpoladas.
+- [x] Método `oft-0.2`: exclusão de baixa confiança/saltos/recuperações não confirmadas; intervalos inválidos ou longos são desconhecidos, não tempo de ocupação.
 - [x] Persistência do CSV retornado no diretório de dados e restauração ao reabrir o experimento.
 
 ## Implementado como protótipo, ainda não validado para uso científico
@@ -43,6 +47,8 @@
 - O conjunto sintético demonstra a interface, mas nunca deve ser usado como resultado experimental.
 - As metas de desempenho com vídeo 1080p/30 FPS ainda precisam de benchmark.
 - Borda e chão fornecem contexto geométrico 2D, não classificação automática de rearing nem recuperação de partes ocultas. O recorte e a preservação parcial foram testados com dados sintéticos; ganho de detecção em ratos em pé ainda precisa ser medido no Colab com vídeo real.
+- A recuperação visual e os contratos DeepLabCut foram testados com modelos falsos, sem GPU. Ainda é preciso executar a API real no Colab e medir erros antes/depois com frames anotados. Falha de compatibilidade é visível no editor e não é tratada como recuperação concluída.
+- As sugestões de rearing/grooming/freezing são heurísticas 2D não validadas; não substituem classificador treinado. Só episódios humanos confirmados são contados. Não há estimativa de acurácia, treino supervisionado ou classificação automática validada neste corte.
 - O fluxo Colab compila e possui testes locais de contrato, mas ainda precisa completar o gate P0 com um vídeo real e evidências sanitizadas da conta alvo.
 - A continuidade do worker após encerramento/KeyboardInterrupt da célula de lançamento foi testada localmente com tarefas sintéticas. Falta confirmar esse comportamento no runtime Colab real; substituição da máquina e políticas do provedor continuam podendo encerrar processos. Fechar e reabrir o app não retoma o acompanhamento automaticamente.
 - A primeira execução em um runtime sem ambiente compatível prepara o DeepLabCut e pode demorar; instalações válidas são reutilizadas. O ranking de GPU é heurístico e ainda não tem benchmark por acelerador. Não há compra automática de recursos.

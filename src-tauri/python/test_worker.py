@@ -104,6 +104,13 @@ class WorkerTests(unittest.TestCase):
         self.assertIn("raise ValueError", report["traceback"])
         self.assertEqual(worker.launch(self.directory, "inference", "pass")["state"], "failed")
 
+    def test_visual_recovery_replaces_old_detector_percentage_in_progress(self):
+        files = worker.paths(self.directory, "inference")
+        worker.write_status(files["status"], {"state": "succeeded"})
+        files["log"].write_text("100%|████| 7356/7356 [03:29<00:00]\nBEHAVETRACKER_RECOVERY_PROGRESS=240/7356\n")
+        report = worker.snapshot(self.directory, "inference")
+        self.assertEqual(report["progressText"], "Recuperação visual: 240/7356 frames verificados")
+
     def test_keyboard_interrupt_is_a_real_failure_not_a_configuration_warning(self):
         worker.launch(self.directory, "inference", "raise KeyboardInterrupt")
         report = self.wait_for()

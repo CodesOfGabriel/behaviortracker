@@ -12,6 +12,8 @@ Aplicação desktop para preparar, revisar e documentar análises comportamentai
 - fluxograma horizontal com checkpoints, GPU confirmada pelo runtime e diário persistido de cada execução;
 - editor com overlay, timeline de qualidade e correção por arraste;
 - preservação do tracking bruto e eventos de revisão;
+- segunda passagem visual para recuperar falhas curtas do detector, com procedência e confirmação humana;
+- revisão de episódios de rearing, grooming e freezing, sugestões exploratórias e exportação de frequência/duração;
 - métricas OFT locais e exportações CSV/JSON;
 - demonstração sintética acessível pelo dashboard.
 
@@ -37,11 +39,25 @@ Interrupções da resposta MCP e deadlines tentam se reanexar à mesma consulta 
 
 Em **Novo experimento → Arena**, ajuste e confirme primeiro a **borda superior**, depois o **chão**. Use a mesma ordem dos cantos nas duas áreas: superior esquerdo, superior direito, inferior direito e inferior esquerdo. Cada confirmação é invalidada se seus vértices forem alterados. Somente o chão define a homografia, as dimensões em centímetros e as zonas de campo aberto.
 
-As duas áreas seguem na solicitação da análise, com revisão e resolução, e ficam registradas por job no SQLite. No runtime, `output/arena_geometry.json` registra o contrato do adaptador `superanimal-canonical-2`. O recorte retangular é a união dos vértices das duas áreas, com margem de 5% em cada eixo, limitada ao vídeo. Assim, a inferência não fica restrita ao chão: preserva as paredes e a borda na imagem. O [parâmetro `cropping` do SuperAnimal](https://deeplabcut.github.io/DeepLabCut/dev/main/reference/deeplabcut/modelzoo/video_inference/#cropping) recebe esse recorte; as coordenadas são convertidas de volta ao vídeo original antes da importação. Um vídeo com resolução diferente da calibração é recusado. Projetos antigos sem borda continuam abrindo e usam o vídeo inteiro, sem inventar outra área.
+As duas áreas seguem na solicitação da análise, com revisão e resolução, e ficam registradas por job no SQLite. No runtime, `output/arena_geometry.json` registra o contrato do adaptador `superanimal-canonical-3` e a política de recuperação. O recorte retangular é a união dos vértices das duas áreas, com margem de 5% em cada eixo, limitada ao vídeo. Assim, a inferência não fica restrita ao chão: preserva as paredes e a borda na imagem. O [parâmetro `cropping` do SuperAnimal](https://deeplabcut.github.io/DeepLabCut/dev/main/reference/deeplabcut/modelzoo/video_inference/#cropping) recebe esse recorte; as coordenadas são convertidas de volta ao vídeo original antes da importação. Um vídeo com resolução diferente da calibração é recusado. Projetos antigos sem borda continuam abrindo e usam o vídeo inteiro, sem inventar outra área.
 
 O H5 original não é modificado. No CSV canônico, sentinelas `(-1, -1, -1)` viram coordenadas ausentes; a trajetória é interrompida nas lacunas, em vez de atravessar o canto da imagem. Cada ponto disponível é preservado independentemente dos demais. O centro corporal é uma média dos pontos disponíveis do tronco, nunca uma substituição pelo focinho/orelhas; com suporte parcial, exige revisão e registra quantos pontos o sustentam. Sem nenhum ponto do tronco, o centro fica ausente mesmo que o focinho esteja visível. FPS inválido interrompe a conversão, sem inventar timestamps.
 
-As regiões `floor`, `wall_projection`, `outside` e `unknown` descrevem **projeções 2D**, não contato com o chão, altura ou postura. Marcar as duas áreas **não treina o modelo**, não recupera partes ocultas e não garante reconhecimento de ratos em pé. Rearing permanece manual; adaptação/treinamento e validação com vídeo real são etapas distintas, não ativadas automaticamente por essa calibração. A projeção de um ponto acima do piso não determina sua posição real no chão.
+As regiões `floor`, `wall_projection`, `outside` e `unknown` descrevem **projeções 2D**, não contato com o chão, altura ou postura. Marcar as duas áreas **não treina o modelo**, não recupera partes ocultas e não garante reconhecimento de ratos em pé. Adaptação/treinamento e validação com vídeo real são etapas distintas, não ativadas automaticamente por essa calibração. A projeção de um ponto acima do piso não determina sua posição real no chão.
+
+## Recuperação visual e revisão de comportamentos
+
+Após a passagem original, `visual-recovery-1` tenta novamente os frames com pontos pouco confiáveis usando o pose runner do DeepLabCut e uma caixa baseada na última evidência visual. Reutiliza os pesos já baixados; não reinstala o DeepLabCut por frame. A história expira em 0,75 s sem nova evidência. Coordenadas recuperadas precisam passar por filtros de suporte, limites e deslocamento; nenhuma parte oculta é preenchida por interpolação. Essas regras são heurísticas versionadas, não validação de acurácia. Incompatibilidade da API desativa somente a segunda passagem, informa isso no editor/log e preserva a primeira passagem.
+
+A segunda passagem usa o [pose runner do DeepLabCut](https://github.com/DeepLabCut/DeepLabCut/blob/main/deeplabcut/pose_estimation_pytorch/apis/utils.py) com [bounding boxes fornecidas ao pré-processador](https://github.com/DeepLabCut/DeepLabCut/blob/main/deeplabcut/pose_estimation_pytorch/data/preprocessor.py), sem depender de uma nova detecção global em cada falha. Durante essa fase, o diário informa quantos frames foram verificados; não confunde o fim do detector com a conclusão da recuperação.
+
+No editor, pontos recuperados aparecem em roxo, com `source=recovered`; **Bruto** restaura a observação anterior. Após conferir o vídeo, use **Confirmar ponto após revisar**, arraste para corrigir ou **Posicionar ponto ausente**. Não posicione partes invisíveis por adivinhação. Cada confirmação/correção é auditável e pode ser desfeita. Resultados antigos não ganham recuperação retroativamente: use **Reprocessar no Colab**.
+
+Em **Comportamentos · revisão assistida**, selecione rearing, grooming ou freezing, marque início/fim no vídeo e confirme o episódio. Sugestões exploratórias ajudam a localizar trechos: rearing combina projeção da parede e encurtamento corporal; grooming exige patas anteriores observadas próximas ao focinho com movimento relativo; freezing procura baixa movimentação de cinco pontos. As sugestões não são probabilidades, não são um classificador treinado e não comprovam esses comportamentos. Sem patas observadas, não há sugestão de grooming; sem evidência suficiente, anote revisando o vídeo. Falsos positivos e negativos precisam ser medidos com anotações independentes.
+
+Somente episódios confirmados entram em frequência/duração. Intervalos sobrepostos da mesma classe são unidos. Sem revisão completa, os totais são parciais; **não anotado** não vira zero. Assinale que revisou o vídeo inteiro para cada classe apenas depois de conferir também os trechos sem sugestões. Exporte os episódios em `behaviors.csv` e o histórico em `corrections.jsonl`. O `experiment.json` inclui as políticas e o estado da revisão. Para obter classificação automática validada, ainda é necessário anotar exemplos representativos, treinar um classificador e avaliar em vídeos/animais independentes.
+
+O método `oft-0.2` só calcula métricas a partir de pontos válidos detectados ou confirmados manualmente. Baixa confiança, saltos, previsões e recuperações não confirmadas ficam fora. Um intervalo exige ambos os extremos válidos e no máximo 0,5 s entre eles; os demais são desconhecidos. Imobilidade operacional usa velocidade ≤ 2 cm/s por pelo menos 0,5 s, **não equivale a freezing** e não é um critério biológico validado. Tempos por zona são atribuídos ao extremo inicial de cada intervalo elegível. Distância é parcial, calculada só em pares elegíveis; a cobertura deve acompanhar qualquer comparação. Para comparar resultados anteriores, mantenha a versão do método registrada.
 
 ## Rodar localmente
 
@@ -101,7 +117,7 @@ frame_index,timestamp_sec,animal_id,keypoint,x_px,y_px,likelihood,status
 
 Coordenadas ausentes permanecem vazias; nunca são convertidas em `(0,0)`. Os status aceitos são `valid`, `low_confidence`, `jump`, `missing` e `out_of_arena`.
 
-As novas análises incluem as colunas opcionais `spatial_region`, `support_count` e `support_total`. As exportações preservam esses campos. Os arquivos antigos sem essas colunas continuam aceitos.
+As novas análises incluem `spatial_region`, `support_count`, `support_total`, `source`, `raw_x_px`, `raw_y_px`, `raw_likelihood`, `raw_status`, `raw_spatial_region`, `raw_support_count`, `raw_support_total` e `recovery_state`. As exportações preservam a procedência e as observações originais. Os arquivos antigos sem essas colunas continuam aceitos.
 
 ## Limites científicos
 

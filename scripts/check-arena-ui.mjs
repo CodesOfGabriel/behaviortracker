@@ -119,8 +119,41 @@ try {
   assert.notDeepEqual(experiment.arena.cornersPx, experiment.arena.rimCornersPx);
   assert.equal(experiment.subjectId, "ARENA_UI_TEST");
   assert.ok(await evaluate(`!!document.querySelector('.tracking-overlay polygon[stroke="#bb9aff"]')`));
+  await waitFor(`!!document.querySelector('.behavior-review')`);
+  // Episódios precisos, erros de intervalo e undo auditável, sem contas externas.
+  await click("Confirmar episódio");
+  await waitFor(`!!document.querySelector('.behavior-review [role="alert"]')`);
+  const setField = async (selector, value, kind = "input") => evaluate(`(() => {
+    const input = document.querySelector(${JSON.stringify(selector)});
+    Object.getOwnPropertyDescriptor(${kind === "select" ? "HTMLSelectElement" : "HTMLInputElement"}.prototype, 'value').set.call(input, ${JSON.stringify(String(value))});
+    input.dispatchEvent(new Event(${JSON.stringify(kind === "select" ? "change" : "input")}, {bubbles:true}));
+  })()`);
+  await setField('[aria-label="Comportamento"]', "grooming", "select");
+  await setField('[aria-label="Início do comportamento"]', .125);
+  await setField('[aria-label="Fim do comportamento"]', 2.25);
+  await click("Confirmar episódio");
+  await waitFor(`document.querySelector('.behavior-summary').textContent.includes('Grooming · 1 episódio(s) · 2.13 s')`);
+  await click("Desfazer");
+  await waitFor(`document.querySelector('.behavior-summary').textContent.includes('Grooming · não anotado')`);
+  for (const label of ["rearing", "grooming", "freezing"]) {
+    await setField('[aria-label="Comportamento"]', label, "select");
+    await click("Confirmar episódio");
+    await waitFor(`JSON.parse(localStorage.getItem('behavetracker.experiments.v1'))[0].corrections.filter(e => e.type === 'ANNOTATE_BEHAVIOR' && e.label === ${JSON.stringify(label)}).length >= 1`);
+  }
+  await click("Bruto");
+  assert.ok(await evaluate(`${button("Confirmar episódio")}.disabled`));
+  await click("Revisado");
+  await command("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1080, deviceScaleFactor: 1, mobile: false });
+  const reviewScreen = await command("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
+  await writeFile(join(directory, "behavior-editor.png"), Buffer.from(reviewScreen.data, "base64"));
+  await click("Ver resultados");
+  await waitFor(`document.querySelectorAll('.behavior-result-grid article').length === 3`);
+  assert.ok(await evaluate(`document.querySelectorAll('.behavior-result-grid article')[2].textContent.includes('1 episódio(s)')`));
+  assert.ok(await evaluate(`document.querySelector('.behavior-results').textContent.includes('Revisão parcial')`));
+  const resultsScreen = await command("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
+  await writeFile(join(directory, "behavior-results.png"), Buffer.from(resultsScreen.data, "base64"));
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ dualSelection: "passed", confirmation: "passed", pointerAndKeyboard: "passed", persistence: "passed", desktopAndMobile: "passed", directory }));
+  console.log(JSON.stringify({ dualSelection: "passed", confirmation: "passed", pointerAndKeyboard: "passed", persistence: "passed", desktopAndMobile: "passed", behaviorIntervalsUndoAndResults: "passed", directory }));
 } finally {
   if (ws?.readyState === WebSocket.OPEN) {
     await command("Browser.close").catch(() => {});

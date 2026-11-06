@@ -431,3 +431,25 @@ input::placeholder, textarea::placeholder { color: #717b8f; }
 @media (max-width: 800px) {
   .sidebar { display: none; }.workspace { width: 100%; margin-left: 0; }.topbar { height: 58px; background: #0e1018; }.mobile-brand { color: #f4f7ff; }.page { padding: 25px 17px 46px; }.experiment-list { grid-template-columns: 1fr; }.editor-header-actions .header-analyze { display: inline-flex; }.editor-workspace { grid-template-columns: 1fr; }.inspector-panel { border-top-color: #2b3140; }
 }
+/* Revisão temporal e comportamental no inspector do editor. */
+.behavior-review { display: grid; gap: 12px; color-scheme: dark; }
+.behavior-review p, .behavior-results > p { color: var(--text-muted, #969daf); font-size: 12px; line-height: 1.6; }
+.behavior-review label { display: grid; gap: 6px; font-size: 12px; }
+.behavior-review select, .behavior-review input[type="number"] { width: 100%; min-width: 0; padding: 8px; border: 1px solid #353b4c; border-radius: 7px; color: #e4e7f3; background: #181c28; }
+.behavior-interval { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.behavior-review details { min-width: 0; font-size: 12px; }
+.behavior-review summary { cursor: pointer; color: #cbb7ff; padding: 6px 0; }
+.behavior-candidate { border: 1px solid #393049; border-radius: 8px; padding: 10px; margin: 8px 0; display: grid; gap: 8px; }
+.behavior-summary { display: grid; gap: 14px; font-size: 12px; }
+.behavior-summary label { display: flex; align-items: flex-start; color: #a9afbe; margin-top: 6px; }
+.behavior-summary input[type="checkbox"] { accent-color: #9b70f5; width: 14px; height: 14px; min-height: 0; flex: 0 0 14px; padding: 0; margin: 2px 0 0; }
+.behavior-episode { display: flex; justify-content: space-between; gap: 8px; padding: 8px 0; }
+.behavior-episode button { background: transparent; color: #cbb7ff; border: 0; cursor: pointer; font-size: 11px; }
+.behavior-results { margin-top: 24px; }
+.behavior-results > p { padding: 0 22px 20px; }
+.behavior-result-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; padding: 0 22px 18px; }
+.behavior-result-grid article { display: grid; gap: 8px; padding: 16px; border: 1px solid #343747; border-radius: 10px; }
+.behavior-result-grid h3 { font-size: 14px; margin: 0; color: #cbb7ff; }
+.behavior-result-grid strong { font-size: 22px; }
+.behavior-result-grid span, .behavior-result-grid small { color: #a9afbe; font-size: 12px; }
+@media (max-width: 720px) { .behavior-result-grid { grid-template-columns: 1fr; } }

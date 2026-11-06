@@ -42,20 +42,37 @@ describe("métricas OFT", () => {
       sample(2, 2, 30, 40),
     ], arena, { maxPairGapSec: 2 });
     expect(result.distanceCm).toBeNull();
-    expect(result.unknownTimeSec).toBeCloseTo(1, 8);
+    expect(result.unknownTimeSec).toBeCloseTo(2, 8);
   });
 
   it("SCI-004: separa centro, periferia e tempo desconhecido", () => {
     const result = calculateOftMetrics([
       sample(0, 0, 30, 30),
       sample(1, 2, 5, 5),
-      sample(2, 5, null, null, "missing"),
-      sample(3, 6, 5, 5),
+      sample(2, 5, 5, 5),
+      sample(3, 6, null, null, "missing"),
     ], arena, { maxPairGapSec: 4 });
     expect(result.centerTimeSec).toBeCloseTo(2, 8);
     expect(result.peripheralTimeSec).toBeCloseTo(3, 8);
     expect(result.unknownTimeSec).toBeCloseTo(1, 8);
     expect(result.centerPctClassifiable).toBeCloseTo(40, 8);
+  });
+
+  it("SCI-007: não classifica intervalos longos nem pontos recuperados ainda não confirmados", () => {
+    const result = calculateOftMetrics([sample(0, 0, 30, 30), sample(1, 3, 31, 30)], arena);
+    expect(result.unknownTimeSec).toBe(3);
+    expect(result.coveragePct).toBe(0);
+    const recovered = [sample(0, 0, 30, 30), { ...sample(1, .04, 31, 30), source: "recovered" as const }];
+    expect(calculateOftMetrics(recovered, arena).distanceCm).toBeNull();
+    expect(calculateOftMetrics(recovered.map((p) => ({ ...p, source: "manual" as const })), arena).distanceCm).toBeCloseTo(1);
+  });
+
+  it("SCI-008: baixa confiança, saltos e previsões não contam como imobilidade", () => {
+    for (const override of [{ status: "low_confidence" as const }, { status: "jump" as const }, { source: "predicted" as const }]) {
+      const result = calculateOftMetrics([sample(0, 0, 30, 30), { ...sample(1, .4, 30, 30), ...override }, sample(2, .8, 30, 30)], arena);
+      expect(result.coveragePct).toBe(0);
+      expect(result.immobilityTimeSec).toBe(0);
+    }
   });
 
   it("SCI-005: não conta entrada quando a sessão começa no centro", () => {

@@ -20,10 +20,12 @@ import { Button } from "../../components/ui/Button";
 import { applyCorrections } from "../../lib/corrections";
 import { downloadText, poseToCsv } from "../../lib/csv";
 import { centerPolygonPx, pointsToSvg } from "../../lib/geometry";
-import { calculateOftMetrics } from "../../lib/metrics";
+import { calculateOftMetrics, METRIC_POLICY } from "../../lib/metrics";
+import { BEHAVIOR_LABELS, BEHAVIOR_POLICY, behaviorCsv, behaviorSummary } from "../../lib/behaviors";
+import { metricEligible, originalPose, trajectorySegments } from "../../lib/pose";
 import { formatDuration } from "../../lib/format";
 import { useAppStore } from "../../store/AppStore";
-import type { OftMetrics, PoseSample } from "../../types";
+import type { OftMetrics } from "../../types";
 
 function metricValue(value: number | null, suffix: string, digits = 1) {
   return value == null ? "Não mensurável" : `${value.toFixed(digits)} ${suffix}`;
@@ -37,15 +39,15 @@ function metricsCsv(metrics: OftMetrics) {
     ["coverage", metrics.coveragePct, "%", metrics.revision],
     ["distance", metrics.distanceCm ?? "", "cm", metrics.revision],
     ["mean_speed", metrics.meanSpeedCmS ?? "", "cm/s", metrics.revision],
-    ["center_time", metrics.centerTimeSec, "s", metrics.revision],
-    ["peripheral_time", metrics.peripheralTimeSec, "s", metrics.revision],
+    ["center_time", metrics.validDurationSec > 0 ? metrics.centerTimeSec : "", "s", metrics.revision],
+    ["peripheral_time", metrics.validDurationSec > 0 ? metrics.peripheralTimeSec : "", "s", metrics.revision],
     ["unknown_time", metrics.unknownTimeSec, "s", metrics.revision],
     ["center_pct_classifiable", metrics.centerPctClassifiable ?? "", "%", metrics.revision],
-    ["center_entries", metrics.centerEntries, "count", metrics.revision],
+    ["center_entries", metrics.validDurationSec > 0 ? metrics.centerEntries : "", "count", metrics.revision],
     ["center_latency", metrics.centerLatencySec ?? "", "s", metrics.revision],
-    ["operational_immobility", metrics.immobilityTimeSec, "s", metrics.revision],
+    ["operational_immobility", metrics.validDurationSec > 0 ? metrics.immobilityTimeSec : "", "s", metrics.revision],
   ];
-  return rows.map((row) => row.join(",")).join("\n");
+  return rows.map((row, index) => [...row, index === 0 ? "method_version" : METRIC_POLICY.version].join(",")).join("\n");
 }
 
 export function Results({ experimentId }: { experimentId: string }) {
@@ -53,10 +55,11 @@ export function Results({ experimentId }: { experimentId: string }) {
   const experiment = getExperiment(experimentId);
   const [revision, setRevision] = useState<"reviewed" | "raw">("reviewed");
   const [showExport, setShowExport] = useState(false);
-  const rawSamples = trackingData[experimentId] ?? [];
+  const inputSamples = trackingData[experimentId] ?? [];
+  const rawSamples = useMemo(() => inputSamples.map(originalPose), [inputSamples]);
   const reviewedSamples = useMemo(
-    () => experiment ? applyCorrections(rawSamples, experiment.corrections) : rawSamples,
-    [experiment, rawSamples],
+    () => experiment ? applyCorrections(inputSamples, experiment.corrections) : inputSamples,
+    [experiment, inputSamples],
   );
   const referencePoint = experiment?.referencePoint ?? "body_center";
   const rawReference = rawSamples.filter((sample) => sample.keypoint === referencePoint);
@@ -77,20 +80,24 @@ export function Results({ experimentId }: { experimentId: string }) {
   }
   if (!metrics) {
     return (
-      <div className="page not-found"><h1>Não há tracking para calcular</h1><p>Importe um CSV canônico no editor antes de abrir os resultados.</p><Button onClick={() => navigate({ name: "editor", experimentId })}>Abrir editor</Button></div>
+      <div className="page not-found"><h1>Não há tracking para calcular</h1><p>Processe o vídeo no Colab antes de abrir os resultados.</p><Button onClick={() => navigate({ name: "editor", experimentId })}>Abrir editor</Button></div>
     );
   }
 
   const centerPolygon = centerPolygonPx(experiment.arena);
-  const validTrajectory = samples.filter((sample) => sample.xPx != null && sample.yPx != null);
-  const displayTrajectory = validTrajectory.filter((_, index) => index % Math.max(1, Math.floor(validTrajectory.length / 400)) === 0).map((sample) => ({ x: sample.xPx!, y: sample.yPx! }));
+  const trajectory = trajectorySegments(samples.map((sample) => metricEligible(sample) ? sample : { ...sample, status: "missing" }));
+  const startPoint = trajectory[0]?.[0], endPoint = trajectory.at(-1)?.at(-1);
+  const behaviors = behaviorSummary(experiment, experiment.video.durationSec);
   const centerPct = metrics.centerPctClassifiable ?? 0;
   const versionLabel = revision === "reviewed" ? `Revisão · ${experiment.corrections.length} eventos` : "Inferência bruta";
 
   const exportExperiment = () => {
     const scientificExperiment = {
       schema_version: experiment.schemaVersion,
-      analysis_method_version: experiment.analysisMethodVersion,
+      analysis_method_version: METRIC_POLICY.version,
+      metric_policy: METRIC_POLICY,
+      behavior_policy: BEHAVIOR_POLICY,
+      behavior_reviewed: experiment.behaviorReviewed ?? {},
       id: experiment.id,
       test_type: experiment.testType,
       subject_id: experiment.subjectId,
@@ -108,7 +115,8 @@ export function Results({ experimentId }: { experimentId: string }) {
         boundary_policy: experiment.arena.boundaryPolicy,
       },
       tracking: { reference_point: experiment.referencePoint, max_animals: 1,
-        coordinate_space: "original_video_pixels", posture_classification: "not_performed", occluded_points: "not_imputed" },
+        coordinate_space: "original_video_pixels", posture_classification: "human_reviewed_candidates",
+        occluded_points: "not_imputed", recovered_points: "excluded_until_human_confirmation" },
     };
     downloadText("experiment.json", JSON.stringify(scientificExperiment, null, 2), "application/json");
   };
@@ -124,7 +132,7 @@ export function Results({ experimentId }: { experimentId: string }) {
         <div>
           <div className="eyebrow">Resultados · Open Field Test</div>
           <h1>{experiment.title}</h1>
-          <p>{experiment.subjectId}{experiment.group ? ` · ${experiment.group}` : ""} · Método {experiment.analysisMethodVersion}</p>
+          <p>{experiment.subjectId}{experiment.group ? ` · ${experiment.group}` : ""} · Método {METRIC_POLICY.version}</p>
         </div>
         <div className="results-actions">
           <Button variant="secondary" icon={<Download size={16} />} onClick={() => setShowExport((current) => !current)}>Exportar</Button>
@@ -140,6 +148,9 @@ export function Results({ experimentId }: { experimentId: string }) {
             <Button size="sm" variant="secondary" onClick={() => downloadText("poses_reviewed.csv", poseToCsv(reviewedSamples), "text/csv")}>poses_reviewed.csv</Button>
             <Button size="sm" variant="secondary" onClick={exportCorrections}>corrections.jsonl</Button>
             <Button size="sm" variant="secondary" onClick={() => downloadText("metrics.csv", metricsCsv(metrics), "text/csv")}>metrics.csv</Button>
+            <Button size="sm" variant="secondary" onClick={() => downloadText("behaviors.csv", behaviorCsv(experiment, experiment.video.durationSec), "text/csv")}>behaviors.csv</Button>
+            <Button size="sm" variant="secondary" onClick={() => downloadText("behavior_summary.csv", ["behavior,count,duration_sec,review_status,source",
+              ...behaviors.map((item) => `${item.label},${item.count ?? ""},${item.durationSec ?? ""},${item.reviewed ? "complete_review" : "partial_review"},human_confirmed`)].join("\n"), "text/csv")}>behavior_summary.csv</Button>
           </div>
         </section>
       )}
@@ -158,8 +169,8 @@ export function Results({ experimentId }: { experimentId: string }) {
       <section className="metric-grid">
         <article className="metric-card"><div className="metric-icon green"><Route size={20} /></div><span>Distância válida</span><strong>{metricValue(metrics.distanceCm, "cm")}</strong><small>Sem unir lacunas</small></article>
         <article className="metric-card"><div className="metric-icon blue"><Gauge size={20} /></div><span>Velocidade média</span><strong>{metricValue(metrics.meanSpeedCmS, "cm/s", 2)}</strong><small>Tempo de pares válidos</small></article>
-        <article className="metric-card"><div className="metric-icon amber"><Map size={20} /></div><span>Tempo no centro</span><strong>{metricValue(metrics.centerTimeSec, "s")}</strong><small>{metrics.centerPctClassifiable?.toFixed(1) ?? "—"}% do classificável</small></article>
-        <article className="metric-card"><div className="metric-icon purple"><Footprints size={20} /></div><span>Entradas no centro</span><strong>{metrics.centerEntries}</strong><small>Com dwell mínimo de 0,2 s</small></article>
+        <article className="metric-card"><div className="metric-icon amber"><Map size={20} /></div><span>Tempo no centro</span><strong>{metricValue(metrics.validDurationSec > 0 ? metrics.centerTimeSec : null, "s")}</strong><small>{metrics.centerPctClassifiable?.toFixed(1) ?? "—"}% do classificável</small></article>
+        <article className="metric-card"><div className="metric-icon purple"><Footprints size={20} /></div><span>Entradas observadas no centro</span><strong>{metrics.validDurationSec > 0 ? metrics.centerEntries : "Não mensurável"}</strong><small>Com dwell mínimo de 0,2 s</small></article>
       </section>
 
       <div className="results-main-grid">
@@ -170,9 +181,9 @@ export function Results({ experimentId }: { experimentId: string }) {
               <rect width={experiment.video.width} height={experiment.video.height} fill="#f1f3ee" />
               <polygon points={pointsToSvg(experiment.arena.cornersPx)} fill="#e7eae3" stroke="#9ca9a2" strokeWidth="5" />
               <polygon points={pointsToSvg(centerPolygon)} fill="#70d6ad" fillOpacity=".11" stroke="#4ca383" strokeWidth="3" strokeDasharray="10 8" />
-              <polyline points={pointsToSvg(displayTrajectory)} fill="none" stroke="#1a5b4a" strokeWidth="4" strokeOpacity=".82" strokeLinecap="round" strokeLinejoin="round" />
-              {displayTrajectory[0] && <circle cx={displayTrajectory[0].x} cy={displayTrajectory[0].y} r="9" fill="#d7f169" stroke="#153c32" strokeWidth="3" />}
-              {displayTrajectory.at(-1) && <circle cx={displayTrajectory.at(-1)!.x} cy={displayTrajectory.at(-1)!.y} r="9" fill="#153c32" />}
+              {trajectory.map((segment, index) => <polyline key={index} points={pointsToSvg(segment)} fill="none" stroke="#1a5b4a" strokeWidth="4" strokeOpacity=".82" strokeLinecap="round" strokeLinejoin="round" />)}
+              {startPoint && <circle cx={startPoint.x} cy={startPoint.y} r="9" fill="#d7f169" stroke="#153c32" strokeWidth="3" />}
+              {endPoint && <circle cx={endPoint.x} cy={endPoint.y} r="9" fill="#153c32" />}
             </svg>
             <div className="trajectory-legend"><span><i className="start" /> Início</span><span><i className="end" /> Fim</span><span><i className="center" /> Centro</span></div>
           </div>
@@ -188,6 +199,16 @@ export function Results({ experimentId }: { experimentId: string }) {
           </div>
         </section>
       </div>
+
+      <section className="panel behavior-results">
+        <div className="panel-header"><div><h2>Rearing, grooming e freezing</h2><p>Episódios confirmados no vídeo · independentes da revisão de poses selecionada.</p></div></div>
+        <div className="behavior-result-grid">{behaviors.map((item) => <article key={item.label}>
+          <h3>{BEHAVIOR_LABELS[item.label]}</h3><strong>{item.count == null ? "Não anotado" : `${item.count} episódio(s)`}</strong>
+          <span>{item.durationSec == null ? "Duração não mensurada" : `${item.durationSec.toFixed(2)} s confirmados`}</span>
+          <small>{item.reviewed ? "Vídeo inteiro revisado para esta classe" : "Revisão parcial · não é o total da sessão"}</small>
+        </article>)}</div>
+        <p>Imobilidade operacional não equivale a freezing. Sugestões não confirmadas não são contadas. Sem revisão completa, zero anotações não significa ausência de comportamento.</p>
+      </section>
 
       <div className="results-detail-grid">
         <section className="panel detail-table-card">

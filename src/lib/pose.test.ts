@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseCanonicalPoseCsv, poseToCsv } from "./csv";
-import { confidenceLabel, drawablePose, trajectorySegments } from "./pose";
+import { confidenceLabel, drawablePose, inferredFps, metricEligible, originalPose, trajectorySegments } from "./pose";
 import { applyCorrections } from "./corrections";
 import type { PoseSample } from "../types";
 
@@ -59,7 +59,42 @@ describe("poses com visibilidade parcial", () => {
     const csv = `${header},spatial_region,support_count,support_total\n0,0,animal_1,body_center,300,400,.9,low_confidence,wall_projection,1,3`;
     const samples = parseCanonicalPoseCsv(csv);
     expect(samples[0]).toMatchObject({ spatialRegion: "wall_projection", supportCount: 1, supportTotal: 3, status: "low_confidence" });
-    expect(parseCanonicalPoseCsv(poseToCsv(samples))).toEqual(samples);
+    expect(parseCanonicalPoseCsv(poseToCsv(samples))).toMatchObject(samples);
+  });
+
+  it("mantém o original e a procedência em uma recuperação exportada", () => {
+    const sample = point(1, { source: "recovered", original: { xPx: null, yPx: null, status: "missing", likelihood: 0 } });
+    const [restored] = parseCanonicalPoseCsv(poseToCsv([sample]));
+    expect(restored.source).toBe("recovered");
+    expect(originalPose(restored)).toMatchObject({ xPx: null, yPx: null, status: "missing", likelihood: 0, source: "detected" });
+    expect(metricEligible(restored)).toBe(false);
+    const [confirmed] = applyCorrections([restored], [{ id: "confirm", type: "CONFIRM_POINT", createdAt: "now", source: "manual", frameIndex: 1, keypoint: "body_center" }]);
+    expect(metricEligible(confirmed)).toBe(true);
+    expect(originalPose(confirmed).xPx).toBeNull();
+    expect(confidenceLabel(confirmed)).toBe("Manual");
+  });
+
+  it("não permite transformar previsão ou ausência em observação apenas com confirmação", () => {
+    const predicted = point(0, { source: "predicted" });
+    const [unchanged] = applyCorrections([predicted], [{ id: "confirm", type: "CONFIRM_POINT", createdAt: "now", source: "manual", frameIndex: 0, keypoint: "body_center" }]);
+    expect(metricEligible(unchanged)).toBe(false);
+  });
+
+  it("rejeita status desconhecido e recuperação sem original", () => {
+    expect(() => parseCanonicalPoseCsv(`${header}\n0,0,animal_1,nose,1,2,.8,wrong`)).toThrow();
+    expect(() => parseCanonicalPoseCsv(`${header},source\n0,0,animal_1,nose,1,2,.8,valid,recovered`)).toThrow();
+  });
+
+  it("usa o FPS dos timestamps em vez de assumir 30 FPS", () => {
+    expect(inferredFps([point(0), point(1)], 30)).toBe(24);
+  });
+  it("confirmar um ponto já movido não perde a correção anterior", () => {
+    const events = [{ id: "move", type: "MOVE_POINT" as const, createdAt: "now", source: "manual" as const, frameIndex: 0, keypoint: "body_center", after: { x: 50, y: 60 } },
+      { id: "confirm", type: "CONFIRM_POINT" as const, createdAt: "now", source: "manual" as const, frameIndex: 0, keypoint: "body_center", before: { x: 50, y: 60 } }];
+    expect(applyCorrections([point(0, { xPx: null, yPx: null, status: "missing" })], events)[0]).toMatchObject({ xPx: 50, yPx: 60, status: "valid", source: "manual" });
+    expect(applyCorrections([point(0)], events.slice(1))[0].source).toBeUndefined();
+    const legacy = applyCorrections([point(0)], events);
+    expect(originalPose(parseCanonicalPoseCsv(poseToCsv(legacy))[0])).toMatchObject({ xPx: 100, yPx: 200 });
   });
 
   it("colunas extras vazias não inventam suporte anatômico para arquivos legados", () => {

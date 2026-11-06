@@ -20,7 +20,6 @@ import {
   RotateCcw,
   ScanSearch,
   SkipForward,
-  Tag,
   Undo2,
 } from "lucide-react";
 import {
@@ -35,7 +34,7 @@ import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { activeCorrectionEvents, applyCorrections } from "../../lib/corrections";
 import { parseCanonicalPoseCsv } from "../../lib/csv";
-import { confidenceLabel, drawablePose, trajectorySegments } from "../../lib/pose";
+import { confidenceLabel, drawablePose, inferredFps, originalPose, poseSourceLabel, trajectorySegments } from "../../lib/pose";
 import { makeDemoPose } from "../../lib/demo-data";
 import { centerPolygonPx, pointsToSvg } from "../../lib/geometry";
 import { cn, formatDuration } from "../../lib/format";
@@ -50,6 +49,7 @@ import {
   type ColabJob,
 } from "../colab/analysis";
 import { AnalysisWorkflow } from "../colab/AnalysisWorkflow";
+import { BehaviorReview } from "./BehaviorReview";
 import {
   COLAB_PROFILE_ID,
   isTauriRuntime,
@@ -70,6 +70,8 @@ const keypointLabels: Record<string, string> = {
   tail_base: "Base da cauda",
   left_ear: "Orelha esquerda",
   right_ear: "Orelha direita",
+  left_forepaw: "Pata anterior esquerda",
+  right_forepaw: "Pata anterior direita",
 };
 
 function nearestSample(samples: PoseSample[], time: number) {
@@ -95,7 +97,10 @@ function timelineBins(samples: PoseSample[], count = 120) {
     const start = (index / count) * maxTime;
     const end = ((index + 1) / count) * maxTime;
     const inBin = samples.filter((sample) => sample.timestampSec >= start && sample.timestampSec < end);
-    return inBin.reduce<PoseStatus>((worst, sample) => severity[sample.status] > severity[worst] ? sample.status : worst, "valid");
+    return inBin.reduce<PoseStatus>((worst, sample) => {
+      const status = sample.source === "recovered" && sample.status === "valid" ? "low_confidence" : sample.status;
+      return severity[status] > severity[worst] ? status : worst;
+    }, "valid");
   });
 }
 
@@ -163,6 +168,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
         setTrackingData(experimentId, samples);
         updateExperiment(experimentId, {
           status: "review",
+          analysisMethodVersion: "oft-0.2",
           referencePoint: samples.some((sample) => sample.keypoint === "body_center")
             ? "body_center"
             : samples[0].keypoint,
@@ -195,10 +201,12 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     };
   }, [experimentId]);
 
-  const rawSamples = trackingData[experimentId] ?? [];
+  const inputSamples = trackingData[experimentId] ?? [];
+  const rawSamples = useMemo(() => inputSamples.map(originalPose), [inputSamples]);
+  const [placingPoint, setPlacingPoint] = useState(false);
   const correctedSamples = useMemo(
-    () => experiment ? applyCorrections(rawSamples, experiment.corrections) : rawSamples,
-    [experiment, rawSamples],
+    () => experiment ? applyCorrections(inputSamples, experiment.corrections) : inputSamples,
+    [experiment, inputSamples],
   );
   const displayedSamples = viewMode === "raw" ? rawSamples : correctedSamples;
   const keypoints = useMemo(() => Array.from(new Set(rawSamples.map((sample) => sample.keypoint))), [rawSamples]);
@@ -214,6 +222,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     () => displayedSamples.filter((sample) => sample.keypoint === referenceKeypoint),
     [displayedSamples, referenceKeypoint],
   );
+  const detectedFps = inferredFps(referenceSamples, experiment?.video.fps);
   const duration = referenceSamples.at(-1)?.timestampSec || experiment?.video.durationSec || 0;
   const currentReference = nearestSample(referenceSamples, currentTime);
   const currentFrame = currentReference?.frameIndex ?? 0;
@@ -276,8 +285,8 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
       if (event.code === "Space") {
         event.preventDefault();
         setPlaying((current) => !current);
-      } else if (event.key === "ArrowRight") setTime(currentTime + 1 / (experiment?.video.fps || 30));
-      else if (event.key === "ArrowLeft") setTime(currentTime - 1 / (experiment?.video.fps || 30));
+      } else if (event.key === "ArrowRight") setTime(currentTime + 1 / detectedFps);
+      else if (event.key === "ArrowLeft") setTime(currentTime - 1 / detectedFps);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -294,10 +303,13 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   };
 
   const pointFromPointer = (event: ReactPointerEvent<SVGSVGElement>): Point => {
-    const rect = svgRef.current!.getBoundingClientRect();
+    const svg = svgRef.current!;
+    const matrix = svg.getScreenCTM();
+    if (!matrix) throw new Error("O vídeo ainda não está pronto para posicionar pontos.");
+    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
     return {
-      x: Math.max(0, Math.min(experiment.video.width, ((event.clientX - rect.left) / rect.width) * experiment.video.width)),
-      y: Math.max(0, Math.min(experiment.video.height, ((event.clientY - rect.top) / rect.height) * experiment.video.height)),
+      x: Math.max(0, Math.min(experiment.video.width, point.x)),
+      y: Math.max(0, Math.min(experiment.video.height, point.y)),
     };
   };
 
@@ -317,7 +329,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   };
 
   const undo = () => {
-    const last = [...activeEvents].reverse().find((event) => event.type !== "ANNOTATE_BEHAVIOR");
+    const last = activeEvents.at(-1);
     if (!last) return;
     appendEvent({
       id: crypto.randomUUID(),
@@ -342,20 +354,21 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     });
   };
 
-  const annotateRearing = () => {
+  const confirmPoint = () => {
+    if (!selectedPoint || !drawablePose(selectedPoint) || selectedPoint.source === "predicted") return;
     appendEvent({
       id: crypto.randomUUID(),
-      type: "ANNOTATE_BEHAVIOR",
+      type: "CONFIRM_POINT",
       createdAt: new Date().toISOString(),
-      startSec: currentTime,
-      endSec: Math.min(duration, currentTime + 2),
-      label: "rearing",
+      frameIndex: currentFrame,
+      keypoint: selectedPoint.keypoint,
+      before: { x: selectedPoint.xPx, y: selectedPoint.yPx },
       source: "manual",
     });
   };
 
   const nextIssue = () => {
-    const issues = referenceSamples.filter((sample) => sample.status !== "valid");
+    const issues = referenceSamples.filter((sample) => sample.status !== "valid" || sample.source === "recovered");
     const next = issues.find((sample) => sample.timestampSec > currentTime + 0.05) ?? issues[0];
     if (next) {
       setTime(next.timestampSec);
@@ -438,6 +451,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
       setTrackingData(experiment.id, samples);
       updateExperiment(experiment.id, {
         status: "review",
+        analysisMethodVersion: "oft-0.2",
         referencePoint: samples.some((sample) => sample.keypoint === "body_center")
           ? "body_center"
           : samples[0].keypoint,
@@ -452,9 +466,10 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     }
   };
 
-  const severityCount = referenceSamples.filter((sample) => sample.status !== "valid").length;
+  const severityCount = referenceSamples.filter((sample) => sample.status !== "valid" || sample.source === "recovered").length;
   const currentStatus = currentReference?.status ?? "missing";
-  const fps = experiment.video.fps || 30;
+  const qualityInfo = currentReference?.source === "recovered" ? { label: "Recuperado · revisar", tone: "warning" as const } : statusInfo[currentStatus];
+  const fps = detectedFps;
   const currentJob = analysisJob
     ? analysisHistory.find((job) => job.jobId === analysisJob.jobId) ?? analysisJob
     : localStartedAt !== null ? null : analysisHistory[0] ?? null;
@@ -472,12 +487,15 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
         <button className="back-link" onClick={() => navigate({ name: "dashboard" })}><ArrowLeft size={16} /> Experimentos</button>
         <div className="editor-title"><div><h1>{experiment.title}</h1><p>{experiment.subjectId}{experiment.group ? ` · ${experiment.group}` : ""} · Campo aberto</p></div><Badge tone={rawSamples.length ? "warning" : "neutral"} dot>{rawSamples.length ? "Em revisão" : "Sem tracking"}</Badge></div>
         <div className="editor-header-actions">
-          {!rawSamples.length && <Button className="analyze-button header-analyze" disabled={analysisBusy} icon={<CloudCog size={16} />} onClick={() => void runColabAnalysis()}>Analisar no Colab</Button>}
+          <Button className="analyze-button header-analyze" disabled={analysisBusy} icon={<CloudCog size={16} />} onClick={() => void runColabAnalysis()}>{rawSamples.length ? "Reprocessar no Colab" : "Analisar no Colab"}</Button>
           <Button disabled={!rawSamples.length} icon={<BarChart3 size={16} />} onClick={() => navigate({ name: "results", experimentId })}>Ver resultados</Button>
         </div>
       </header>
 
       {csvError && csvError !== visibleJob?.error && <div className="editor-error"><AlertCircle size={16} /> {csvError}</div>}
+      {inputSamples[0]?.recoveryState === "unavailable" && <div className="editor-error"><AlertCircle size={16} /> A segunda passagem visual não estava disponível neste runtime. As detecções originais foram preservadas; consulte o diário da execução antes de considerar a recuperação concluída.</div>}
+      {rawSamples.length > 0 && analysisBusy && <AnalysisWorkflow job={visibleJob} preparing={analysisStarting && !currentJob}
+        message={analysisMessage} localError={null} elapsedSec={elapsedSec} />}
 
       {!rawSamples.length ? (
         <section className="tracking-empty tracking-processing panel">
@@ -546,6 +564,12 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
                 className="tracking-overlay"
                 viewBox={`0 0 ${experiment.video.width} ${experiment.video.height}`}
                 preserveAspectRatio="xMidYMid meet"
+                onPointerDown={(event) => {
+                  if (!placingPoint || viewMode === "raw") return;
+                  appendEvent({ id: crypto.randomUUID(), type: "MOVE_POINT", createdAt: new Date().toISOString(),
+                    frameIndex: currentFrame, keypoint: selectedKeypoint, before: drawablePose(selectedPoint) ? { x: selectedPoint.xPx, y: selectedPoint.yPx } : null, after: pointFromPointer(event), source: "manual" });
+                  setPlacingPoint(false);
+                }}
                 onPointerMove={(event) => drag && setDrag({ ...drag, current: pointFromPointer(event) })}
                 onPointerUp={finishDrag}
                 onPointerCancel={() => setDrag(null)}
@@ -590,13 +614,14 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
                       }}
                     >
                       {corrected && <circle r="19" fill="none" stroke="#f7c96b" strokeWidth="3" strokeDasharray="4 4" />}
-                      <circle r={selected ? 12 : 9} fill={sample.status === "valid" ? "#d7f169" : "#f7c96b"} stroke="#153c32" strokeWidth="3" />
+                      <circle r={selected ? 12 : 9} fill={sample.source === "recovered" ? "#bb9aff" : sample.status === "valid" ? "#d7f169" : "#f7c96b"} stroke="#153c32" strokeWidth="3" />
                       {selected && <text y="-19" textAnchor="middle" fontSize="14" fontWeight="700" fill="#fff">{keypointLabels[sample.keypoint] ?? sample.keypoint}</text>}
                     </g>
                   );
                 })}
               </svg>
-              <div className="stage-badges"><Badge tone="neutral">Frame {currentFrame}</Badge><Badge tone={statusInfo[currentStatus].tone}>{statusInfo[currentStatus].label}</Badge></div>
+              <div className="stage-badges"><Badge tone="neutral">Frame {currentFrame}</Badge><Badge tone={qualityInfo.tone}>{qualityInfo.label}</Badge>{currentReference?.source && currentReference.source !== "detected" && currentReference.source !== "recovered" && <Badge tone="warning">{poseSourceLabel(currentReference)}</Badge>}</div>
+              {placingPoint && viewMode !== "raw" && <div className="raw-lock">Clique na posição de {keypointLabels[selectedKeypoint] ?? selectedKeypoint} · não estime partes invisíveis</div>}
               {viewMode === "raw" && <div className="raw-lock"><RotateCcw size={15} /> Visualização bruta · edição bloqueada</div>}
             </div>
 
@@ -632,7 +657,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
               <div className="keypoint-list">
                 {keypoints.map((keypoint) => {
                   const point = currentPoints.find((sample) => sample.keypoint === keypoint);
-                  return <button key={keypoint} className={keypoint === selectedKeypoint ? "active" : ""} onClick={() => setSelectedKeypoint(keypoint)}><CircleDot size={16} /><span>{keypointLabels[keypoint] ?? keypoint}</span><small>{confidenceLabel(point)}</small></button>;
+                  return <button key={keypoint} title={poseSourceLabel(point)} className={keypoint === selectedKeypoint ? "active" : ""} onClick={() => setSelectedKeypoint(keypoint)}><CircleDot size={16} /><span>{keypointLabels[keypoint] ?? keypoint}{point?.source === "recovered" ? " · recuperado/revisar" : ""}</span><small>{confidenceLabel(point)}</small></button>;
                 })}
               </div>
             </section>
@@ -640,16 +665,21 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
               <div className="inspector-label">Ações no frame {currentFrame}</div>
               <Button variant="secondary" icon={<MousePointer2 size={16} />} disabled={viewMode === "raw"}>Arraste o ponto no vídeo</Button>
               <Button variant="secondary" icon={<Flag size={16} />} onClick={markMissing} disabled={!selectedPoint || viewMode === "raw"}>Marcar como ausente</Button>
-              <Button variant="secondary" icon={<Tag size={16} />} onClick={annotateRearing}>Anotar rearing (2 s)</Button>
+              <Button variant="secondary" onClick={() => { setPlaying(false); setPlacingPoint((current) => !current); }} disabled={viewMode === "raw"}>{placingPoint ? "Cancelar posicionamento" : "Posicionar ponto ausente"}</Button>
+              <Button variant="secondary" onClick={confirmPoint} disabled={viewMode === "raw" || !drawablePose(selectedPoint) || selectedPoint?.source === "predicted"}>Confirmar ponto após revisar</Button>
               <div className="undo-row"><Button variant="ghost" size="sm" icon={<Undo2 size={15} />} onClick={undo} disabled={!activeEvents.length}>Desfazer</Button><Button variant="ghost" size="sm" icon={<Redo2 size={15} />} disabled>Refazer</Button></div>
             </section>
+            <BehaviorReview experiment={experiment} samples={correctedSamples} currentTime={currentTime} duration={duration}
+              disabled={viewMode === "raw"} onSeek={(time) => { setPlaying(false); setTime(time); }}
+              onChange={(patch) => updateExperiment(experiment.id, patch)} />
             <section className="inspector-section frame-quality">
               <div className="inspector-label">Qualidade: {keypointLabels[referenceKeypoint] ?? referenceKeypoint}</div>
-              <div className={`quality-card quality-${currentStatus}`}>
-                {currentStatus === "valid" ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
-                <div><strong>{statusInfo[currentStatus].label}</strong><span>Score do modelo: {confidenceLabel(currentReference)}</span></div>
+              <div className={`quality-card quality-${currentReference?.source === "recovered" ? "low_confidence" : currentStatus}`}>
+                {qualityInfo.tone === "success" ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+                <div><strong>{qualityInfo.label}</strong><span>Score do modelo: {confidenceLabel(currentReference)}</span></div>
               </div>
               <p>Flags indicam trechos para revisão; não provam que a estimativa esteja errada.</p>
+              <p>{poseSourceLabel(selectedPoint)}. Score não é probabilidade calibrada de acerto. Pontos recuperados e de baixa confiança só entram nas métricas depois de confirmados.</p>
               {currentReference?.supportCount != null && currentReference.supportTotal != null && currentReference.supportTotal > 0 && currentReference.supportCount < currentReference.supportTotal && <p>Centro com suporte parcial: {currentReference.supportCount}/{currentReference.supportTotal} pontos do tronco. A posição pode variar com as partes visíveis; revise antes de usar métricas.</p>}
             </section>
             <section className="inspector-section detection-context">
@@ -657,7 +687,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
               <strong>{visiblePointCount}/{currentPoints.length} pontos disponíveis</strong>
               {visiblePointCount > 0 && visiblePointCount < currentPoints.length && <p>Detecção parcial: os pontos disponíveis foram mantidos. Partes não detectadas não foram preenchidas.</p>}
               <p>Ponto selecionado: {selectedPoint?.spatialRegion === "floor" ? "projeção do chão" : selectedPoint?.spatialRegion === "wall_projection" ? "projeção da parede/borda" : selectedPoint?.spatialRegion === "outside" ? "fora da projeção da caixa" : "contexto não disponível"}.</p>
-              <p>Borda e chão não confirmam postura em pé. Rearing continua sendo uma anotação manual.</p>
+              <p>Borda e chão ajudam a delimitar a imagem, mas não medem altura. Confirme os comportamentos no vídeo.</p>
             </section>
             <section className="inspector-audit">
               <div><History size={16} /><span>{activeEvents.length} intervenções ativas</span></div>

@@ -27,7 +27,7 @@ export function makeDemoExperiment(id = crypto.randomUUID()): Experiment {
   return {
     id,
     schemaVersion: "1.0",
-    analysisMethodVersion: "oft-0.1",
+    analysisMethodVersion: "oft-0.2",
     title: "Campo aberto · demonstração",
     subjectId: "RAT_DEMO_01",
     group: "Controle",

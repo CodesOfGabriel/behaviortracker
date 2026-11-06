@@ -1530,6 +1530,9 @@ os.makedirs(output_dir, exist_ok=True)
 helpers = Path(output_dir) / "arena_helpers.py"
 helpers.write_text({arena_helpers:?}, encoding="utf-8")
 geometry_api = runpy.run_path(str(helpers))
+recovery_helpers = Path(output_dir) / "recovery_helpers.py"
+recovery_helpers.write_text({recovery_helpers:?}, encoding="utf-8")
+recovery_api = runpy.run_path(str(recovery_helpers))
 capture = cv2.VideoCapture(video_path)
 fps = float(capture.get(cv2.CAP_PROP_FPS))
 video_width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -1538,6 +1541,8 @@ capture.release()
 if not math.isfinite(fps) or fps <= 0:
     raise RuntimeError("O vídeo não informou FPS válido; não é seguro inventar timestamps para a análise")
 geometry = geometry_api["prepare_geometry"](json.loads({arena_json:?}), video_width, video_height)
+geometry["poseAdapterVersion"] = "superanimal-canonical-3"
+geometry["recoveryPolicy"] = recovery_api["POLICY"]
 Path(output_dir, "arena_geometry.json").write_text(json.dumps(geometry, ensure_ascii=False, indent=2), encoding="utf-8")
 print("BEHAVETRACKER_GEOMETRY=" + json.dumps(geometry), flush=True)
 
@@ -1587,43 +1592,69 @@ aliases = {{
     "tail_base": ["tail_base", "tailbase", "tail_root", "tailroot"],
     "left_ear": ["left_ear", "leftear", "ear_left"],
     "right_ear": ["right_ear", "rightear", "ear_right"],
+    "left_forepaw": ["left_forepaw", "left_front_paw", "left_frontpaw", "left_hand"],
+    "right_forepaw": ["right_forepaw", "right_front_paw", "right_frontpaw", "right_hand"],
 }}
 
 selected = {{name: find_bodypart(values) for name, values in aliases.items()}}
+selected = {{name: part for name, part in selected.items() if part or name not in ("left_forepaw", "right_forepaw")}}
 all_bodyparts = sorted({{bodypart for bodypart, coordinate in available if coordinate == "x" and (bodypart, "y") in available}})
 torso = [
     bodypart for bodypart in all_bodyparts
     if any(token in bodypart for token in ("spine", "body", "center", "centre", "shoulder", "hip", "back"))
     and not any(token in bodypart for token in ("tail", "paw", "ear", "nose", "snout"))
 ]
-def point_at(bodypart, position):
+def raw_point(bodypart, position):
+    score = available.get((bodypart, "likelihood"))
+    try:
+        return tuple(float(value) for value in (available[(bodypart, "x")].iloc[position],
+            available[(bodypart, "y")].iloc[position], score.iloc[position] if score is not None else -1))
+    except (TypeError, ValueError):
+        return (-1.0, -1.0, -1.0)
+
+def point_at(bodypart, points):
     if bodypart is None:
         return (None, None, 0.0, "missing")
-    likelihood_series = available.get((bodypart, "likelihood"))
-    likelihood = likelihood_series.iloc[position] if likelihood_series is not None else None
-    return geometry_api["restore_point"](available[(bodypart, "x")].iloc[position],
-        available[(bodypart, "y")].iloc[position], likelihood, geometry)
+    return geometry_api["restore_point"](*points[bodypart], geometry)
+
+raw_frames = [{{name: raw_point(name, position) for name in all_bodyparts}} for position in range(len(poses.index))]
+if any(int(frame) != position for position, frame in enumerate(poses.index)):
+    raise RuntimeError("Índices de frames não consecutivos: recuperação temporal cancelada para preservar sincronização")
+recovery = recovery_api["VisualRecovery"](video_path, geometry)
+print("Recuperando detecções parciais com evidência visual e histórico curto", flush=True)
+print(f"BEHAVETRACKER_RECOVERY_PROGRESS=0/{{len(raw_frames)}}", flush=True)
+recovered_frames = recovery_api["recover_frames"](raw_frames, fps, geometry, recovery.retry)
+
+def append_row(frame, name, point, original, support, total, recovered, original_support):
+    x, y, score, status = point
+    ox, oy, oscore, ostatus = original
+    rows.append([frame, frame / fps, "animal_1", name, x, y, score, status,
+        geometry_api["spatial_region"](x, y, geometry), support, total,
+        "recovered" if recovered else "detected", ox, oy, oscore, ostatus,
+        geometry_api["spatial_region"](ox, oy, geometry), original_support, total])
 
 rows = []
-for frame_position, frame_index in enumerate(poses.index):
-    try:
-        numeric_frame = int(frame_index)
-    except Exception:
-        numeric_frame = frame_position
-    timestamp = numeric_frame / fps
-
-    torso_points = [point_at(bodypart, frame_position) for bodypart in torso]
-    center_x, center_y, center_likelihood, status = geometry_api["torso_center"](torso_points)
+for numeric_frame, (points, recovered_names) in enumerate(recovered_frames):
+    raw = raw_frames[numeric_frame]
+    torso_points = [point_at(bodypart, points) for bodypart in torso]
+    original_torso = [point_at(name, raw) for name in torso]
+    original_center = geometry_api["torso_center"](original_torso)
+    center = geometry_api["torso_center"](torso_points)
     support = sum(point[3] != "missing" for point in torso_points)
-    rows.append([numeric_frame, timestamp, "animal_1", "body_center", center_x, center_y, center_likelihood, status,
-        geometry_api["spatial_region"](center_x, center_y, geometry), support, len(torso_points)])
+    append_row(numeric_frame, "body_center", center, original_center, support, len(torso_points),
+        any(name in recovered_names for name in torso), sum(point[3] != "missing" for point in original_torso))
 
     for canonical_name, bodypart in selected.items():
-        x, y, likelihood, status = point_at(bodypart, frame_position)
-        rows.append([numeric_frame, timestamp, "animal_1", canonical_name, x, y, likelihood, status,
-            geometry_api["spatial_region"](x, y, geometry), int(status != "missing"), 1])
+        point = point_at(bodypart, points)
+        append_row(numeric_frame, canonical_name, point, point_at(bodypart, raw), int(point[3] != "missing"), 1,
+            bodypart in recovered_names, int(point_at(bodypart, raw)[3] != "missing"))
+recovery.close()
+print(f"BEHAVETRACKER_RECOVERY_PROGRESS={{len(raw_frames)}}/{{len(raw_frames)}}", flush=True)
+print("BEHAVETRACKER_RECOVERY=" + json.dumps({{"attempted": recovery.attempted, "accepted": recovery.accepted,
+    "unavailable": recovery.disabled_reason, "policy": recovery_api["POLICY"]}}), flush=True)
 
-canonical = pd.DataFrame(rows, columns=["frame_index", "timestamp_sec", "animal_id", "keypoint", "x_px", "y_px", "likelihood", "status", "spatial_region", "support_count", "support_total"])
+recovery_state = "unavailable" if recovery.disabled_reason else "ready" if recovery.attempted else "not_needed"
+canonical = pd.DataFrame([row + [recovery_state] for row in rows], columns=["frame_index", "timestamp_sec", "animal_id", "keypoint", "x_px", "y_px", "likelihood", "status", "spatial_region", "support_count", "support_total", "source", "raw_x_px", "raw_y_px", "raw_likelihood", "raw_status", "raw_spatial_region", "raw_support_count", "raw_support_total", "recovery_state"])
 canonical.to_csv(canonical_path, index=False)
 Path(canonical_path + ".complete").write_text("ok", encoding="utf-8")
 print(f"BEHAVETRACKER_RESULT={{canonical_path}}|rows={{len(canonical)}}|fps={{fps:.6f}}")
@@ -1632,6 +1663,7 @@ print(f"BEHAVETRACKER_RESULT={{canonical_path}}|rows={{len(canonical)}}|fps={{fp
         remote_output = remote_output,
         canonical_csv = canonical_csv,
         arena_helpers = include_str!("../python/arena.py"),
+        recovery_helpers = include_str!("../python/recovery.py"),
         arena_json = serde_json::to_string(&arena).expect("validated arena is serializable"),
     );
     format!("from pathlib import Path\nif Path({canonical_csv:?}).is_file() and Path({:?}).is_file():\n    print('BEHAVETRACKER_RESULT_CACHED')\nelse:\n{}",
@@ -1988,7 +2020,7 @@ pub fn start_colab_analysis(
             "INSERT INTO colab_job_geometry(job_id, geometry_json) VALUES (?1, ?2)",
             params![
                 &job_id,
-                serde_json::to_string(&json!({"poseAdapterVersion":"superanimal-canonical-2", "arena": &request.arena}))
+                serde_json::to_string(&json!({"poseAdapterVersion":"superanimal-canonical-3", "recoveryVersion":"visual-recovery-1", "arena": &request.arena}))
                     .map_err(|_| "Não foi possível serializar a geometria.")?
             ],
         )
