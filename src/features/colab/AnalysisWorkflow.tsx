@@ -1,7 +1,8 @@
 import { ArrowRight, Check, CircleAlert, CloudDownload, Cpu, FileVideo, LoaderCircle, ScanSearch, ShieldCheck, UploadCloud, WandSparkles } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatDuration } from "../../lib/format";
 import type { ColabJob } from "./analysis";
+import { loadColabLog } from "./analysis";
 import { checkpoints, gpuMessage } from "./workflow";
 
 const icons = [FileVideo, Cpu, UploadCloud, ShieldCheck, WandSparkles, ScanSearch, CloudDownload];
@@ -19,6 +20,24 @@ export function AnalysisWorkflow({ job, preparing, message, localError, elapsedS
   const active = preparing || job?.status === "running" || job?.status === "queued";
   const gpu = gpuMessage(events);
   const flowRef = useRef<HTMLDivElement>(null);
+  const [technicalLog, setTechnicalLog] = useState<string | null>(null);
+  const [loadingLog, setLoadingLog] = useState(false);
+  const selectedJob = useRef(job?.jobId);
+  selectedJob.current = job?.jobId;
+  useEffect(() => { setTechnicalLog(null); setLoadingLog(false); }, [job?.jobId]);
+  const showTechnicalLog = async () => {
+    if (!job) return;
+    const jobId = job.jobId;
+    setLoadingLog(true);
+    try {
+      const log = await loadColabLog(jobId);
+      if (selectedJob.current === jobId) setTechnicalLog(log);
+    } catch (error) {
+      if (selectedJob.current === jobId) setTechnicalLog(String(error));
+    } finally {
+      if (selectedJob.current === jobId) setLoadingLog(false);
+    }
+  };
   useEffect(() => {
     const flow = flowRef.current;
     if (!flow) return;
@@ -43,18 +62,26 @@ export function AnalysisWorkflow({ job, preparing, message, localError, elapsedS
         <ol className="workflow-checkpoints">
           {steps.map((step, index) => {
             const Icon = icons[index];
+            const liveMessage = step.event?.stage === "environment_ready" || (step.state === "active" && [4, 5].includes(index));
+            const description = index === 1 && gpu ? gpu : liveMessage ? step.event?.message ?? step.description : step.description;
             return (
               <li key={step.title} className={`checkpoint checkpoint-${step.state}`} aria-current={step.state === "active" ? "step" : undefined}>
                 <div className="checkpoint-path"><span className="checkpoint-icon">{step.state === "done" ? <Check size={20} /> : step.state === "failed" ? <CircleAlert size={20} /> : step.state === "active" ? <LoaderCircle size={20} className="animate-spin" /> : <Icon size={20} />}</span>{index < steps.length - 1 && <ArrowRight size={15} className="checkpoint-arrow" />}</div>
                 <span className="checkpoint-number">Etapa {index + 1}</span>
                 <strong>{step.title}</strong>
-                <p>{index === 1 && gpu ? gpu : step.event?.stage === "environment_ready" ? step.event.message : step.description}</p>
+                <p>{description}</p>
                 <small>{step.state === "done" ? "Concluído" : step.state === "failed" ? "Falhou nesta etapa" : step.state === "active" ? "Em andamento" : "Aguardando"}</small>
               </li>
             );
           })}
         </ol>
       </div>
+      {job && <div className="workflow-technical">
+        <button type="button" className="button button-ghost" onClick={showTechnicalLog} disabled={loadingLog}>
+          {loadingLog ? "Carregando log…" : technicalLog === null ? "Ver log técnico" : "Atualizar log técnico"}
+        </button>
+        {technicalLog !== null && <details open className="workflow-log"><summary>Saída técnica do runtime</summary><pre>{technicalLog}</pre></details>}
+      </div>}
       <div className={`workflow-current ${failed ? "workflow-current-error" : ""}`} role="status" aria-live="polite">
         {failed ? <CircleAlert size={17} /> : active ? <LoaderCircle size={17} className="animate-spin" /> : <ScanSearch size={17} />}
         <span>{job?.error || localError || job?.message || message || "Ao iniciar, cada checkpoint será atualizado com as confirmações do Colab."}</span>

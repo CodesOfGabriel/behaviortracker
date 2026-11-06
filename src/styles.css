@@ -390,6 +390,9 @@ body { background: radial-gradient(circle at 70% -10%, #242143 0, transparent 35
 .workflow-log li > span:last-child { white-space: pre-wrap; overflow-wrap: anywhere; }
 .log-dot { width: 5px; height: 5px; margin-top: 6px; border-radius: 50%; background: #a992db; }
 .workflow-log .log-failed { color: #ffb0bd; }.log-failed .log-dot { background: #ff97ab; }
+.workflow-technical { margin-top: 12px; min-width: 0; }
+.workflow-technical > .button { font-size: 11px; }
+.workflow-technical pre { max-height: 280px; overflow: auto; padding: 12px; background: #111622; color: #aab9d0; font-size: 10px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .tracking-processing .workflow-legacy-note { margin: 12px 0 0; max-width: none; color: #8e9bb3; font-size: 10px; }
 @media (max-width: 800px) {
   .tracking-processing { width: calc(100% - 24px); margin: 14px auto; padding: 18px 12px; }

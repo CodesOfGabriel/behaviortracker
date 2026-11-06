@@ -85,6 +85,10 @@ export function loadColabResult(jobId: string) {
   return invoke<string>("get_colab_job_result", { jobId });
 }
 
+export function loadColabLog(jobId: string) {
+  return invoke<string>("get_colab_job_log", { jobId });
+}
+
 export async function waitForColabJob(
   jobId: string,
   onUpdate: (job: ColabJob) => void,

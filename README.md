@@ -25,7 +25,13 @@ A preparação verifica DeepLabCut 3.x, a API SuperAnimal, suas dependências e 
 
 A escolha da GPU usa uma heurística, não um benchmark: para vídeos abaixo de 4K e menores que 30 minutos, a preferência é T4 → L4 → A100 → H100; para 4K ou vídeos mais longos, L4 → A100 → H100 → T4. O app ordena primeiro os runtimes GPU já alocados para reutilizá-los. Só cria outro runtime quando não há GPU alocada, usando as specs elegíveis da conta e preferindo memória padrão entre opções equivalentes. A política não estima preço, garante desempenho nem compra recursos; o motivo da seleção e a GPU efetivamente reportada ficam no diário.
 
-Interrupções da resposta MCP e deadlines tentam se reanexar à mesma sessão e ao mesmo `executionId`, sem criar um novo job. A resposta em streaming é encerrada no resultado final, sem aguardar o fechamento da conexão HTTP. Um resultado já gravado com marcador de conclusão não executa a inferência novamente se a resposta for repetida. Se todas as tentativas falharem, o app informa que o resultado não foi confirmado e preserva a sessão remota, que pode continuar executando.
+A instalação e a inferência rodam em processos independentes da célula MCP, no mesmo runtime. As células apenas lançam o processo e consultam seu estado a cada cinco segundos. Uma trava herdada pelo worker impede lançamentos duplicados, inclusive após reconexões; repetir o lançamento de um job encerrado não reinicia a tarefa. Um `KeyboardInterrupt` na célula de acompanhamento não é enviado ao processo de inferência.
+
+Essa separação evita depender de uma chamada HTTP longa para concluir o modelo: o [contrato MCP do Colab](https://developers.google.com/colab/api/reference/mcp/tools_list/execute_code) prevê prazo de streaming, interrupção do kernel por cancelamento e truncamento de saídas grandes. O estado compacto do worker é enviado separadamente dos detalhes para continuar legível quando o log é truncado.
+
+O checkpoint mostra a contagem de frames e a porcentagem do **lote atual**, quando disponíveis no log do SuperAnimal. O detector pode chegar a 100% antes da próxima fase; isso não conclui a análise. O app só baixa o resultado depois de o worker terminar com sucesso. **Ver log técnico** carrega o último estado consultado, os 16 KiB finais da saída por tarefa e o traceback de falhas, salvos no dispositivo; os arquivos completos permanecem na pasta do job no runtime enquanto ela existir. Avisos de configuração permanecem no log, separados da mensagem da exceção.
+
+Interrupções da resposta MCP e deadlines tentam se reanexar à mesma consulta e ao mesmo `executionId`, sem criar um novo job. A resposta em streaming é encerrada no resultado final, sem aguardar o fechamento da conexão HTTP. Se todas as tentativas falharem, o app informa que o resultado não foi confirmado e preserva a sessão remota, que pode continuar executando. Isso não impede o Colab de encerrar ou substituir o runtime, não persiste dependências entre máquinas e não contorna limites do provedor. Os tokens são renovados durante o acompanhamento e antes do download.
 
 ## Rodar localmente
 
@@ -43,7 +49,7 @@ npm test
 npm run build
 ```
 
-Para validar o verificador do ambiente sem instalar DeepLabCut nem usar GPU local:
+Para validar o verificador do ambiente e o worker (continuidade sem a célula, lançamento único, interrupções e logs) sem instalar DeepLabCut nem usar GPU local:
 
 ```bash
 python3 -B -m unittest discover -s src-tauri/python -v
@@ -68,7 +74,7 @@ Para processar um vídeo:
 3. Se o projeto foi reaberto, selecione novamente o vídeo original quando solicitado; o navegador não persiste objetos `File`.
 4. Aguarde os estágios de runtime, upload, instalação, inferência e download. Ao terminar, o CSV é importado automaticamente e fica salvo no diretório de dados do app.
 
-A primeira execução pode demorar porque o runtime instala o DeepLabCut e baixa os pesos do modelo. Fechar o aplicativo interrompe o job local; ao reabrir, ele será marcado como falho e poderá ser iniciado novamente.
+A primeira execução pode demorar porque o runtime instala o DeepLabCut e baixa os pesos do modelo. Mantenha o aplicativo aberto para receber o resultado: fechar o app encerra o acompanhamento local, mas um worker já iniciado pode continuar no Colab. Ao reabrir, o job fica marcado como não confirmado/falho, sem retomada automática. Verifique o runtime antes de iniciar outra análise para não duplicar processamento.
 
 O bundling está desabilitado neste corte até assinatura, FFmpeg e políticas de distribuição serem definidos.
 

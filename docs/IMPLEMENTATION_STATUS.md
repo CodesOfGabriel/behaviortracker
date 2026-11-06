@@ -27,6 +27,8 @@
 - [x] Execução remota resumível via MCP, instalação do DeepLabCut e SuperAnimal TopViewMouse.
 - [x] Leitura incremental SSE, retomada após interrupções com o mesmo executionId e preservação da sessão quando o resultado não pôde ser confirmado.
 - [x] Validação e reutilização do DeepLabCut/CUDA já disponíveis no runtime; instalação condicional com trava e segunda checagem.
+- [x] Instalação e inferência em workers independentes da célula MCP, com lançamento idempotente, estado em arquivo e consultas curtas a cada cinco segundos.
+- [x] Progresso do lote atual reportado pelo SuperAnimal, sem usar 100% do detector como conclusão do job; log técnico local consultável na interface.
 - [x] Seleção de GPU por resolução/duração do vídeo entre opções elegíveis, priorizando runtimes existentes; decisão registrada no diário.
 - [x] Conversão do H5 do DeepLabCut para CSV canônico e importação automática no editor.
 - [x] Persistência do CSV retornado no diretório de dados e restauração ao reabrir o experimento.
@@ -39,6 +41,7 @@
 - O conjunto sintético demonstra a interface, mas nunca deve ser usado como resultado experimental.
 - As metas de desempenho com vídeo 1080p/30 FPS ainda precisam de benchmark.
 - O fluxo Colab compila e possui testes locais de contrato, mas ainda precisa completar o gate P0 com um vídeo real e evidências sanitizadas da conta alvo.
+- A continuidade do worker após encerramento/KeyboardInterrupt da célula de lançamento foi testada localmente com tarefas sintéticas. Falta confirmar esse comportamento no runtime Colab real; substituição da máquina e políticas do provedor continuam podendo encerrar processos. Fechar e reabrir o app não retoma o acompanhamento automaticamente.
 - A primeira execução em um runtime sem ambiente compatível prepara o DeepLabCut e pode demorar; instalações válidas são reutilizadas. O ranking de GPU é heurístico e ainda não tem benchmark por acelerador. Não há compra automática de recursos.
 
 ## Ainda não implementado

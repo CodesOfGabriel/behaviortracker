@@ -3,7 +3,7 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -1076,13 +1076,14 @@ fn execute_with_recovery(
                     let message = execution_error
                         .get("value")
                         .and_then(Value::as_str)
-                        .unwrap_or("A célula executada no Colab falhou.");
-                    let stderr = structured
-                        .as_ref()
-                        .and_then(|value| value.get("stderr"))
-                        .and_then(Value::as_str)
-                        .unwrap_or("");
-                    return Err(format!("{name}: {message}\n{stderr}").into());
+                        .filter(|value| !value.trim().is_empty())
+                        .unwrap_or(if name == "KeyboardInterrupt" {
+                            "A célula de controle foi interrompida no Colab."
+                        } else {
+                            "A célula executada no Colab falhou."
+                        });
+                    // Avisos de configuração em stderr não são a causa da exceção.
+                    return Err(format!("{name}: {message}").into());
                 }
                 return structured.ok_or_else(|| {
                     AnalysisFailure::from("O Colab não retornou os detalhes da execução Python.")
@@ -1151,6 +1152,168 @@ fn best_effort_delete_session(access_token: &str, session: &str) {
     );
 }
 
+fn background_launch_code(directory: &str, task: &str, source: &str) -> String {
+    format!(
+        "import runpy\nfrom pathlib import Path\nworker = Path({directory:?}) / 'worker.py'\nworker.write_text({worker:?})\napi = runpy.run_path(str(worker))\napi['print_report'](api['launch']({directory:?}, {task:?}, {source:?}))\n",
+        worker = include_str!("../python/worker.py")
+    )
+}
+
+fn background_poll_code(directory: &str, task: &str) -> String {
+    format!(
+        "import json, runpy\nfrom pathlib import Path\nworker = Path({directory:?}) / 'worker.py'\nif worker.is_file():\n    api = runpy.run_path(str(worker))\n    api['print_report'](api['snapshot']({directory:?}, {task:?}))\nelse:\n    print('BEHAVETRACKER_WORKER=' + json.dumps({{'state': 'missing', 'error': 'O runtime perdeu os arquivos desta execução.'}}))\n"
+    )
+}
+
+fn background_report(payload: &Value) -> Result<Value, AnalysisFailure> {
+    let stdout = payload.get("stdout").and_then(Value::as_str).unwrap_or("");
+    if let Some(details) = stdout
+        .lines()
+        .filter_map(|line| line.strip_prefix("BEHAVETRACKER_WORKER_DETAILS="))
+        .find_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(Value::is_object)
+    {
+        return Ok(details);
+    }
+    let mut report: Value = stdout
+        .lines()
+        .filter_map(|line| line.strip_prefix("BEHAVETRACKER_WORKER="))
+        .find_map(|line| serde_json::from_str(line).ok())
+        .filter(Value::is_object)
+        .ok_or_else(|| AnalysisFailure {
+            message: "O runtime não confirmou o estado do processo. O trabalho pode continuar no Colab; a sessão foi preservada.".into(),
+            preserve_session: true,
+        })?;
+    if payload.get("outputTruncated").and_then(Value::as_bool) == Some(true) {
+        report["logTail"] = json!("A saída técnica foi truncada pelo MCP. O estado foi recuperado; o log completo permanece na pasta do job no runtime.");
+    }
+    Ok(report)
+}
+
+fn monitor_background_with(
+    launch: &str,
+    poll: &str,
+    label: &str,
+    mut execute: impl FnMut(&str) -> Result<Value, AnalysisFailure>,
+    mut record: impl FnMut(&str) -> CommandResult<()>,
+    mut persist: impl FnMut(&Value) -> CommandResult<()>,
+    mut wait: impl FnMut(),
+) -> Result<(), AnalysisFailure> {
+    // A célula só inicia ou consulta o processo. Nunca aguarda a inferência/pip terminar.
+    let started = Instant::now();
+    let mut payload = execute(launch).map_err(|error| AnalysisFailure {
+        message: format!("{} Não foi possível confirmar o lançamento; a sessão foi preservada porque o processo pode ter iniciado.", error.message),
+        preserve_session: true,
+    })?;
+    let mut previous = String::new();
+    let mut heartbeat = Instant::now();
+    loop {
+        let report = background_report(&payload)?;
+        persist(&report).map_err(|message| AnalysisFailure {
+            message,
+            preserve_session: true,
+        })?;
+        match report.get("state").and_then(Value::as_str) {
+            Some("succeeded") => return Ok(()),
+            Some("failed" | "missing") => {
+                return Err(format!(
+                    "{}: {} · consulte o log técnico desta execução.",
+                    report
+                        .get("errorType")
+                        .and_then(Value::as_str)
+                        .unwrap_or("Processo interrompido"),
+                    report
+                        .get("error")
+                        .and_then(Value::as_str)
+                        .unwrap_or("O runtime não confirmou o resultado.")
+                )
+                .into());
+            }
+            Some("starting" | "running") => {}
+            _ => {
+                return Err(AnalysisFailure {
+                    message: "O Colab retornou um estado desconhecido. A sessão foi preservada."
+                        .into(),
+                    preserve_session: true,
+                })
+            }
+        }
+        let message = if let Some(progress) = report.get("progressText").and_then(Value::as_str) {
+            format!("{label} · lote atual: {progress} (não é o progresso total da análise)")
+        } else {
+            format!("{label} · processo ativo no runtime; aguardando avanço reportado")
+        };
+        if message != previous || heartbeat.elapsed() >= Duration::from_secs(60) {
+            record(&message).map_err(|message| AnalysisFailure {
+                message,
+                preserve_session: true,
+            })?;
+            previous = message;
+            heartbeat = Instant::now();
+        }
+        if started.elapsed() >= Duration::from_secs(24 * 60 * 60) {
+            return Err(AnalysisFailure { message: "O acompanhamento atingiu 24 horas sem confirmar o resultado. O processo não foi cancelado; verifique o runtime Colab.".into(), preserve_session: true });
+        }
+        wait();
+        payload = execute(poll).map_err(|error| AnalysisFailure {
+            message: format!("{} O processo é independente desta conexão e pode continuar no runtime; a sessão foi preservada.", error.message),
+            preserve_session: true,
+        })?;
+    }
+}
+
+fn job_log_path(app: &AppHandle, job_id: &str, task: &str) -> CommandResult<PathBuf> {
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "Não foi possível localizar os logs do aplicativo.".to_string())?
+        .join("colab-logs");
+    fs::create_dir_all(&directory)
+        .map_err(|_| "Não foi possível criar a pasta de logs.".to_string())?;
+    Ok(directory.join(format!("{job_id}-{task}.json")))
+}
+
+fn run_background_task(
+    app: &AppHandle,
+    job_id: &str,
+    session: &str,
+    directory: &str,
+    task: &str,
+    source: &str,
+) -> Result<(), AnalysisFailure> {
+    let job = get_job(app, job_id)?;
+    let mut token = google_access_token(app, PROFILE_ID)?;
+    let mut renewed = Instant::now();
+    let log_path = job_log_path(app, job_id, task)?;
+    monitor_background_with(
+        &background_launch_code(directory, task, source),
+        &background_poll_code(directory, task),
+        if task == "setup" {
+            "Preparando DeepLabCut"
+        } else {
+            "SuperAnimal em execução"
+        },
+        |code| {
+            if renewed.elapsed() >= Duration::from_secs(40 * 60) {
+                token = google_access_token(app, PROFILE_ID)?;
+                renewed = Instant::now();
+            }
+            execute_job_code(app, job_id, &token, session, code)
+        },
+        |message| update_job(app, job_id, "running", &job.stage, job.progress, message),
+        |report| {
+            let temporary = log_path.with_extension("tmp");
+            fs::write(
+                &temporary,
+                serde_json::to_vec(report).map_err(|_| "Não foi possível serializar o log.")?,
+            )
+            .and_then(|_| fs::rename(temporary, &log_path))
+            .map_err(|_| "Não foi possível salvar o log técnico da execução.".into())
+        },
+        || thread::sleep(Duration::from_secs(5)),
+    )
+}
+
 fn environment_probe_code() -> String {
     format!("import subprocess, sys\ncheck = subprocess.run([sys.executable, '-c', {:?}], capture_output=True, text=True, check=True)\nprint(check.stdout)\n",
         include_str!("../python/environment.py"))
@@ -1192,17 +1355,26 @@ fn environment_report(payload: &Value) -> CommandResult<Value> {
 fn prepare_environment(
     app: &AppHandle,
     job_id: &str,
-    token: &str,
     session: &str,
+    directory: &str,
 ) -> Result<(), AnalysisFailure> {
     prepare_environment_with(
-        |code| execute_job_code(app, job_id, token, session, code),
+        |code, background| {
+            if background {
+                run_background_task(app, job_id, session, directory, "setup", code)?;
+                Ok(json!({}))
+            } else {
+                // A preparação inicial pode renovar o token durante uma instalação longa.
+                let current_token = google_access_token(app, PROFILE_ID)?;
+                execute_job_code(app, job_id, &current_token, session, code)
+            }
+        },
         |stage, progress, message| update_job(app, job_id, "running", stage, progress, message),
     )
 }
 
 fn prepare_environment_with(
-    mut execute: impl FnMut(&str) -> Result<Value, AnalysisFailure>,
+    mut execute: impl FnMut(&str, bool) -> Result<Value, AnalysisFailure>,
     mut record: impl FnMut(&str, i64, &str) -> CommandResult<()>,
 ) -> Result<(), AnalysisFailure> {
     record(
@@ -1210,7 +1382,7 @@ fn prepare_environment_with(
         52,
         "Verificando DeepLabCut, SuperAnimal e CUDA já instalados no runtime",
     )?;
-    let payload = execute(&environment_probe_code())?;
+    let payload = execute(&environment_probe_code(), false)?;
     let mut report = environment_report(&payload)?;
     let reused = report.get("ready").and_then(Value::as_bool) == Some(true);
     if !reused {
@@ -1232,8 +1404,8 @@ fn prepare_environment_with(
                     .unwrap_or("DeepLabCut indisponível")
             ),
         )?;
-        execute(&environment_install_code())?;
-        let checked = execute(&environment_probe_code())?;
+        execute(&environment_install_code(), true)?;
+        let checked = execute(&environment_probe_code(), false)?;
         report = environment_report(&checked)?;
         if report.get("ready").and_then(Value::as_bool) != Some(true) {
             return Err(format!(
@@ -1608,7 +1780,7 @@ fn run_analysis(
             "Vídeo recebido e validado · tamanho e SHA-256 conferem",
         )?;
 
-        prepare_environment(&app, &job_id, &access_token, &session)?;
+        prepare_environment(&app, &job_id, &session, &absolute_directory)?;
 
         update_job(
             &app,
@@ -1618,11 +1790,12 @@ fn run_analysis(
             65,
             "Executando SuperAnimal TopViewMouse",
         )?;
-        execute_job_code(
+        run_background_task(
             &app,
             &job_id,
-            &access_token,
             &session,
+            &absolute_directory,
+            "inference",
             &inference_code(&absolute_video, &remote_output, &remote_csv),
         )?;
         update_job(
@@ -1641,7 +1814,8 @@ fn run_analysis(
         fs::create_dir_all(&result_directory)
             .map_err(|_| "Não foi possível preparar a pasta de resultados.".to_string())?;
         let result_path = result_directory.join(format!("{job_id}.csv"));
-        let refreshed_runtime = get_runtime(&api_client()?, &access_token, &runtime.name)?;
+        let download_token = google_access_token(&app, PROFILE_ID)?;
+        let refreshed_runtime = get_runtime(&api_client()?, &download_token, &runtime.name)?;
         let refreshed_connection = refreshed_runtime.connection_info.ok_or_else(|| {
             "O runtime não renovou os dados de conexão para o download.".to_string()
         })?;
@@ -1671,7 +1845,9 @@ fn run_analysis(
         .err()
         .is_some_and(|error| error.preserve_session)
     {
-        best_effort_delete_session(&access_token, &session);
+        if let Ok(current_token) = google_access_token(&app, PROFILE_ID) {
+            best_effort_delete_session(&current_token, &session);
+        }
     }
     session_result.map_err(|error| error.message)?;
     let _ = fs::remove_file(local_path);
@@ -1751,6 +1927,43 @@ pub fn start_colab_analysis(
         }
     });
     Ok(job)
+}
+
+#[tauri::command]
+pub fn get_colab_job_log(app: AppHandle, job_id: String) -> CommandResult<String> {
+    validate_local_id(&job_id, "Job")?;
+    get_job(&app, &job_id)?;
+    let mut sections = Vec::new();
+    for task in ["setup", "inference"] {
+        let path = job_log_path(&app, &job_id, task)?;
+        if !path.is_file() {
+            continue;
+        }
+        let body = fs::read_to_string(path)
+            .map_err(|_| "Não foi possível ler o log técnico.".to_string())?;
+        let report: Value = serde_json::from_str(&body)
+            .map_err(|_| "O log técnico salvo é inválido.".to_string())?;
+        sections.push(format!(
+            "=== {task} · {} ===\n{}\n{}",
+            report
+                .get("state")
+                .and_then(Value::as_str)
+                .unwrap_or("desconhecido"),
+            report.get("logTail").and_then(Value::as_str).unwrap_or(""),
+            report
+                .get("traceback")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+        ));
+    }
+    Ok(if sections.is_empty() {
+        "Esta execução não possui log técnico salvo. Os logs ficam disponíveis nas próximas análises.".into()
+    } else {
+        format!(
+            "Último estado consultado e até 16 KiB finais de saída por tarefa.\n{}",
+            sections.join("\n\n")
+        )
+    })
 }
 
 #[tauri::command]
@@ -1834,7 +2047,7 @@ pub fn recover_interrupted_jobs(app: &AppHandle) -> CommandResult<()> {
         fail_job(
             app,
             &id,
-            "Análise interrompida pelo encerramento do aplicativo. Inicie novamente.",
+            "O aplicativo fechou antes de confirmar o resultado. Um processo independente pode continuar no runtime Colab; verifique-o antes de iniciar outra análise.",
         )?;
     }
     Ok(())
@@ -1843,11 +2056,12 @@ pub fn recover_interrupted_jobs(app: &AppHandle) -> CommandResult<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        execute_with_recovery, inference_code, job_events, new_uuid_v4, parse_mcp_payload,
+        background_launch_code, background_poll_code, background_report, execute_with_recovery,
+        inference_code, job_events, monitor_background_with, new_uuid_v4, parse_mcp_payload,
         preferred_runtime, preferred_spec, prepare_environment_with, read_sse_reply,
         record_job_update, resolve_jupyter_workspace, safe_extension, workspace_gpu,
-        AnalysisWorkload, ConnectionInfo, McpFailure, Runtime, RuntimeSpec, RuntimeSpecKey,
-        MAX_EXECUTION_ATTEMPTS,
+        AnalysisFailure, AnalysisWorkload, ConnectionInfo, McpFailure, Runtime, RuntimeSpec,
+        RuntimeSpecKey, MAX_EXECUTION_ATTEMPTS,
     };
     use rusqlite::Connection;
     use serde_json::json;
@@ -2198,6 +2412,179 @@ mod tests {
         assert!(error.message.contains("CUDA out of memory"));
     }
 
+    #[test]
+    fn python_configuration_warnings_are_not_presented_as_the_exception_cause() {
+        let error = execute_with_recovery("session", "code", |_| {
+            Ok(json!({"structuredContent": {"executionError": {"name": "KeyboardInterrupt"},
+                "stderr": "WARNING: project_config: Found invalid empty/null/None value for Task"}}))
+        }, |_, _| Ok(()), |_| {}).unwrap_err();
+        assert!(error.message.starts_with("KeyboardInterrupt:"));
+        assert!(!error.message.contains("WARNING"));
+    }
+
+    fn worker_payload(state: &str, progress: &str) -> serde_json::Value {
+        json!({"stdout": format!("BEHAVETRACKER_WORKER={}\n", json!({"state": state,
+            "progressText": progress, "errorType":"KeyboardInterrupt", "error":"Interrompido no runtime"}))})
+    }
+
+    #[test]
+    fn monitoring_launches_once_and_waits_for_terminal_state_not_detector_percentage() {
+        let mut codes = Vec::new();
+        let mut messages = Vec::new();
+        let mut reports = Vec::new();
+        monitor_background_with(
+            "launch",
+            "poll",
+            "SuperAnimal",
+            |code| {
+                codes.push(code.to_owned());
+                Ok(match codes.len() {
+                    1 => worker_payload("running", "7356/7356 (100%)"),
+                    2 => worker_payload("running", "3633/7356 (49%)"),
+                    _ => worker_payload("succeeded", "7356/7356 (100%)"),
+                })
+            },
+            |message| {
+                messages.push(message.to_owned());
+                Ok(())
+            },
+            |report| {
+                reports.push(report.clone());
+                Ok(())
+            },
+            || {},
+        )
+        .unwrap();
+        assert_eq!(codes, ["launch", "poll", "poll"]);
+        assert_eq!(messages.len(), 2);
+        assert!(messages[0].contains("não é o progresso total"));
+        assert!(messages[1].contains("49%"));
+        assert_eq!(reports.len(), 3);
+    }
+
+    #[test]
+    fn terminal_worker_errors_are_not_relaunched() {
+        let mut calls = 0;
+        let error = monitor_background_with(
+            "launch",
+            "poll",
+            "SuperAnimal",
+            |_| {
+                calls += 1;
+                Ok(worker_payload("failed", "49%"))
+            },
+            |_| Ok(()),
+            |_| Ok(()),
+            || {},
+        )
+        .unwrap_err();
+        assert_eq!(calls, 1);
+        assert!(!error.preserve_session);
+        assert!(error
+            .message
+            .contains("KeyboardInterrupt: Interrompido no runtime"));
+    }
+
+    #[test]
+    fn losing_a_status_reply_preserves_the_independent_process_session() {
+        let mut calls = 0;
+        let error = monitor_background_with(
+            "launch",
+            "poll",
+            "SuperAnimal",
+            |_| {
+                calls += 1;
+                if calls == 1 {
+                    Ok(worker_payload("running", "49%"))
+                } else {
+                    Err(AnalysisFailure::from("HTTP 403"))
+                }
+            },
+            |_| Ok(()),
+            |_| Ok(()),
+            || {},
+        )
+        .unwrap_err();
+        assert!(error.preserve_session);
+        assert!(error.message.contains("pode continuar"));
+        assert_eq!(calls, 2);
+    }
+
+    #[test]
+    fn unconfirmed_launch_or_invalid_status_never_deletes_the_session() {
+        let error = monitor_background_with(
+            "launch",
+            "poll",
+            "SuperAnimal",
+            |_| Err(AnalysisFailure::from("KeyboardInterrupt")),
+            |_| Ok(()),
+            |_| Ok(()),
+            || {},
+        )
+        .unwrap_err();
+        assert!(error.preserve_session);
+        assert!(
+            background_report(&json!({"stdout": "incomplete"}))
+                .unwrap_err()
+                .preserve_session
+        );
+    }
+
+    #[test]
+    fn truncated_diagnostics_do_not_discard_the_compact_worker_state() {
+        let report = background_report(&json!({"stdout":
+            "BEHAVETRACKER_WORKER={\"state\":\"running\"}\nBEHAVETRACKER_WORKER_DETAILS={\"logTail\":\"cut off",
+            "outputTruncated": true})).unwrap();
+        assert_eq!(report["state"], "running");
+        assert!(report["logTail"].as_str().unwrap().contains("truncada"));
+        assert!(
+            background_report(
+                &json!({"stdout": "BEHAVETRACKER_WORKER=true", "outputTruncated":true})
+            )
+            .unwrap_err()
+            .preserve_session
+        );
+    }
+
+    #[test]
+    fn generated_launch_and_poll_protocol_runs_a_local_fake_task_without_ml_packages() {
+        use std::process::Command;
+        let directory =
+            std::env::temp_dir().join(format!("behavetracker-protocol-{}", new_uuid_v4()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let launch = background_launch_code(
+            directory.to_str().unwrap(),
+            "inference",
+            "print('fake result')",
+        );
+        let poll = background_poll_code(directory.to_str().unwrap(), "inference");
+        let mut report = json!({});
+        for index in 0..50 {
+            let result = Command::new("python3")
+                .args(["-B", "-c", if index == 0 { &launch } else { &poll }])
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            report = background_report(&json!({"stdout": String::from_utf8_lossy(&result.stdout)}))
+                .unwrap();
+            if report["state"] == "succeeded" {
+                break;
+            }
+            assert!(
+                matches!(report["state"].as_str(), Some("starting" | "running")),
+                "{report}"
+            );
+            thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert_eq!(report["state"], "succeeded");
+        assert!(report["logTail"].as_str().unwrap().contains("fake result"));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
     fn environment_payload(ready: bool) -> serde_json::Value {
         json!({"stdout": format!("BEHAVETRACKER_ENVIRONMENT={}\n", json!({"ready":ready,
             "installNeeded": !ready, "version":"3.0.0", "cuda":"12.1", "reason":"package missing"}))})
@@ -2208,7 +2595,8 @@ mod tests {
         let mut codes = Vec::new();
         let mut messages = Vec::new();
         prepare_environment_with(
-            |code| {
+            |code, background| {
+                assert!(!background, "Ambiente válido não deve iniciar instalação");
                 codes.push(code.to_owned());
                 Ok(environment_payload(true))
             },
@@ -2227,8 +2615,13 @@ mod tests {
     fn missing_environment_is_installed_once_then_validated() {
         let mut codes = Vec::new();
         prepare_environment_with(
-            |code| {
+            |code, background| {
                 codes.push(code.to_owned());
+                assert_eq!(
+                    background,
+                    codes.len() == 2,
+                    "Somente pip roda em segundo plano"
+                );
                 Ok(if codes.len() == 1 {
                     environment_payload(false)
                 } else {
@@ -2281,6 +2674,8 @@ mod tests {
         for source in [
             super::environment_probe_code(),
             super::environment_install_code(),
+            background_launch_code("/content/behavetracker/job", "inference", "print('ready')"),
+            background_poll_code("/content/behavetracker/job", "inference"),
             inference_code(
                 "/content/video.mp4",
                 "/content/output",
@@ -2313,7 +2708,7 @@ mod tests {
     #[test]
     fn cuda_failure_does_not_trigger_a_package_reinstall_loop() {
         let mut calls = 0;
-        let error = prepare_environment_with(|_| {
+        let error = prepare_environment_with(|_, _| {
             calls += 1;
             Ok(json!({"stdout": "BEHAVETRACKER_ENVIRONMENT={\"ready\":false,\"installNeeded\":false,\"reason\":\"CUDA indisponível\"}\n"}))
         }, |_, _, _| Ok(())).unwrap_err();
