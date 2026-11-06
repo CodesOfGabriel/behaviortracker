@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { ArenaConfig } from "../../types";
 
 const STAGING_CHUNK_SIZE = 4 * 1024 * 1024;
 
@@ -63,9 +64,9 @@ export async function stageVideo(
 }
 
 export function startColabJob(experimentId: string, uploadId: string,
-  workload: { width: number; height: number; durationSec: number }) {
+  workload: { width: number; height: number; durationSec: number }, arena: ArenaConfig) {
   return invoke<ColabJob>("start_colab_analysis", {
-    request: { experimentId, uploadId, workload },
+    request: { experimentId, uploadId, workload, arena: { ...arena, videoWidth: workload.width, videoHeight: workload.height } },
   });
 }
 

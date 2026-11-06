@@ -100,12 +100,15 @@ export function Results({ experimentId }: { experimentId: string }) {
         revision: experiment.arena.revision,
         shape: "quadrilateral",
         corners_px: experiment.arena.cornersPx,
+        rim_corners_px: experiment.arena.rimCornersPx,
+        geometry_role: "floor_calibration_and_enclosure_roi_2d",
         width_cm: experiment.arena.widthCm,
         height_cm: experiment.arena.heightCm,
         center_area_fraction: experiment.arena.centerAreaFraction,
         boundary_policy: experiment.arena.boundaryPolicy,
       },
-      tracking: { reference_point: experiment.referencePoint, max_animals: 1 },
+      tracking: { reference_point: experiment.referencePoint, max_animals: 1,
+        coordinate_space: "original_video_pixels", posture_classification: "not_performed", occluded_points: "not_imputed" },
     };
     downloadText("experiment.json", JSON.stringify(scientificExperiment, null, 2), "application/json");
   };

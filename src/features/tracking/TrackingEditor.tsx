@@ -35,6 +35,7 @@ import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { activeCorrectionEvents, applyCorrections } from "../../lib/corrections";
 import { parseCanonicalPoseCsv } from "../../lib/csv";
+import { confidenceLabel, drawablePose, trajectorySegments } from "../../lib/pose";
 import { makeDemoPose } from "../../lib/demo-data";
 import { centerPolygonPx, pointsToSvg } from "../../lib/geometry";
 import { cn, formatDuration } from "../../lib/format";
@@ -59,7 +60,7 @@ const statusInfo: Record<PoseStatus, { label: string; tone: "success" | "warning
   valid: { label: "Confiável", tone: "success" },
   low_confidence: { label: "Baixa confiança", tone: "warning" },
   jump: { label: "Salto espacial", tone: "danger" },
-  missing: { label: "Ausente", tone: "danger" },
+  missing: { label: "Não detectado", tone: "danger" },
   out_of_arena: { label: "Fora da arena", tone: "danger" },
 };
 
@@ -219,6 +220,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   const currentPoints = displayedSamples.filter((sample) => sample.frameIndex === currentFrame);
   const rawCurrentPoints = rawSamples.filter((sample) => sample.frameIndex === currentFrame);
   const selectedPoint = currentPoints.find((sample) => sample.keypoint === selectedKeypoint);
+  const visiblePointCount = currentPoints.filter(drawablePose).length;
   const bins = useMemo(() => timelineBins(referenceSamples), [referenceSamples]);
   const centerPolygon = useMemo(
     () => experiment ? centerPolygonPx(experiment.arena) : [],
@@ -231,10 +233,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
 
   const trajectory = useMemo(() => {
     const currentIndex = referenceSamples.findIndex((sample) => sample.frameIndex === currentFrame);
-    return referenceSamples
-      .slice(Math.max(0, currentIndex - 100), currentIndex + 1)
-      .filter((sample) => sample.xPx != null && sample.yPx != null)
-      .map((sample) => ({ x: sample.xPx!, y: sample.yPx! }));
+    return trajectorySegments(referenceSamples.slice(Math.max(0, currentIndex - 100), currentIndex + 1));
   }, [referenceSamples, currentFrame]);
 
   const setTime = (next: number) => {
@@ -424,7 +423,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
         width: experiment.video.width,
         height: experiment.video.height,
         durationSec: experiment.video.durationSec,
-      });
+      }, experiment.arena);
       setAnalysisJob(started);
       setAnalysisHistory((jobs) => [started, ...jobs.filter((job) => job.jobId !== started.jobId)]);
       const completed = await waitForColabJob(started.jobId, (job) => {
@@ -561,16 +560,17 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
                   </>
                 )}
                 <polygon points={pointsToSvg(experiment.arena.cornersPx)} fill="none" stroke="#d7f169" strokeOpacity=".75" strokeWidth="3" />
+                {experiment.arena.rimCornersPx && <polygon points={pointsToSvg(experiment.arena.rimCornersPx)} fill="none" stroke="#bb9aff" strokeOpacity=".65" strokeWidth="3" strokeDasharray="12 8" />}
                 <polygon points={pointsToSvg(centerPolygon)} fill="#70d6ad" fillOpacity=".07" stroke="#70d6ad" strokeOpacity=".55" strokeWidth="2" strokeDasharray="10 8" />
-                {showTrajectory && trajectory.length > 1 && <polyline points={pointsToSvg(trajectory)} fill="none" stroke="#d7f169" strokeWidth="4" strokeOpacity=".75" strokeLinecap="round" strokeLinejoin="round" />}
+                {showTrajectory && trajectory.map((segment, index) => <polyline key={index} points={pointsToSvg(segment)} fill="none" stroke="#d7f169" strokeWidth="4" strokeOpacity=".75" strokeLinecap="round" strokeLinejoin="round" />)}
                 {[["nose", "body_center"], ["body_center", "tail_base"], ["left_ear", "nose"], ["right_ear", "nose"]].map(([a, b]) => {
                   const first = currentPoints.find((sample) => sample.keypoint === a);
                   const second = currentPoints.find((sample) => sample.keypoint === b);
-                  if (first?.xPx == null || first.yPx == null || second?.xPx == null || second.yPx == null) return null;
+                  if (!drawablePose(first) || !drawablePose(second)) return null;
                   return <line key={`${a}-${b}`} x1={first.xPx} y1={first.yPx} x2={second.xPx} y2={second.yPx} stroke="#ecfdf5" strokeOpacity=".8" strokeWidth="4" />;
                 })}
                 {currentPoints.map((sample) => {
-                  if (sample.xPx == null || sample.yPx == null) return null;
+                  if (!drawablePose(sample)) return null;
                   const point = drag?.keypoint === sample.keypoint ? drag.current : { x: sample.xPx, y: sample.yPx };
                   const rawPoint = rawCurrentPoints.find((raw) => raw.keypoint === sample.keypoint);
                   const corrected = rawPoint && (rawPoint.xPx !== sample.xPx || rawPoint.yPx !== sample.yPx);
@@ -632,7 +632,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
               <div className="keypoint-list">
                 {keypoints.map((keypoint) => {
                   const point = currentPoints.find((sample) => sample.keypoint === keypoint);
-                  return <button key={keypoint} className={keypoint === selectedKeypoint ? "active" : ""} onClick={() => setSelectedKeypoint(keypoint)}><CircleDot size={16} /><span>{keypointLabels[keypoint] ?? keypoint}</span><small>{point ? `${Math.round(point.likelihood * 100)}%` : "—"}</small></button>;
+                  return <button key={keypoint} className={keypoint === selectedKeypoint ? "active" : ""} onClick={() => setSelectedKeypoint(keypoint)}><CircleDot size={16} /><span>{keypointLabels[keypoint] ?? keypoint}</span><small>{confidenceLabel(point)}</small></button>;
                 })}
               </div>
             </section>
@@ -644,12 +644,20 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
               <div className="undo-row"><Button variant="ghost" size="sm" icon={<Undo2 size={15} />} onClick={undo} disabled={!activeEvents.length}>Desfazer</Button><Button variant="ghost" size="sm" icon={<Redo2 size={15} />} disabled>Refazer</Button></div>
             </section>
             <section className="inspector-section frame-quality">
-              <div className="inspector-label">Qualidade do frame</div>
+              <div className="inspector-label">Qualidade: {keypointLabels[referenceKeypoint] ?? referenceKeypoint}</div>
               <div className={`quality-card quality-${currentStatus}`}>
                 {currentStatus === "valid" ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
-                <div><strong>{statusInfo[currentStatus].label}</strong><span>Likelihood: {currentReference ? currentReference.likelihood.toFixed(2) : "—"}</span></div>
+                <div><strong>{statusInfo[currentStatus].label}</strong><span>Score do modelo: {confidenceLabel(currentReference)}</span></div>
               </div>
               <p>Flags indicam trechos para revisão; não provam que a estimativa esteja errada.</p>
+              {currentReference?.supportCount != null && currentReference.supportTotal != null && currentReference.supportTotal > 0 && currentReference.supportCount < currentReference.supportTotal && <p>Centro com suporte parcial: {currentReference.supportCount}/{currentReference.supportTotal} pontos do tronco. A posição pode variar com as partes visíveis; revise antes de usar métricas.</p>}
+            </section>
+            <section className="inspector-section detection-context">
+              <div className="inspector-label">Visibilidade e contexto 2D</div>
+              <strong>{visiblePointCount}/{currentPoints.length} pontos disponíveis</strong>
+              {visiblePointCount > 0 && visiblePointCount < currentPoints.length && <p>Detecção parcial: os pontos disponíveis foram mantidos. Partes não detectadas não foram preenchidas.</p>}
+              <p>Ponto selecionado: {selectedPoint?.spatialRegion === "floor" ? "projeção do chão" : selectedPoint?.spatialRegion === "wall_projection" ? "projeção da parede/borda" : selectedPoint?.spatialRegion === "outside" ? "fora da projeção da caixa" : "contexto não disponível"}.</p>
+              <p>Borda e chão não confirmam postura em pé. Rearing continua sendo uma anotação manual.</p>
             </section>
             <section className="inspector-audit">
               <div><History size={16} /><span>{activeEvents.length} intervenções ativas</span></div>

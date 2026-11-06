@@ -13,7 +13,7 @@ def probe_environment():
             importlib.import_module(module)
         inference = importlib.import_module("deeplabcut.modelzoo.video_inference")
         function = inference.video_inference_superanimal
-        required = {"videos", "superanimal_name", "model_name", "detector_name", "video_adapt"}
+        required = {"videos", "superanimal_name", "model_name", "detector_name", "video_adapt", "cropping"}
         if not required.issubset(inspect.signature(function).parameters):
             raise RuntimeError("A API SuperAnimal instalada não é compatível com esta análise")
         torch = importlib.import_module("torch")

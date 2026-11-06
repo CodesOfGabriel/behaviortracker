@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateHomography, centerPolygonPx, transformPoint, validateArenaCorners } from "./geometry";
+import { calculateHomography, centerPolygonPx, pixelToFloorMatrix, transformPoint, validateArenaCorners, validateArenaRegions } from "./geometry";
 import type { ArenaConfig } from "../types";
 
 const squareArena: ArenaConfig = {
@@ -55,6 +55,29 @@ describe("geometria da arena", () => {
       { x: 100, y: 0 },
     ]);
     expect(error).toMatch(/cruzam|cruzado/);
+  });
+
+  it("exige borda em novas calibrações, sem impedir a leitura de projetos legados", () => {
+    expect(validateArenaRegions(squareArena, 1280, 720, true)).toContain("borda");
+    expect(validateArenaRegions(squareArena, 1280, 720)).toBeNull();
+  });
+
+  it("valida borda e chão separadamente e mantém a calibração física apenas no chão", () => {
+    const arena: ArenaConfig = { ...squareArena, rimCornersPx: [
+      { x: 0, y: 20 }, { x: 650, y: 20 }, { x: 650, y: 550 }, { x: 0, y: 550 },
+    ] };
+    expect(validateArenaRegions(arena, 1280, 720, true)).toBeNull();
+    expect(pixelToFloorMatrix(arena)).toEqual(pixelToFloorMatrix(squareArena));
+    expect(centerPolygonPx(arena)).toEqual(centerPolygonPx(squareArena));
+  });
+
+  it("recusa vértices fora do vídeo e coordenadas não finitas", () => {
+    const arena: ArenaConfig = { ...squareArena, rimCornersPx: [
+      { x: -1, y: 0 }, { x: 650, y: 0 }, { x: 650, y: 550 }, { x: 0, y: 550 },
+    ] };
+    expect(validateArenaRegions(arena, 1280, 720, true)).toContain("dentro do vídeo");
+    arena.rimCornersPx![0].x = NaN;
+    expect(validateArenaRegions(arena, 1280, 720, true)).toContain("finitas");
   });
 });
 

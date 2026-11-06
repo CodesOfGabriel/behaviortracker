@@ -1,4 +1,5 @@
 export type Point = { x: number; y: number };
+export type Quadrilateral = [Point, Point, Point, Point];
 
 export type ExperimentStatus =
   | "draft"
@@ -29,7 +30,8 @@ export interface VideoMetadata {
 
 export interface ArenaConfig {
   revision: number;
-  cornersPx: [Point, Point, Point, Point];
+  cornersPx: Quadrilateral;
+  rimCornersPx?: Quadrilateral;
   widthCm: number;
   heightCm: number;
   centerAreaFraction: number;
@@ -86,6 +88,9 @@ export interface PoseSample {
   yPx: number | null;
   likelihood: number;
   status: PoseStatus;
+  spatialRegion?: "floor" | "wall_projection" | "outside" | "unknown";
+  supportCount?: number;
+  supportTotal?: number;
 }
 
 export interface OftMetrics {

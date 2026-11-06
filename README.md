@@ -5,7 +5,7 @@ Aplicação desktop para preparar, revisar e documentar análises comportamentai
 ## O que já funciona
 
 - criação do experimento e importação local de vídeo;
-- captura de frame e calibração dos quatro vértices do piso;
+- captura de frame e seleção separada dos quatro vértices da borda superior e dos quatro vértices do chão;
 - importação de pose em CSV canônico;
 - execução remota do SuperAnimal TopViewMouse em runtime GPU elegível do Colab;
 - upload em blocos, verificação SHA-256, progresso persistido e importação automática do resultado;
@@ -33,6 +33,16 @@ O checkpoint mostra a contagem de frames e a porcentagem do **lote atual**, quan
 
 Interrupções da resposta MCP e deadlines tentam se reanexar à mesma consulta e ao mesmo `executionId`, sem criar um novo job. A resposta em streaming é encerrada no resultado final, sem aguardar o fechamento da conexão HTTP. Se todas as tentativas falharem, o app informa que o resultado não foi confirmado e preserva a sessão remota, que pode continuar executando. Isso não impede o Colab de encerrar ou substituir o runtime, não persiste dependências entre máquinas e não contorna limites do provedor. Os tokens são renovados durante o acompanhamento e antes do download.
 
+## Borda, chão e visibilidade parcial
+
+Em **Novo experimento → Arena**, ajuste e confirme primeiro a **borda superior**, depois o **chão**. Use a mesma ordem dos cantos nas duas áreas: superior esquerdo, superior direito, inferior direito e inferior esquerdo. Cada confirmação é invalidada se seus vértices forem alterados. Somente o chão define a homografia, as dimensões em centímetros e as zonas de campo aberto.
+
+As duas áreas seguem na solicitação da análise, com revisão e resolução, e ficam registradas por job no SQLite. No runtime, `output/arena_geometry.json` registra o contrato do adaptador `superanimal-canonical-2`. O recorte retangular é a união dos vértices das duas áreas, com margem de 5% em cada eixo, limitada ao vídeo. Assim, a inferência não fica restrita ao chão: preserva as paredes e a borda na imagem. O [parâmetro `cropping` do SuperAnimal](https://deeplabcut.github.io/DeepLabCut/dev/main/reference/deeplabcut/modelzoo/video_inference/#cropping) recebe esse recorte; as coordenadas são convertidas de volta ao vídeo original antes da importação. Um vídeo com resolução diferente da calibração é recusado. Projetos antigos sem borda continuam abrindo e usam o vídeo inteiro, sem inventar outra área.
+
+O H5 original não é modificado. No CSV canônico, sentinelas `(-1, -1, -1)` viram coordenadas ausentes; a trajetória é interrompida nas lacunas, em vez de atravessar o canto da imagem. Cada ponto disponível é preservado independentemente dos demais. O centro corporal é uma média dos pontos disponíveis do tronco, nunca uma substituição pelo focinho/orelhas; com suporte parcial, exige revisão e registra quantos pontos o sustentam. Sem nenhum ponto do tronco, o centro fica ausente mesmo que o focinho esteja visível. FPS inválido interrompe a conversão, sem inventar timestamps.
+
+As regiões `floor`, `wall_projection`, `outside` e `unknown` descrevem **projeções 2D**, não contato com o chão, altura ou postura. Marcar as duas áreas **não treina o modelo**, não recupera partes ocultas e não garante reconhecimento de ratos em pé. Rearing permanece manual; adaptação/treinamento e validação com vídeo real são etapas distintas, não ativadas automaticamente por essa calibração. A projeção de um ponto acima do piso não determina sua posição real no chão.
+
 ## Rodar localmente
 
 Requisitos do frontend: Node.js 22+.
@@ -55,6 +65,8 @@ Para validar o verificador do ambiente e o worker (continuidade sem a célula, l
 python3 -B -m unittest discover -s src-tauri/python -v
 ```
 
+O teste Rust `cargo test --manifest-path src-tauri/Cargo.toml --lib` também verifica o script completo de inferência com módulos falsos, sem instalar DeepLabCut ou usar GPU local. Para testar o cadastro no navegador (Chrome isolado, exemplo sintético), mantenha `npm run dev` aberto e execute `node scripts/check-arena-ui.mjs`. O script salva capturas em uma pasta temporária e não acessa a conta Google. Em outros sistemas, configure `BEHAVETRACKER_BROWSER_BIN` com o executável do Chrome/Chromium.
+
 ## Rodar como desktop Tauri
 
 Além do Node, instale Rust estável e os [pré-requisitos oficiais do Tauri 2](https://v2.tauri.app/start/prerequisites/). Depois:
@@ -69,7 +81,7 @@ Se a conexão parou de funcionar após a mudança do Keychain para SQLite, cliqu
 
 Para processar um vídeo:
 
-1. Crie o experimento, selecione o vídeo e calibre a arena.
+1. Crie o experimento, selecione o vídeo e confirme separadamente a borda superior e o chão da arena.
 2. No editor, clique em **Analisar no Colab**.
 3. Se o projeto foi reaberto, selecione novamente o vídeo original quando solicitado; o navegador não persiste objetos `File`.
 4. Aguarde os estágios de runtime, upload, instalação, inferência e download. Ao terminar, o CSV é importado automaticamente e fica salvo no diretório de dados do app.
@@ -88,6 +100,8 @@ frame_index,timestamp_sec,animal_id,keypoint,x_px,y_px,likelihood,status
 ```
 
 Coordenadas ausentes permanecem vazias; nunca são convertidas em `(0,0)`. Os status aceitos são `valid`, `low_confidence`, `jump`, `missing` e `out_of_arena`.
+
+As novas análises incluem as colunas opcionais `spatial_region`, `support_count` e `support_total`. As exportações preservam esses campos. Os arquivos antigos sem essas colunas continuam aceitos.
 
 ## Limites científicos
 

@@ -412,6 +412,17 @@ body { background: radial-gradient(circle at 70% -10%, #242143 0, transparent 35
 .colab-runtime-warning { color: #ffcf7c; background: #342817; border-color: #685021; }.colab-config-heading p, .colab-hero p, .provider-card p, .local-capabilities p { color: #a8b1c4; }.credential-storage-note { color: #b8c1d3; background: #1c2432; }.credential-storage-note svg { color: #a987ff; }.colab-feedback.error { color: #ffb0b8; background: #3b2029; }.colab-feedback.success { color: #8ce4ba; background: #173129; }.colab-account-stats > span, .review-summary > div { border-color: #323848; background: #1b1f2b; }.colab-account-stats strong { color: #f1f4ff; }.provider-card, .local-capabilities { background: #151923; }.readiness-list li { color: #8d97aa; border-color: #292e3b; }.readiness-list li.done { color: #87e7ba; }
 
 .wizard-steps > button { color: #c3cad9; }.wizard-steps > button:not(:last-of-type)::after { background: #333948; }.wizard-section, .wizard-footer { background: #151923; border-color: #2e3443; }.arena-settings, .center-explanation { background: #1b202c; }.review-contract { background: #24203a; }.input-suffix i { color: #8f98ab; }
+.arena-layer-selector { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+.arena-layer-selector > button { flex: 1 1 230px; display: flex; align-items: center; gap: 12px; padding: 13px; color: #b9c4d9; background: #1b202d; border: 1px solid #394157; border-radius: 9px; text-align: left; cursor: pointer; }
+.arena-layer-selector > button.active { border-color: #b596ff; background: #302842; }
+.arena-layer-selector strong, .arena-layer-selector small { display: block; }.arena-layer-selector strong { font-size: 12px; }.arena-layer-selector small { margin-top: 4px; font-size: 10px; color: #9daac0; }
+.arena-layer-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }.arena-layer-dot.rim, .legend-rim { background: #bb9aff; }.arena-layer-dot.floor { background: #d7f169; }
+.arena-region-confirm { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 14px; }.arena-region-confirm p { flex: 1 1 220px; font-size: 11px; line-height: 1.6; color: #a9b6cd; margin: 0; }
+.arena-legend { flex-wrap: wrap; color: #a9b6cd; }.arena-handle:focus-visible { outline: 2px solid #fff; }
+.detection-context > strong { color: #cfdaef; font-size: 12px; }.detection-context p { color: #99a9c2; font-size: 10px; line-height: 1.6; }
+.arena-step .wizard-section-heading p { font-size: 11px; line-height: 1.6; color: #a4b0c8; }
+.arena-settings .settings-heading strong, .arena-settings label > span { color: #cfdaef; }.arena-settings .settings-heading small { color: #a4b0c8; }
+.arena-settings .center-explanation strong { font-size: 11px; }.arena-settings .center-explanation p { color: #a4b0c8; font-size: 10px; line-height: 1.6; }
 .results-context, .metric-card { border-color: #2d3342; background: #161a25; }.metric-card > strong, .detail-table strong, .zone-donut strong { color: #f3f5ff; }.metric-card > span, .metric-card > small, .detail-table span { color: #99a3b6; }.zone-donut > div { background: #161a25; }.trajectory-legend { color: #a5aec0; }.detail-table > div { border-color: #2b303f; }.interpretation-card { border-color: #41445a; color: #e7e9ff; background: #222438; }.interpretation-card p { color: #b0b8ca; }.coverage-warning { color: #ffd080; background: #362916; border-color: #694f21; }.completed-toast { background: #25203d; }
 
 input, textarea, select { color: #eff2ff; background: #1a1e2a; border-color: #343a4a; }

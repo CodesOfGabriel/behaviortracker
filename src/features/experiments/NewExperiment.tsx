@@ -17,7 +17,7 @@ import { useMemo, useRef, useState, type ChangeEvent, type PointerEvent as React
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { defaultArena, DEMO_VIDEO_HEIGHT, DEMO_VIDEO_WIDTH } from "../../lib/demo-data";
-import { centerPolygonPx, pointsToSvg, validateArenaCorners } from "../../lib/geometry";
+import { centerPolygonPx, pointsToSvg, validateArenaRegions } from "../../lib/geometry";
 import { formatBytes, formatDuration } from "../../lib/format";
 import { useAppStore } from "../../store/AppStore";
 import type { ArenaConfig, Experiment, Point, VideoAsset, VideoMetadata } from "../../types";
@@ -28,6 +28,8 @@ const STEPS = [
   { label: "Arena", helper: "Calibração espacial" },
   { label: "Revisão", helper: "Conferência final" },
 ];
+
+type ArenaLayer = "rim" | "floor";
 
 function initialCorners(width: number, height: number): ArenaConfig["cornersPx"] {
   return [
@@ -105,15 +107,19 @@ function ArenaPreview({
   metadata,
   frameDataUrl,
   arena,
+  layer,
   onChange,
 }: {
   metadata: VideoMetadata;
   frameDataUrl?: string;
   arena: ArenaConfig;
-  onChange: (corners: ArenaConfig["cornersPx"]) => void;
+  layer: ArenaLayer;
+  onChange: (layer: ArenaLayer, corners: ArenaConfig["cornersPx"]) => void;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [dragging, setDragging] = useState<number | null>(null);
+  const activeCorners = layer === "rim" ? arena.rimCornersPx ?? arena.cornersPx : arena.cornersPx;
+  const color = layer === "rim" ? "#bb9aff" : "#d7f169";
   const center = useMemo(() => {
     try {
       return centerPolygonPx(arena);
@@ -123,18 +129,21 @@ function ArenaPreview({
   }, [arena]);
 
   const pointFromEvent = (event: ReactPointerEvent<SVGSVGElement>): Point => {
-    const rect = svgRef.current!.getBoundingClientRect();
+    const svg = svgRef.current!;
+    const matrix = svg.getScreenCTM();
+    if (!matrix) return activeCorners[dragging ?? 0];
+    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
     return {
-      x: Math.max(0, Math.min(metadata.width, ((event.clientX - rect.left) / rect.width) * metadata.width)),
-      y: Math.max(0, Math.min(metadata.height, ((event.clientY - rect.top) / rect.height) * metadata.height)),
+      x: Math.max(0, Math.min(metadata.width, point.x)),
+      y: Math.max(0, Math.min(metadata.height, point.y)),
     };
   };
 
   const move = (event: ReactPointerEvent<SVGSVGElement>) => {
     if (dragging == null) return;
-    const next = [...arena.cornersPx] as ArenaConfig["cornersPx"];
+    const next = [...activeCorners] as ArenaConfig["cornersPx"];
     next[dragging] = pointFromEvent(event);
-    onChange(next);
+    onChange(layer, next);
   };
 
   return (
@@ -142,6 +151,7 @@ function ArenaPreview({
       <svg
         ref={svgRef}
         viewBox={`0 0 ${metadata.width} ${metadata.height}`}
+        style={{ aspectRatio: `${metadata.width}/${metadata.height}`, maxHeight: "65vh" }}
         preserveAspectRatio="xMidYMid meet"
         onPointerMove={move}
         onPointerUp={(event) => {
@@ -149,7 +159,7 @@ function ArenaPreview({
           setDragging(null);
         }}
         onPointerCancel={() => setDragging(null)}
-        aria-label="Editor dos vértices da arena"
+        aria-label={`Editor dos quatro vértices ${layer === "rim" ? "da borda superior" : "do chão"}`}
       >
         {frameDataUrl ? (
           <image href={frameDataUrl} width={metadata.width} height={metadata.height} preserveAspectRatio="none" />
@@ -177,13 +187,29 @@ function ArenaPreview({
           </>
         )}
         <polygon points={pointsToSvg(arena.cornersPx)} fill="#d7f169" fillOpacity=".08" stroke="#d7f169" strokeWidth={Math.max(3, metadata.width / 420)} />
+        {arena.rimCornersPx && <>
+          {arena.rimCornersPx.map((point, index) => <line key={index} x1={point.x} y1={point.y} x2={arena.cornersPx[index].x} y2={arena.cornersPx[index].y} stroke="#bb9aff" strokeOpacity=".45" strokeDasharray="8 6" strokeWidth={Math.max(2, metadata.width / 650)} />)}
+          <polygon points={pointsToSvg(arena.rimCornersPx)} fill="#a67bff" fillOpacity=".04" stroke="#bb9aff" strokeWidth={Math.max(3, metadata.width / 420)} />
+        </>}
         {center.length === 4 && (
           <polygon points={pointsToSvg(center)} fill="#70d6ad" fillOpacity=".16" stroke="#70d6ad" strokeWidth={Math.max(2, metadata.width / 650)} strokeDasharray="12 8" />
         )}
-        {arena.cornersPx.map((point, index) => (
+        {activeCorners.map((point, index) => (
           <g
             key={index}
             className="arena-handle"
+            role="button"
+            tabIndex={0}
+            aria-label={`${layer === "rim" ? "Borda" : "Chão"}, vértice ${index + 1}; use as setas para ajustar`}
+            onKeyDown={(event) => {
+              const offset = event.shiftKey ? 10 : 1;
+              const delta: Record<string, Point> = { ArrowLeft: { x: -offset, y: 0 }, ArrowRight: { x: offset, y: 0 }, ArrowUp: { x: 0, y: -offset }, ArrowDown: { x: 0, y: offset } };
+              if (!delta[event.key]) return;
+              event.preventDefault();
+              const next = [...activeCorners] as ArenaConfig["cornersPx"];
+              next[index] = { x: Math.max(0, Math.min(metadata.width, point.x + delta[event.key].x)), y: Math.max(0, Math.min(metadata.height, point.y + delta[event.key].y)) };
+              onChange(layer, next);
+            }}
             onPointerDown={(event) => {
               event.stopPropagation();
               event.currentTarget.ownerSVGElement?.setPointerCapture(event.pointerId);
@@ -191,16 +217,17 @@ function ArenaPreview({
             }}
             transform={`translate(${point.x} ${point.y})`}
           >
-            <circle r={metadata.width / 90} fill="#fff" stroke="#153c32" strokeWidth={metadata.width / 360} />
-            <circle r={metadata.width / 220} fill="#153c32" />
+            <circle r={metadata.width / 90} fill="#161b28" stroke={color} strokeWidth={metadata.width / 360} />
+            <circle r={metadata.width / 220} fill={color} />
             <text y={-metadata.width / 55} textAnchor="middle" fontSize={metadata.width / 58} fontWeight="700" fill="#fff">
-              {index + 1}
+              {layer === "rim" ? "B" : "P"}{index + 1}
             </text>
           </g>
         ))}
       </svg>
       <div className="arena-legend">
         <span><i className="legend-arena" /> Piso da arena</span>
+        <span><i className="legend-rim" /> Borda superior</span>
         <span><i className="legend-center" /> Centro ({Math.round(arena.centerAreaFraction * 100)}% da área)</span>
       </div>
     </div>
@@ -217,6 +244,8 @@ export function NewExperiment() {
   const [video, setVideo] = useState<VideoMetadata | null>(null);
   const [asset, setAsset] = useState<VideoAsset>({});
   const [arena, setArena] = useState<ArenaConfig>(defaultArena);
+  const [arenaLayer, setArenaLayer] = useState<ArenaLayer>("rim");
+  const [confirmedRegions, setConfirmedRegions] = useState({ rim: false, floor: false });
   const [videoError, setVideoError] = useState<string | null>(null);
   const [frameError, setFrameError] = useState<string | null>(null);
   const [loadingVideo, setLoadingVideo] = useState(false);
@@ -225,11 +254,17 @@ export function NewExperiment() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const arenaError = useMemo(
-    () => validateArenaCorners(arena.cornersPx) || (arena.widthCm <= 0 || arena.heightCm <= 0 ? "Informe dimensões físicas positivas." : null),
-    [arena],
+    () => video ? validateArenaRegions(arena, video.width, video.height, true) : null,
+    [arena, video],
   );
 
-  const canContinue = [Boolean(subjectId.trim()), Boolean(video), !arenaError, true][step];
+  const regionsConfirmed = confirmedRegions.rim && confirmedRegions.floor;
+  const canContinue = [Boolean(subjectId.trim()), Boolean(video), !arenaError && regionsConfirmed, true][step];
+
+  const changeRegion = (layer: ArenaLayer, corners: ArenaConfig["cornersPx"]) => {
+    setArena((current) => ({ ...current, [layer === "rim" ? "rimCornersPx" : "cornersPx"]: corners }));
+    setConfirmedRegions((current) => ({ ...current, [layer]: false }));
+  };
 
   const loadDemo = () => {
     setVideo({
@@ -245,6 +280,8 @@ export function NewExperiment() {
     setFrameCandidateSec(0);
     setFrameError(null);
     setArena(defaultArena);
+    setArenaLayer("rim");
+    setConfirmedRegions({ rim: false, floor: false });
     setVideoError(null);
   };
 
@@ -276,7 +313,12 @@ export function NewExperiment() {
       setVideo(metadata);
       setAsset({ objectUrl, frameDataUrl: captured.frameDataUrl, frameTimeSec: captured.timeSec, file });
       setFrameCandidateSec(captured.timeSec);
-      setArena((current) => ({ ...current, cornersPx: initialCorners(metadata.width, metadata.height) }));
+      setArena((current) => ({ ...current, cornersPx: initialCorners(metadata.width, metadata.height), rimCornersPx: [
+        { x: metadata.width * .08, y: metadata.height * .05 }, { x: metadata.width * .92, y: metadata.height * .05 },
+        { x: metadata.width * .95, y: metadata.height * .95 }, { x: metadata.width * .05, y: metadata.height * .95 },
+      ] }));
+      setArenaLayer("rim");
+      setConfirmedRegions({ rim: false, floor: false });
     } catch (error) {
       URL.revokeObjectURL(objectUrl);
       setVideoError(error instanceof Error ? error.message : "Não foi possível abrir o vídeo.");
@@ -303,7 +345,7 @@ export function NewExperiment() {
   };
 
   const createExperiment = () => {
-    if (!video || arenaError) return;
+    if (!video || arenaError || !regionsConfirmed) return;
     const now = new Date().toISOString();
     const id = crypto.randomUUID();
     const experiment: Experiment = {
@@ -397,15 +439,29 @@ export function NewExperiment() {
 
           {step === 2 && video && (
             <div className="wizard-section arena-step">
-              <div className="wizard-section-heading"><div className="section-icon"><MousePointer2 size={21} /></div><div><h2>Delimite o piso da arena</h2><p>Arraste os marcadores na ordem: superior esquerdo, superior direito, inferior direito e inferior esquerdo.</p></div></div>
+              <div className="wizard-section-heading"><div className="section-icon"><MousePointer2 size={21} /></div><div><h2>Marque a borda e o chão da caixa</h2><p>Marque quatro cantos de cada área: superior esquerdo, superior direito, inferior direito e inferior esquerdo. B1 e P1 devem corresponder ao mesmo canto físico.</p></div></div>
+              <div className="arena-layer-selector" role="group" aria-label="Área em edição">
+                {(["rim", "floor"] as const).map((layer, index) => <button type="button" key={layer} aria-pressed={arenaLayer === layer} className={arenaLayer === layer ? "active" : ""} onClick={() => setArenaLayer(layer)}>
+                  <span className={`arena-layer-dot ${layer}`} />
+                  <span><strong>{index + 1}. {layer === "rim" ? "Borda superior da caixa" : "Chão da caixa"}</strong><small>{confirmedRegions[layer] ? "Confirmado" : "Ajuste os quatro vértices e confirme"}</small></span>
+                  {confirmedRegions[layer] && <CheckCircle2 size={17} />}
+                </button>)}
+              </div>
               <div className="arena-layout">
                 <div className="arena-frame-column">
-                  <ArenaPreview metadata={video} frameDataUrl={asset.frameDataUrl} arena={arena} onChange={(cornersPx) => setArena((current) => ({ ...current, cornersPx }))} />
+                  <ArenaPreview metadata={video} frameDataUrl={asset.frameDataUrl} arena={arena} layer={arenaLayer} onChange={changeRegion} />
+                  <div className="arena-region-confirm">
+                    <p>{arenaLayer === "rim" ? "Borda: siga o aro superior da caixa. O recorte enviado ao modelo incluirá a borda, o chão e uma margem para as paredes." : "Chão: siga a junção das paredes com o piso. Apenas esta área será usada para calcular distâncias e zonas em centímetros."}</p>
+                    <Button type="button" variant="secondary" disabled={Boolean(arenaError)} icon={<Check size={16} />} onClick={() => {
+                      setConfirmedRegions((current) => ({ ...current, [arenaLayer]: true }));
+                      if (arenaLayer === "rim") setArenaLayer("floor");
+                    }}>{confirmedRegions[arenaLayer] ? "Confirmar novamente" : `Confirmar ${arenaLayer === "rim" ? "borda" : "chão"}`}</Button>
+                  </div>
                   {asset.objectUrl && (
                     <div className="arena-frame-picker">
                       <div className="arena-frame-picker-title">
                         <Camera size={16} />
-                        <div><strong>Frame de referência</strong><span>Escolha um momento em que os limites do piso estejam visíveis.</span></div>
+                        <div><strong>Frame de referência</strong><span>Escolha um momento em que a borda e o chão estejam visíveis.</span></div>
                       </div>
                       <div className="arena-frame-picker-control">
                         <input
@@ -434,7 +490,8 @@ export function NewExperiment() {
                   </div>
                   <label><span>Área central</span><select value={arena.centerAreaFraction} onChange={(event) => setArena((current) => ({ ...current, centerAreaFraction: Number(event.target.value) }))}><option value={0.25}>25% da área</option><option value={0.36}>36% da área</option><option value={0.49}>49% da área</option></select></label>
                   <div className="center-explanation"><strong>Centro geométrico</strong><p>A fração é aplicada à área. Em uma arena 60 × 60 cm, 25% resulta em centro 30 × 30 cm.</p></div>
-                  <div className={arenaError ? "validation-box invalid" : "validation-box valid"}>{arenaError ? <Info size={16} /> : <CheckCircle2 size={16} />}<span>{arenaError || "Geometria válida e pronta para salvar."}</span></div>
+                  <div className="center-explanation"><strong>Animal em pé ou parcialmente visível</strong><p>As paredes ficam dentro do enquadramento do modelo. Cada ponto visível é preservado separadamente; partes ocultas não são inventadas. Estas áreas 2D não confirmam rearing nem recuperam profundidade.</p></div>
+                  <div className={arenaError || !regionsConfirmed ? "validation-box invalid" : "validation-box valid"}>{arenaError || !regionsConfirmed ? <Info size={16} /> : <CheckCircle2 size={16} />}<span>{arenaError || (!regionsConfirmed ? "Confirme a borda e o chão antes de continuar." : "Borda e chão confirmados. Medidas calibradas pelo piso.")}</span></div>
                 </aside>
               </div>
             </div>
@@ -447,9 +504,9 @@ export function NewExperiment() {
                 <div><span>Protocolo</span><strong>Campo aberto</strong><small>Um animal · câmera fixa</small></div>
                 <div><span>Sujeito</span><strong>{subjectId}</strong><small>{group || "Sem grupo informado"}</small></div>
                 <div><span>Vídeo</span><strong>{video.filename}</strong><small>{formatDuration(video.durationSec)} · {video.width} × {video.height}</small></div>
-                <div><span>Arena</span><strong>{arena.widthCm} × {arena.heightCm} cm</strong><small>Centro: {Math.round(arena.centerAreaFraction * 100)}% da área</small></div>
+                <div><span>Arena</span><strong>{arena.widthCm} × {arena.heightCm} cm</strong><small>Borda + chão confirmados · centro: {Math.round(arena.centerAreaFraction * 100)}% do piso</small></div>
               </div>
-              <div className="review-contract"><div><Badge tone="info">Contrato v1.0</Badge><h3>Dados que serão preservados</h3></div><ul><li><Check size={15} /> Metadados do vídeo e sistema de coordenadas</li><li><Check size={15} /> Quatro vértices na resolução original</li><li><Check size={15} /> Definição explícita de centro e unidades</li><li><Check size={15} /> Revisões futuras sem sobrescrever dados brutos</li></ul></div>
+              <div className="review-contract"><div><Badge tone="info">Geometria 2D</Badge><h3>Dados que serão preservados</h3></div><ul><li><Check size={15} /> Metadados do vídeo e sistema de coordenadas</li><li><Check size={15} /> Oito vértices: borda e chão na resolução original</li><li><Check size={15} /> Recorte com paredes para o modelo; medidas físicas apenas no chão</li><li><Check size={15} /> Dados brutos e pontos visíveis, sem preenchimento de partes ocultas</li></ul></div>
             </div>
           )}
 
@@ -458,7 +515,7 @@ export function NewExperiment() {
             {step < 3 ? (
               <Button disabled={!canContinue} onClick={() => setStep(step + 1)}>Continuar <ArrowRight size={17} /></Button>
             ) : (
-              <Button onClick={createExperiment} icon={<Check size={17} />}>Criar e abrir editor</Button>
+              <Button disabled={Boolean(arenaError) || !regionsConfirmed} onClick={createExperiment} icon={<Check size={17} />}>Criar e abrir editor</Button>
             )}
           </footer>
         </section>

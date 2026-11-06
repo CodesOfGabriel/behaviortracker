@@ -5,7 +5,7 @@
 - [x] React + TypeScript + Vite + Tailwind CSS, preparado para Tauri 2.
 - [x] Dashboard local e fluxo de criação de experimento OFT.
 - [x] Leitura de metadados de vídeo no frontend e captura de frame de referência.
-- [x] Marcação arrastável dos quatro vértices em coordenadas da resolução original.
+- [x] Marcação e confirmação separadas dos quatro vértices da borda e dos quatro vértices do chão; arraste e teclado em coordenadas da resolução original.
 - [x] Validação de quadrilátero e visualização da região central por fração da área.
 - [x] Importação do CSV canônico de pose.
 - [x] Player/timeline, inspeção de QC e navegação até o próximo problema.
@@ -31,6 +31,8 @@
 - [x] Progresso do lote atual reportado pelo SuperAnimal, sem usar 100% do detector como conclusão do job; log técnico local consultável na interface.
 - [x] Seleção de GPU por resolução/duração do vídeo entre opções elegíveis, priorizando runtimes existentes; decisão registrada no diário.
 - [x] Conversão do H5 do DeepLabCut para CSV canônico e importação automática no editor.
+- [x] Geometria das duas áreas enviada e registrada por job; ROI inclui borda, chão e margem de 5%, com reposicionamento das coordenadas no vídeo original e sem alterar o H5.
+- [x] Preservação de pontos disponíveis em detecções parciais, suporte anatômico do centro explícito, sentinelas normalizadas e trajetória sem ligar lacunas.
 - [x] Persistência do CSV retornado no diretório de dados e restauração ao reabrir o experimento.
 
 ## Implementado como protótipo, ainda não validado para uso científico
@@ -40,6 +42,7 @@
 - O CSV é deliberadamente simples e não suporta campos com vírgula arbitrária nem HDF5 do DeepLabCut.
 - O conjunto sintético demonstra a interface, mas nunca deve ser usado como resultado experimental.
 - As metas de desempenho com vídeo 1080p/30 FPS ainda precisam de benchmark.
+- Borda e chão fornecem contexto geométrico 2D, não classificação automática de rearing nem recuperação de partes ocultas. O recorte e a preservação parcial foram testados com dados sintéticos; ganho de detecção em ratos em pé ainda precisa ser medido no Colab com vídeo real.
 - O fluxo Colab compila e possui testes locais de contrato, mas ainda precisa completar o gate P0 com um vídeo real e evidências sanitizadas da conta alvo.
 - A continuidade do worker após encerramento/KeyboardInterrupt da célula de lançamento foi testada localmente com tarefas sintéticas. Falta confirmar esse comportamento no runtime Colab real; substituição da máquina e políticas do provedor continuam podendo encerrar processos. Fechar e reabrir o app não retoma o acompanhamento automaticamente.
 - A primeira execução em um runtime sem ambiente compatível prepara o DeepLabCut e pode demorar; instalações válidas são reutilizadas. O ranking de GPU é heurístico e ainda não tem benchmark por acelerador. Não há compra automática de recursos.

@@ -43,6 +43,22 @@ export function parseCanonicalPoseCsv(text: string): PoseSample[] {
     ) {
       throw new Error(`Valor inválido na linha ${rowIndex + 2}.`);
     }
+    // Arquivos antigos podem conter (-1, -1, -1): sentinelas do modelo, não coordenadas.
+    if (sample.likelihood < 0 || sample.likelihood > 1 || sample.xPx == null || sample.yPx == null || sample.xPx < 0 || sample.yPx < 0 || sample.status === "missing") {
+      sample.xPx = null;
+      sample.yPx = null;
+      sample.status = "missing";
+      if (sample.likelihood < 0 || sample.likelihood > 1) sample.likelihood = 0;
+    }
+    const region = values[indexOf("spatial_region")];
+    if (["floor", "wall_projection", "outside", "unknown"].includes(region)) sample.spatialRegion = region as PoseSample["spatialRegion"];
+    for (const [column, field] of [["support_count", "supportCount"], ["support_total", "supportTotal"]] as const) {
+      if (indexOf(column) < 0 || values[indexOf(column)] === "") continue;
+      const value = number(column);
+      if (!Number.isInteger(value) || value < 0) throw new Error(`Suporte anatômico inválido na linha ${rowIndex + 2}.`);
+      sample[field] = value;
+    }
+    if (sample.supportCount != null && sample.supportTotal != null && sample.supportCount > sample.supportTotal) throw new Error(`Suporte anatômico inconsistente na linha ${rowIndex + 2}.`);
     return sample;
   });
   if (!samples.length) throw new Error("O CSV não contém observações válidas.");
@@ -56,7 +72,7 @@ function csvCell(value: unknown) {
 }
 
 export function poseToCsv(samples: PoseSample[]) {
-  const header = "frame_index,timestamp_sec,animal_id,keypoint,x_px,y_px,likelihood,status";
+  const header = "frame_index,timestamp_sec,animal_id,keypoint,x_px,y_px,likelihood,status,spatial_region,support_count,support_total";
   const rows = samples.map((sample) =>
     [
       sample.frameIndex,
@@ -67,6 +83,9 @@ export function poseToCsv(samples: PoseSample[]) {
       sample.yPx?.toFixed(3) ?? "",
       sample.likelihood.toFixed(4),
       sample.status,
+      sample.spatialRegion ?? "unknown",
+      sample.supportCount ?? "",
+      sample.supportTotal ?? "",
     ]
       .map(csvCell)
       .join(","),

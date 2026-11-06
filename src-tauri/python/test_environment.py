@@ -5,7 +5,7 @@ from unittest.mock import patch
 from environment import probe_environment
 
 
-def fake_inference(videos, superanimal_name, model_name, detector_name, video_adapt):
+def fake_inference(videos, superanimal_name, model_name, detector_name, video_adapt, cropping):
     pass
 
 

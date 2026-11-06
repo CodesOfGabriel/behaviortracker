@@ -6,6 +6,10 @@ export const DEMO_VIDEO_HEIGHT = 720;
 
 export const defaultArena: ArenaConfig = {
   revision: 1,
+  rimCornersPx: [
+    { x: 150, y: 40 }, { x: 1130, y: 48 },
+    { x: 1200, y: 680 }, { x: 80, y: 670 },
+  ],
   cornersPx: [
     { x: 216, y: 92 },
     { x: 1068, y: 102 },

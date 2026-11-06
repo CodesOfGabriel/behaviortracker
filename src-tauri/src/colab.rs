@@ -67,6 +67,66 @@ pub struct StartAnalysisRequest {
     upload_id: String,
     #[serde(default)]
     workload: AnalysisWorkload,
+    #[serde(default)]
+    arena: Option<AnalysisArena>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ImagePoint {
+    x: f64,
+    y: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AnalysisArena {
+    revision: u32,
+    video_width: u32,
+    video_height: u32,
+    corners_px: [ImagePoint; 4],
+    #[serde(default)]
+    rim_corners_px: Option<[ImagePoint; 4]>,
+}
+
+impl AnalysisArena {
+    fn validate(&self, workload: &AnalysisWorkload) -> CommandResult<()> {
+        if self.video_width == 0
+            || self.video_height == 0
+            || self.video_width != workload.width
+            || self.video_height != workload.height
+        {
+            return Err("A geometria precisa corresponder à resolução do vídeo.".into());
+        }
+        for points in std::iter::once(&self.corners_px).chain(self.rim_corners_px.iter()) {
+            if points.iter().any(|p| {
+                !p.x.is_finite()
+                    || !p.y.is_finite()
+                    || p.x < 0.0
+                    || p.y < 0.0
+                    || p.x > self.video_width as f64
+                    || p.y > self.video_height as f64
+            }) {
+                return Err("Os vértices da borda e do chão devem estar dentro do vídeo.".into());
+            }
+            let turns = (0..4)
+                .map(|i| {
+                    let (a, b, c) = (&points[i], &points[(i + 1) % 4], &points[(i + 2) % 4]);
+                    (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+                })
+                .collect::<Vec<_>>();
+            let area = (0..4)
+                .map(|i| points[i].x * points[(i + 1) % 4].y - points[(i + 1) % 4].x * points[i].y)
+                .sum::<f64>()
+                .abs()
+                / 2.0;
+            if area < 100.0 || !(turns.iter().all(|v| *v > 0.0) || turns.iter().all(|v| *v < 0.0)) {
+                return Err(
+                    "A borda e o chão devem ser quadriláteros convexos, sem cruzamentos.".into(),
+                );
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -276,7 +336,11 @@ fn prepare_tables(app: &AppHandle) -> CommandResult<()> {
                message TEXT NOT NULL,
                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
              );
-             CREATE INDEX IF NOT EXISTS idx_colab_events_job ON colab_job_events(job_id, id);",
+             CREATE INDEX IF NOT EXISTS idx_colab_events_job ON colab_job_events(job_id, id);
+             CREATE TABLE IF NOT EXISTS colab_job_geometry (
+               job_id TEXT PRIMARY KEY REFERENCES colab_jobs(job_id),
+               geometry_json TEXT NOT NULL
+             );",
         )
         .map_err(|_| "Não foi possível preparar o armazenamento dos jobs Colab.".to_string())?;
     Ok(())
@@ -1441,15 +1505,21 @@ fn prepare_environment_with(
     Ok(())
 }
 
-fn inference_code(remote_video: &str, remote_output: &str, canonical_csv: &str) -> String {
+fn inference_code(
+    remote_video: &str,
+    remote_output: &str,
+    canonical_csv: &str,
+    arena: Option<&AnalysisArena>,
+) -> String {
     let source = format!(
         r#"import glob
 import math
 import os
+import json
+import runpy
 from pathlib import Path
 
 import cv2
-import numpy as np
 import pandas as pd
 from deeplabcut.modelzoo.video_inference import video_inference_superanimal
 
@@ -1457,6 +1527,19 @@ video_path = {remote_video:?}
 output_dir = {remote_output:?}
 canonical_path = {canonical_csv:?}
 os.makedirs(output_dir, exist_ok=True)
+helpers = Path(output_dir) / "arena_helpers.py"
+helpers.write_text({arena_helpers:?}, encoding="utf-8")
+geometry_api = runpy.run_path(str(helpers))
+capture = cv2.VideoCapture(video_path)
+fps = float(capture.get(cv2.CAP_PROP_FPS))
+video_width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+video_height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+capture.release()
+if not math.isfinite(fps) or fps <= 0:
+    raise RuntimeError("O vídeo não informou FPS válido; não é seguro inventar timestamps para a análise")
+geometry = geometry_api["prepare_geometry"](json.loads({arena_json:?}), video_width, video_height)
+Path(output_dir, "arena_geometry.json").write_text(json.dumps(geometry, ensure_ascii=False, indent=2), encoding="utf-8")
+print("BEHAVETRACKER_GEOMETRY=" + json.dumps(geometry), flush=True)
 
 video_inference_superanimal(
     videos=video_path,
@@ -1468,6 +1551,7 @@ video_inference_superanimal(
     dest_folder=output_dir,
     create_labeled_video=False,
     plot_trajectories=False,
+    cropping=geometry["cropping"],
 )
 
 h5_files = sorted(glob.glob(os.path.join(output_dir, "*.h5")), key=os.path.getmtime)
@@ -1512,16 +1596,13 @@ torso = [
     if any(token in bodypart for token in ("spine", "body", "center", "centre", "shoulder", "hip", "back"))
     and not any(token in bodypart for token in ("tail", "paw", "ear", "nose", "snout"))
 ]
-if not torso:
-    torso = [bodypart for bodypart in all_bodyparts if not any(token in bodypart for token in ("tail", "paw", "ear", "nose", "snout"))]
-if not torso:
-    torso = all_bodyparts
-
-capture = cv2.VideoCapture(video_path)
-fps = float(capture.get(cv2.CAP_PROP_FPS))
-capture.release()
-if not math.isfinite(fps) or fps <= 0:
-    fps = 30.0
+def point_at(bodypart, position):
+    if bodypart is None:
+        return (None, None, 0.0, "missing")
+    likelihood_series = available.get((bodypart, "likelihood"))
+    likelihood = likelihood_series.iloc[position] if likelihood_series is not None else None
+    return geometry_api["restore_point"](available[(bodypart, "x")].iloc[position],
+        available[(bodypart, "y")].iloc[position], likelihood, geometry)
 
 rows = []
 for frame_position, frame_index in enumerate(poses.index):
@@ -1531,36 +1612,18 @@ for frame_position, frame_index in enumerate(poses.index):
         numeric_frame = frame_position
     timestamp = numeric_frame / fps
 
-    values = []
-    likelihoods = []
-    for bodypart in torso:
-        x = available[(bodypart, "x")].iloc[frame_position]
-        y = available[(bodypart, "y")].iloc[frame_position]
-        likelihood = available.get((bodypart, "likelihood"))
-        likelihood = likelihood.iloc[frame_position] if likelihood is not None else 1.0
-        if pd.notna(x) and pd.notna(y):
-            values.append((float(x), float(y)))
-            likelihoods.append(float(likelihood) if pd.notna(likelihood) else 0.0)
-    center_x = float(np.mean([value[0] for value in values])) if values else None
-    center_y = float(np.mean([value[1] for value in values])) if values else None
-    center_likelihood = float(np.mean(likelihoods)) if likelihoods else 0.0
-    status = "missing" if center_x is None or center_y is None or center_likelihood < 0.1 else ("low_confidence" if center_likelihood < 0.6 else "valid")
-    rows.append([numeric_frame, timestamp, "animal_1", "body_center", center_x, center_y, center_likelihood, status])
+    torso_points = [point_at(bodypart, frame_position) for bodypart in torso]
+    center_x, center_y, center_likelihood, status = geometry_api["torso_center"](torso_points)
+    support = sum(point[3] != "missing" for point in torso_points)
+    rows.append([numeric_frame, timestamp, "animal_1", "body_center", center_x, center_y, center_likelihood, status,
+        geometry_api["spatial_region"](center_x, center_y, geometry), support, len(torso_points)])
 
     for canonical_name, bodypart in selected.items():
-        if bodypart is None:
-            rows.append([numeric_frame, timestamp, "animal_1", canonical_name, None, None, 0.0, "missing"])
-            continue
-        x = available[(bodypart, "x")].iloc[frame_position]
-        y = available[(bodypart, "y")].iloc[frame_position]
-        likelihood_series = available.get((bodypart, "likelihood"))
-        likelihood = likelihood_series.iloc[frame_position] if likelihood_series is not None else 1.0
-        likelihood = float(likelihood) if pd.notna(likelihood) else 0.0
-        valid_point = pd.notna(x) and pd.notna(y)
-        status = "missing" if not valid_point or likelihood < 0.1 else ("low_confidence" if likelihood < 0.6 else "valid")
-        rows.append([numeric_frame, timestamp, "animal_1", canonical_name, float(x) if valid_point else None, float(y) if valid_point else None, likelihood, status])
+        x, y, likelihood, status = point_at(bodypart, frame_position)
+        rows.append([numeric_frame, timestamp, "animal_1", canonical_name, x, y, likelihood, status,
+            geometry_api["spatial_region"](x, y, geometry), int(status != "missing"), 1])
 
-canonical = pd.DataFrame(rows, columns=["frame_index", "timestamp_sec", "animal_id", "keypoint", "x_px", "y_px", "likelihood", "status"])
+canonical = pd.DataFrame(rows, columns=["frame_index", "timestamp_sec", "animal_id", "keypoint", "x_px", "y_px", "likelihood", "status", "spatial_region", "support_count", "support_total"])
 canonical.to_csv(canonical_path, index=False)
 Path(canonical_path + ".complete").write_text("ok", encoding="utf-8")
 print(f"BEHAVETRACKER_RESULT={{canonical_path}}|rows={{len(canonical)}}|fps={{fps:.6f}}")
@@ -1568,6 +1631,8 @@ print(f"BEHAVETRACKER_RESULT={{canonical_path}}|rows={{len(canonical)}}|fps={{fp
         remote_video = remote_video,
         remote_output = remote_output,
         canonical_csv = canonical_csv,
+        arena_helpers = include_str!("../python/arena.py"),
+        arena_json = serde_json::to_string(&arena).expect("validated arena is serializable"),
     );
     format!("from pathlib import Path\nif Path({canonical_csv:?}).is_file() and Path({:?}).is_file():\n    print('BEHAVETRACKER_RESULT_CACHED')\nelse:\n{}",
         format!("{canonical_csv}.complete"),
@@ -1614,6 +1679,7 @@ fn run_analysis(
     job_id: String,
     upload_id: String,
     workload: AnalysisWorkload,
+    arena: Option<AnalysisArena>,
 ) -> CommandResult<()> {
     prepare_tables(&app)?;
     let (local_path, original_filename, size, sha256, ready): (
@@ -1788,7 +1854,14 @@ fn run_analysis(
             "running",
             "inference",
             65,
-            "Executando SuperAnimal TopViewMouse",
+            if arena
+                .as_ref()
+                .is_some_and(|geometry| geometry.rim_corners_px.is_some())
+            {
+                "Executando SuperAnimal com borda + chão e margem de 5%; paredes preservadas no recorte. Geometria 2D não classifica rearing."
+            } else {
+                "Executando SuperAnimal no vídeo inteiro · projeto sem borda calibrada; não será aplicado recorte só no chão"
+            },
         )?;
         run_background_task(
             &app,
@@ -1796,7 +1869,7 @@ fn run_analysis(
             &session,
             &absolute_directory,
             "inference",
-            &inference_code(&absolute_video, &remote_output, &remote_csv),
+            &inference_code(&absolute_video, &remote_output, &remote_csv, arena.as_ref()),
         )?;
         update_job(
             &app,
@@ -1862,6 +1935,9 @@ pub fn start_colab_analysis(
     validate_local_id(&request.experiment_id, "Experimento")?;
     validate_local_id(&request.upload_id, "Upload")?;
     request.workload.validate()?;
+    if let Some(arena) = &request.arena {
+        arena.validate(&request.workload)?;
+    }
     prepare_tables(&app)?;
     let connection = open_database(&app)?;
     let staging_experiment: Option<String> = connection
@@ -1891,7 +1967,10 @@ pub fn start_colab_analysis(
         return get_job(&app, &active.job_id);
     }
     let job_id = new_uuid_v4();
-    connection
+    let transaction = connection
+        .unchecked_transaction()
+        .map_err(|_| "Não foi possível iniciar o registro do job.".to_string())?;
+    transaction
         .execute(
             "INSERT INTO colab_jobs
              (job_id, profile_id, experiment_id, upload_id, status, stage, progress, message)
@@ -1904,6 +1983,19 @@ pub fn start_colab_analysis(
             ],
         )
         .map_err(|_| "Não foi possível criar o job Colab.".to_string())?;
+    transaction
+        .execute(
+            "INSERT INTO colab_job_geometry(job_id, geometry_json) VALUES (?1, ?2)",
+            params![
+                &job_id,
+                serde_json::to_string(&json!({"poseAdapterVersion":"superanimal-canonical-2", "arena": &request.arena}))
+                    .map_err(|_| "Não foi possível serializar a geometria.")?
+            ],
+        )
+        .map_err(|_| "Não foi possível registrar a borda e o chão deste job.".to_string())?;
+    transaction
+        .commit()
+        .map_err(|_| "Não foi possível concluir o registro do job.".to_string())?;
     update_job(
         &app,
         &job_id,
@@ -1922,6 +2014,7 @@ pub fn start_colab_analysis(
             task_job_id.clone(),
             task_upload_id,
             request.workload,
+            request.arena,
         ) {
             let _ = fail_job(&task_app, &task_job_id, &error);
         }
@@ -2059,7 +2152,7 @@ mod tests {
         background_launch_code, background_poll_code, background_report, execute_with_recovery,
         inference_code, job_events, monitor_background_with, new_uuid_v4, parse_mcp_payload,
         preferred_runtime, preferred_spec, prepare_environment_with, read_sse_reply,
-        record_job_update, resolve_jupyter_workspace, safe_extension, workspace_gpu,
+        record_job_update, resolve_jupyter_workspace, safe_extension, workspace_gpu, AnalysisArena,
         AnalysisFailure, AnalysisWorkload, ConnectionInfo, McpFailure, Runtime, RuntimeSpec,
         RuntimeSpecKey, MAX_EXECUTION_ATTEMPTS,
     };
@@ -2077,6 +2170,83 @@ mod tests {
         assert_eq!(value.len(), 36);
         assert_eq!(value.as_bytes()[14], b'4');
         assert!(matches!(value.as_bytes()[19], b'8' | b'9' | b'a' | b'b'));
+    }
+
+    fn calibrated_arena() -> AnalysisArena {
+        serde_json::from_value(json!({"revision":2,"videoWidth":1000,"videoHeight":1000,
+            "cornersPx":[{"x":200,"y":300},{"x":700,"y":300},{"x":700,"y":800},{"x":200,"y":800}],
+            "rimCornersPx":[{"x":150,"y":100},{"x":750,"y":100},{"x":750,"y":650},{"x":150,"y":650}]})).unwrap()
+    }
+
+    #[test]
+    fn validates_both_areas_without_requiring_projected_floor_to_be_inside_rim() {
+        let mut arena = calibrated_arena();
+        let workload = AnalysisWorkload {
+            width: 1000,
+            height: 1000,
+            duration_sec: 100.0,
+        };
+        arena.validate(&workload).unwrap();
+        arena.rim_corners_px = None;
+        arena.validate(&workload).unwrap();
+        assert!(arena.validate(&AnalysisWorkload::default()).is_err());
+    }
+
+    #[test]
+    fn rejects_invalid_areas_before_starting_remote_work() {
+        let workload = AnalysisWorkload {
+            width: 1000,
+            height: 1000,
+            duration_sec: 100.0,
+        };
+        let mut arena = calibrated_arena();
+        arena.rim_corners_px.as_mut().unwrap()[0].x = -1.0;
+        assert!(arena.validate(&workload).is_err());
+        let mut arena = calibrated_arena();
+        arena.rim_corners_px.as_mut().unwrap().swap(1, 2);
+        assert!(arena.validate(&workload).is_err());
+    }
+
+    #[test]
+    fn generated_inference_uses_both_areas_restores_coordinates_and_preserves_partial_poses() {
+        use std::process::{Command, Stdio};
+        let directory = std::env::temp_dir().join(format!(
+            "behavetracker-inference-contract-{}",
+            new_uuid_v4()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let source = inference_code(
+            "fake-video.mp4",
+            directory.join("output").to_str().unwrap(),
+            directory.join("canonical.csv").to_str().unwrap(),
+            Some(&calibrated_arena()),
+        );
+        let mut child = Command::new("python3")
+            .arg("-B")
+            .arg(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/python/check_inference_contract.py"
+            ))
+            .arg(&directory)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(source.as_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("INFERENCE_CONTRACT_OK"));
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -2654,6 +2824,7 @@ mod tests {
                 "video-not-needed.mp4",
                 directory.to_str().unwrap(),
                 csv.to_str().unwrap(),
+                None,
             ))
             .output()
             .unwrap();
@@ -2680,6 +2851,7 @@ mod tests {
                 "/content/video.mp4",
                 "/content/output",
                 "/content/poses.csv",
+                None,
             ),
         ] {
             let mut child = Command::new("python3")

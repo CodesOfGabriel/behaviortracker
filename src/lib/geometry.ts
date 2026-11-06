@@ -27,6 +27,7 @@ export function polygonArea(points: Point[]) {
 
 export function validateArenaCorners(corners: Point[]) {
   if (corners.length !== 4) return "Marque exatamente quatro vértices.";
+  if (corners.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y))) return "Os vértices precisam ter coordenadas finitas.";
   if (segmentsIntersect(corners[0], corners[1], corners[2], corners[3])) {
     return "As arestas superior e inferior se cruzam.";
   }
@@ -40,6 +41,19 @@ export function validateArenaCorners(corners: Point[]) {
   if (signs.some((sign) => sign === 0) || !signs.every((sign) => sign === signs[0])) {
     return "A arena deve formar um quadrilátero convexo.";
   }
+  return null;
+}
+
+export function validateArenaRegions(arena: ArenaConfig, width: number, height: number, requireRim = false) {
+  if (requireRim && !arena.rimCornersPx) return "Marque e confirme a borda superior da caixa.";
+  for (const [label, points] of [["Chão", arena.cornersPx], ["Borda", arena.rimCornersPx]] as const) {
+    if (!points) continue;
+    const error = validateArenaCorners(points);
+    if (error) return `${label}: ${error}`;
+    if (points.some(({ x, y }) => x < 0 || y < 0 || x > width || y > height)) return `${label}: mantenha os vértices dentro do vídeo.`;
+  }
+  if (!Number.isFinite(arena.widthCm) || !Number.isFinite(arena.heightCm) || arena.widthCm <= 0 || arena.heightCm <= 0) return "Informe dimensões físicas positivas para o chão.";
+  // Em perspectiva, a projeção da borda superior não precisa conter a projeção do chão.
   return null;
 }
 

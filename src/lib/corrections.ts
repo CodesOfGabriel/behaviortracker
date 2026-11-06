@@ -19,13 +19,14 @@ export function applyCorrections(samples: PoseSample[], events: CorrectionEvent[
     const event = overrides.get(`${sample.frameIndex}:${sample.keypoint}`);
     if (!event) return sample;
     if (event.type === "MARK_MISSING") {
-      return { ...sample, xPx: null, yPx: null, status: "missing" as const };
+      return { ...sample, xPx: null, yPx: null, status: "missing" as const, spatialRegion: "unknown" as const };
     }
     return {
       ...sample,
       xPx: event.after?.x ?? sample.xPx,
       yPx: event.after?.y ?? sample.yPx,
       status: "valid" as const,
+      spatialRegion: "unknown" as const,
     };
   });
 }
