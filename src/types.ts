@@ -26,6 +26,18 @@ export interface VideoMetadata {
   timingSource: "browser-estimate" | "ffprobe" | "synthetic";
   calibrationFrameSec?: number;
   lastModified?: number;
+  preparation?: VideoPreparation;
+}
+
+export interface VideoPreparation {
+  uploadId: string;
+  originalBytes: number;
+  uploadBytes: number;
+  status: "optimized" | "original" | "unavailable";
+  message: string;
+  policyVersion: "lossless-upload-1";
+  pixelVerified: boolean;
+  frameCount: number | null;
 }
 
 export interface ArenaConfig {

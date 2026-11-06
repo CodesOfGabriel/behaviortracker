@@ -255,7 +255,7 @@ struct RuntimesResponse {
     runtimes: Vec<Runtime>,
 }
 
-fn new_uuid_v4() -> String {
+pub(crate) fn new_uuid_v4() -> String {
     let mut bytes = [0_u8; 16];
     rand::thread_rng().fill_bytes(&mut bytes);
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
@@ -267,7 +267,7 @@ fn new_uuid_v4() -> String {
     )
 }
 
-fn validate_local_id(value: &str, label: &str) -> CommandResult<()> {
+pub(crate) fn validate_local_id(value: &str, label: &str) -> CommandResult<()> {
     if value.is_empty()
         || value.len() > 100
         || !value
@@ -294,7 +294,7 @@ fn safe_extension(filename: &str) -> String {
         .unwrap_or_else(|| ".mp4".to_string())
 }
 
-fn prepare_tables(app: &AppHandle) -> CommandResult<()> {
+pub(crate) fn prepare_tables(app: &AppHandle) -> CommandResult<()> {
     open_database(app)?
         .execute_batch(
             "CREATE TABLE IF NOT EXISTS video_staging (
@@ -337,6 +337,16 @@ fn prepare_tables(app: &AppHandle) -> CommandResult<()> {
                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
              );
              CREATE INDEX IF NOT EXISTS idx_colab_events_job ON colab_job_events(job_id, id);
+             CREATE TABLE IF NOT EXISTS video_preparations (
+               original_upload_id TEXT PRIMARY KEY REFERENCES video_staging(upload_id),
+               prepared_upload_id TEXT NOT NULL REFERENCES video_staging(upload_id),
+               report_json TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS colab_job_artifacts (
+               job_id TEXT PRIMARY KEY REFERENCES colab_jobs(job_id),
+               labeled_video_path TEXT,
+               video_error TEXT
+             );
              CREATE TABLE IF NOT EXISTS colab_job_geometry (
                job_id TEXT PRIMARY KEY REFERENCES colab_jobs(job_id),
                geometry_json TEXT NOT NULL
@@ -346,7 +356,7 @@ fn prepare_tables(app: &AppHandle) -> CommandResult<()> {
     Ok(())
 }
 
-fn staging_directory(app: &AppHandle) -> CommandResult<PathBuf> {
+pub(crate) fn staging_directory(app: &AppHandle) -> CommandResult<PathBuf> {
     let directory = app
         .path()
         .app_cache_dir()
@@ -1533,6 +1543,9 @@ geometry_api = runpy.run_path(str(helpers))
 recovery_helpers = Path(output_dir) / "recovery_helpers.py"
 recovery_helpers.write_text({recovery_helpers:?}, encoding="utf-8")
 recovery_api = runpy.run_path(str(recovery_helpers))
+video_helpers = Path(output_dir) / "labeled_video_helpers.py"
+video_helpers.write_text({labeled_video_helpers:?}, encoding="utf-8")
+video_api = runpy.run_path(str(video_helpers))
 capture = cv2.VideoCapture(video_path)
 fps = float(capture.get(cv2.CAP_PROP_FPS))
 video_width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -1656,6 +1669,7 @@ print("BEHAVETRACKER_RECOVERY=" + json.dumps({{"attempted": recovery.attempted, 
 recovery_state = "unavailable" if recovery.disabled_reason else "ready" if recovery.attempted else "not_needed"
 canonical = pd.DataFrame([row + [recovery_state] for row in rows], columns=["frame_index", "timestamp_sec", "animal_id", "keypoint", "x_px", "y_px", "likelihood", "status", "spatial_region", "support_count", "support_total", "source", "raw_x_px", "raw_y_px", "raw_likelihood", "raw_status", "raw_spatial_region", "raw_support_count", "raw_support_total", "recovery_state"])
 canonical.to_csv(canonical_path, index=False)
+video_api["render_labeled_video"](video_path, h5_files[-1], fps, geometry, output_dir, len(poses.index))
 Path(canonical_path + ".complete").write_text("ok", encoding="utf-8")
 print(f"BEHAVETRACKER_RESULT={{canonical_path}}|rows={{len(canonical)}}|fps={{fps:.6f}}")
 "#,
@@ -1664,6 +1678,7 @@ print(f"BEHAVETRACKER_RESULT={{canonical_path}}|rows={{len(canonical)}}|fps={{fp
         canonical_csv = canonical_csv,
         arena_helpers = include_str!("../python/arena.py"),
         recovery_helpers = include_str!("../python/recovery.py"),
+        labeled_video_helpers = include_str!("../python/labeled_video.py"),
         arena_json = serde_json::to_string(&arena).expect("validated arena is serializable"),
     );
     format!("from pathlib import Path\nif Path({canonical_csv:?}).is_file() and Path({:?}).is_file():\n    print('BEHAVETRACKER_RESULT_CACHED')\nelse:\n{}",
@@ -1706,6 +1721,38 @@ fn download_result(
     Ok(())
 }
 
+fn download_labeled_video(connection: &ConnectionInfo, remote_output: &str, directory: &Path, job_id: &str) -> CommandResult<PathBuf> {
+    let client = Client::builder().timeout(Duration::from_secs(600)).build().map_err(|_| "Não foi possível iniciar o download do vídeo")?;
+    let response = client.get(jupyter_url(connection, &format!("files/{remote_output}/video_artifact.json")))
+        .header("X-Colab-Runtime-Proxy-Token", &connection.token).send().map_err(|_| "Falha ao consultar o vídeo do DeepLabCut")?;
+    if !response.status().is_success() { return Err("O runtime não publicou o manifesto do vídeo rotulado".into()); }
+    let mut manifest = String::new();
+    response.take(16 * 1024).read_to_string(&mut manifest).map_err(|_| "Manifesto de vídeo ilegível")?;
+    let manifest: Value = serde_json::from_str(&manifest).map_err(|_| "Manifesto de vídeo inválido")?;
+    if manifest["available"].as_bool() != Some(true) {
+        return Err(manifest["error"].as_str().unwrap_or("O vídeo do DeepLabCut não foi gerado").chars().take(1500).collect());
+    }
+    if manifest["filename"].as_str() != Some("dlc_labeled.mp4") || manifest["source"].as_str() != Some("deeplabcut_raw_h5") {
+        return Err("Origem do vídeo de resultado não reconhecida".into());
+    }
+    let bytes = manifest["sizeBytes"].as_u64().filter(|size| *size > 0 && *size <= MAX_VIDEO_SIZE as u64).ok_or("Tamanho inválido do vídeo rotulado")?;
+    let digest = manifest["sha256"].as_str().filter(|value| value.len() == 64 && value.chars().all(|c| c.is_ascii_hexdigit())).ok_or("Hash do vídeo não informado")?;
+    let path = directory.join(format!("{job_id}-dlc.mp4"));
+    let temporary = directory.join(format!("{job_id}-dlc.mp4.partial"));
+    let result = (|| {
+        let response = client.get(jupyter_url(connection, &format!("files/{remote_output}/dlc_labeled.mp4")))
+            .header("X-Colab-Runtime-Proxy-Token", &connection.token).send().map_err(|_| "Falha de rede ao baixar o vídeo rotulado")?;
+        if !response.status().is_success() { return Err("O runtime recusou o download do vídeo rotulado".into()); }
+        let mut file = File::create(&temporary).map_err(|_| "Não foi possível salvar o vídeo rotulado")?;
+        let received = std::io::copy(&mut response.take(bytes + 1), &mut file).map_err(|_| "Download do vídeo interrompido")?;
+        if received != bytes || crate::video::sha256(&temporary)? != digest { return Err("Integridade do vídeo rotulado não confirmada; arquivo não publicado".into()); }
+        fs::rename(&temporary, &path).map_err(|_| "Não foi possível publicar o vídeo local")?;
+        Ok(path)
+    })();
+    if result.is_err() { let _ = fs::remove_file(&temporary); }
+    result
+}
+
 fn run_analysis(
     app: AppHandle,
     job_id: String,
@@ -1714,6 +1761,10 @@ fn run_analysis(
     arena: Option<AnalysisArena>,
 ) -> CommandResult<()> {
     prepare_tables(&app)?;
+    update_job(&app, &job_id, "running", "authorizing", 2, "Preparando o vídeo local sem reduzir resolução ou FPS")?;
+    let preparation = crate::video::prepare_staged_video(&app, &upload_id, workload.width, workload.height)?;
+    update_job(&app, &job_id, "running", "authorizing", 3, &format!("{} · {} → {} bytes", preparation.message, preparation.original_bytes, preparation.upload_bytes))?;
+    let upload_id = preparation.upload_id;
     let (local_path, original_filename, size, sha256, ready): (
         String,
         String,
@@ -1935,13 +1986,21 @@ fn run_analysis(
                 params![&job_id, result_path.to_string_lossy().as_ref()],
             )
             .map_err(|_| "Não foi possível registrar o resultado do job.".to_string())?;
+        update_job(&app, &job_id, "running", "downloading", 96, "Recebendo o vídeo rotulado pelo DeepLabCut")?;
+        let video_result = download_labeled_video(&refreshed_connection, &format!("{remote_directory}/output"), &result_directory, &job_id);
+        let (video_path, video_error) = match video_result {
+            Ok(path) => (Some(path.to_string_lossy().into_owned()), None),
+            Err(error) => (None, Some(error)),
+        };
+        open_database(&app)?.execute("INSERT OR REPLACE INTO colab_job_artifacts (job_id,labeled_video_path,video_error) VALUES (?1,?2,?3)",
+            params![&job_id, video_path, video_error]).map_err(|_| "Não foi possível registrar o vídeo de resultado")?;
         update_job(
             &app,
             &job_id,
             "succeeded",
             "completed",
             100,
-            "Rastreamento concluído",
+            if video_error.is_none() { "Rastreamento concluído · vídeo do DeepLabCut disponível" } else { "Poses recebidas · vídeo rotulado indisponível; consulte o aviso no editor" },
         )?;
         Ok(())
     })();
@@ -2112,6 +2171,24 @@ pub fn get_colab_job_result(app: AppHandle, job_id: String) -> CommandResult<Str
 }
 
 #[tauri::command]
+pub fn get_colab_job_video(app: AppHandle, job_id: String) -> CommandResult<Value> {
+    validate_local_id(&job_id, "Job")?;
+    prepare_tables(&app)?;
+    let connection = open_database(&app)?;
+    let status: String = connection.query_row("SELECT status FROM colab_jobs WHERE job_id = ?1", [&job_id], |row| row.get(0)).map_err(|_| "Job não encontrado")?;
+    if status != "succeeded" { return Err("O vídeo ainda não está disponível".into()); }
+    let artifact: Option<(Option<String>, Option<String>)> = connection.query_row(
+        "SELECT labeled_video_path,video_error FROM colab_job_artifacts WHERE job_id = ?1", [&job_id], |row| Ok((row.get(0)?, row.get(1)?)))
+        .optional().map_err(|_| "Não foi possível consultar o vídeo local")?;
+    let (mut path, mut error) = artifact.unwrap_or((None, Some("Esta execução não possui vídeo rotulado. Reprocesse no Colab para gerá-lo.".into())));
+    if let Some(candidate) = &path {
+        let expected = app.path().app_data_dir().map_err(|_| "Diretório do app indisponível")?.join("results").join(format!("{job_id}-dlc.mp4"));
+        if Path::new(candidate) != expected || !expected.is_file() { path = None; error = Some("O vídeo de resultado não está mais no dispositivo. Reprocesse no Colab.".into()); }
+    }
+    Ok(json!({"jobId": job_id, "videoPath": path, "videoError": error}))
+}
+
+#[tauri::command]
 pub fn get_latest_colab_job(
     app: AppHandle,
     experiment_id: String,
@@ -2184,7 +2261,7 @@ mod tests {
         background_launch_code, background_poll_code, background_report, execute_with_recovery,
         inference_code, job_events, monitor_background_with, new_uuid_v4, parse_mcp_payload,
         preferred_runtime, preferred_spec, prepare_environment_with, read_sse_reply,
-        record_job_update, resolve_jupyter_workspace, safe_extension, workspace_gpu, AnalysisArena,
+        record_job_update, resolve_jupyter_workspace, safe_extension, workspace_gpu, download_labeled_video, AnalysisArena,
         AnalysisFailure, AnalysisWorkload, ConnectionInfo, McpFailure, Runtime, RuntimeSpec,
         RuntimeSpecKey, MAX_EXECUTION_ATTEMPTS,
     };
@@ -2202,6 +2279,40 @@ mod tests {
         assert_eq!(value.len(), 36);
         assert_eq!(value.as_bytes()[14], b'4');
         assert!(matches!(value.as_bytes()[19], b'8' | b'9' | b'a' | b'b'));
+    }
+
+    #[test]
+    fn labeled_video_is_published_only_after_size_and_sha256_validation() {
+        use sha2::{Digest, Sha256};
+        for correct_digest in [true, false] {
+            let video = b"fake mp4 bytes for transport validation";
+            let sha = if correct_digest { format!("{:x}", Sha256::digest(video)) } else { "0".repeat(64) };
+            let manifest = json!({"available":true,"filename":"dlc_labeled.mp4","source":"deeplabcut_raw_h5","sizeBytes":video.len(),"sha256":sha}).to_string();
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = thread::spawn(move || {
+                for index in 0..2 {
+                    let (mut stream, _) = listener.accept().unwrap();
+                    let mut request = [0; 4096];
+                    let count = stream.read(&mut request).unwrap();
+                    let request = String::from_utf8_lossy(&request[..count]);
+                    assert!(!request.contains("/content/"));
+                    let body = if index == 0 { assert!(request.contains("video_artifact.json")); manifest.as_bytes() }
+                        else { assert!(request.contains("dlc_labeled.mp4")); video.as_slice() };
+                    write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).unwrap();
+                    stream.write_all(body).unwrap();
+                }
+            });
+            let directory = std::env::temp_dir().join(format!("behavetracker-video-download-{}", new_uuid_v4()));
+            std::fs::create_dir_all(&directory).unwrap();
+            let connection = ConnectionInfo { url: format!("http://{address}"), token: "test-proxy-token".into() };
+            let result = download_labeled_video(&connection, "behavetracker/job/output", &directory, "test-job");
+            if correct_digest { assert_eq!(std::fs::read(result.unwrap()).unwrap(), video); }
+            else { assert!(result.is_err()); assert!(!directory.join("test-job-dlc.mp4").exists()); }
+            assert!(!directory.join("test-job-dlc.mp4.partial").exists());
+            server.join().unwrap();
+            std::fs::remove_dir_all(directory).unwrap();
+        }
     }
 
     fn calibrated_arena() -> AnalysisArena {

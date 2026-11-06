@@ -42,8 +42,9 @@ import { useAppStore } from "../../store/AppStore";
 import type { CorrectionEvent, Point, PoseSample, PoseStatus } from "../../types";
 import {
   loadColabResult,
+  loadColabVideo,
   loadColabJobs,
-  stageVideo,
+  prepareVideo,
   startColabJob,
   waitForColabJob,
   type ColabJob,
@@ -140,6 +141,10 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   const [speed, setSpeed] = useState(1);
   const [selectedKeypoint, setSelectedKeypoint] = useState("body_center");
   const [viewMode, setViewMode] = useState<"raw" | "reviewed">("reviewed");
+  const [videoView, setVideoView] = useState<"editor" | "deeplabcut">("editor");
+  const [dlcVideo, setDlcVideo] = useState<{ jobId: string; videoUrl: string | null; videoError: string | null } | null>(null);
+  const [dlcVideoLoading, setDlcVideoLoading] = useState(false);
+  const [dlcPlaybackError, setDlcPlaybackError] = useState(false);
   const [showTrajectory, setShowTrajectory] = useState(true);
   const [csvError, setCsvError] = useState<string | null>(null);
   const [analysisJob, setAnalysisJob] = useState<ColabJob | null>(null);
@@ -150,6 +155,17 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   const [localStartedAt, setLocalStartedAt] = useState<number | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [drag, setDrag] = useState<{ keypoint: string; before: Point; current: Point } | null>(null);
+  const latestSuccessfulJobId = analysisHistory.find((job) => job.status === "succeeded")?.jobId;
+
+  useEffect(() => {
+    if (!latestSuccessfulJobId || !isTauriRuntime()) return;
+    let cancelled = false;
+    setDlcVideo(null); setDlcVideoLoading(true); setDlcPlaybackError(false);
+    void loadColabVideo(latestSuccessfulJobId).then((video) => { if (!cancelled) setDlcVideo(video); })
+      .catch((error) => { if (!cancelled) setDlcVideo({ jobId: latestSuccessfulJobId, videoUrl: null, videoError: typeof error === "string" ? error : "Não foi possível abrir o vídeo do DeepLabCut." }); })
+      .finally(() => { if (!cancelled) setDlcVideoLoading(false); });
+    return () => { cancelled = true; };
+  }, [latestSuccessfulJobId]);
 
   useEffect(() => {
     if (!experiment || trackingData[experimentId]) return;
@@ -281,6 +297,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
+      if (videoView === "deeplabcut") return;
       if ((event.target as HTMLElement)?.matches("input, textarea, select")) return;
       if (event.code === "Space") {
         event.preventDefault();
@@ -406,7 +423,8 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
       return;
     }
     const videoFile = selectedFile ?? asset?.file;
-    if (!videoFile) {
+    let preparation = selectedFile ? undefined : experiment.video.preparation;
+    if (!videoFile && !preparation) {
       setCsvError("Selecione novamente o vídeo original para iniciar o processamento.");
       analysisRequestedRef.current = true;
       videoFileRef.current?.click();
@@ -429,10 +447,12 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
       if (connection.eligibleGpuCount < 1) {
         throw new Error("Sua conta não possui um runtime GPU elegível neste momento.");
       }
-      const uploadId = await stageVideo(experiment.id, videoFile, (_progress, message) => {
-        setAnalysisMessage(message);
-      });
-      const started = await startColabJob(experiment.id, uploadId, {
+      if (!preparation) {
+        preparation = await prepareVideo(experiment.id, videoFile!, experiment.video, (_progress, message) => setAnalysisMessage(message));
+        updateExperiment(experiment.id, { video: { ...experiment.video, preparation } });
+      }
+      setAnalysisMessage(preparation.message);
+      const started = await startColabJob(experiment.id, preparation.uploadId, {
         width: experiment.video.width,
         height: experiment.video.height,
         durationSec: experiment.video.durationSec,
@@ -452,6 +472,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
       updateExperiment(experiment.id, {
         status: "review",
         analysisMethodVersion: "oft-0.2",
+        video: { ...experiment.video, preparation },
         referencePoint: samples.some((sample) => sample.keypoint === "body_center")
           ? "body_center"
           : samples[0].keypoint,
@@ -477,6 +498,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     ? analysisHistory.find((job) => job.jobId === selectedJobId) ?? currentJob
     : currentJob;
   const analysisBusy = analysisStarting || currentJob?.status === "running" || currentJob?.status === "queued";
+  const editorLocked = viewMode === "raw" || videoView === "deeplabcut";
   const elapsedSec = visibleJob ? jobElapsedSeconds(visibleJob, jobClock)
     : localStartedAt ? Math.max(0, (jobClock - localStartedAt) / 1000) : 0;
 
@@ -537,6 +559,11 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
         <div className="editor-workspace">
           <section className="video-column">
             <div className="video-toolbar">
+              <div className="segmented-control video-source-tabs" aria-label="Fonte do vídeo">
+                <button className={videoView === "editor" ? "active" : ""} onClick={() => { setPlaying(false); setVideoView("editor"); }}>Editor</button>
+                <button className={videoView === "deeplabcut" ? "active" : ""} onClick={() => { setPlaying(false); setVideoView("deeplabcut"); }}>Vídeo do DeepLabCut</button>
+              </div>
+              {videoView === "editor" && <>
               <div className="segmented-control">
                 <button className={viewMode === "reviewed" ? "active" : ""} onClick={() => setViewMode("reviewed")}>Revisado</button>
                 <button className={viewMode === "raw" ? "active" : ""} onClick={() => setViewMode("raw")}>Bruto</button>
@@ -544,8 +571,16 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
               <div className="toolbar-spacer" />
               <button className={cn("tool-toggle", showTrajectory && "active")} onClick={() => setShowTrajectory((current) => !current)}>{showTrajectory ? <Eye size={16} /> : <EyeOff size={16} />} Trajetória</button>
               <Button variant="secondary" size="sm" icon={<SkipForward size={15} />} onClick={nextIssue}>Próximo problema</Button>
+              </>}
             </div>
 
+            {videoView === "deeplabcut" ? <section className="dlc-video-panel" aria-label="Vídeo rotulado pelo DeepLabCut">
+              <div className="dlc-video-description"><strong>Saída bruta do DeepLabCut · sem correções do editor</strong><p>Todos os pontos do modelo com score ≥ 0,10. Não inclui a recuperação visual nem suas intervenções manuais. A compressão desta prévia é apenas para reprodução e não altera as poses.</p></div>
+              {dlcVideoLoading ? <p role="status">Carregando vídeo salvo no dispositivo…</p> : dlcVideo?.videoUrl ? <>
+                <video key={dlcVideo.jobId} src={dlcVideo.videoUrl} controls playsInline preload="metadata" onError={() => setDlcPlaybackError(true)} />
+                {dlcPlaybackError && <p role="alert">O player não conseguiu reproduzir este MP4. O arquivo continua salvo no dispositivo.</p>}
+              </> : <div className="dlc-video-unavailable"><p>{dlcVideo?.videoError ?? "Este experimento ainda não possui vídeo do DeepLabCut. Faça uma análise no Colab para gerá-lo."}</p><Button className="analyze-button" disabled={analysisBusy} onClick={() => void runColabAnalysis()}>Gerar vídeo no Colab</Button></div>}
+            </section> : <>
             <div className="video-stage">
               {asset?.objectUrl && (
                 <video
@@ -553,6 +588,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
                   src={asset.objectUrl}
                   muted
                   playsInline
+                  onLoadedMetadata={(event) => { event.currentTarget.currentTime = currentTime; }}
                   onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
                   onPlay={() => setPlaying(true)}
                   onPause={() => setPlaying(false)}
@@ -648,9 +684,16 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
               </div>
               <div className="timeline-times"><span>0:00</span><span>{formatDuration(duration * 0.25)}</span><span>{formatDuration(duration * 0.5)}</span><span>{formatDuration(duration * 0.75)}</span><span>{formatDuration(duration)}</span></div>
             </div>
+            </>}
           </section>
 
-          <aside className="inspector-panel">
+          <aside className="inspector-panel" data-mode={videoView}>
+            {videoView === "deeplabcut" && <section className="inspector-section dlc-inspector-note">
+              <div className="inspector-label">Inspeção da saída do Colab</div>
+              <p>Este player mostra os pontos do H5 bruto desenhados pelo DeepLabCut. Use os controles do vídeo para reproduzir, pausar e ampliar.</p>
+              <p>As métricas e correções pertencem ao editor. Nenhuma correção manual é aplicada a este MP4.</p>
+              <Button variant="secondary" size="sm" onClick={() => setVideoView("editor")}>Voltar para edição</Button>
+            </section>}
             <div className="inspector-tabs"><button className="active"><MousePointer2 size={15} /> Correção</button><button><History size={15} /> Histórico</button></div>
             <section className="inspector-section">
               <div className="inspector-label">Ponto selecionado</div>
@@ -663,14 +706,14 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
             </section>
             <section className="inspector-section correction-actions">
               <div className="inspector-label">Ações no frame {currentFrame}</div>
-              <Button variant="secondary" icon={<MousePointer2 size={16} />} disabled={viewMode === "raw"}>Arraste o ponto no vídeo</Button>
-              <Button variant="secondary" icon={<Flag size={16} />} onClick={markMissing} disabled={!selectedPoint || viewMode === "raw"}>Marcar como ausente</Button>
-              <Button variant="secondary" onClick={() => { setPlaying(false); setPlacingPoint((current) => !current); }} disabled={viewMode === "raw"}>{placingPoint ? "Cancelar posicionamento" : "Posicionar ponto ausente"}</Button>
-              <Button variant="secondary" onClick={confirmPoint} disabled={viewMode === "raw" || !drawablePose(selectedPoint) || selectedPoint?.source === "predicted"}>Confirmar ponto após revisar</Button>
-              <div className="undo-row"><Button variant="ghost" size="sm" icon={<Undo2 size={15} />} onClick={undo} disabled={!activeEvents.length}>Desfazer</Button><Button variant="ghost" size="sm" icon={<Redo2 size={15} />} disabled>Refazer</Button></div>
+              <Button variant="secondary" icon={<MousePointer2 size={16} />} disabled={editorLocked}>Arraste o ponto no vídeo</Button>
+              <Button variant="secondary" icon={<Flag size={16} />} onClick={markMissing} disabled={!selectedPoint || editorLocked}>Marcar como ausente</Button>
+              <Button variant="secondary" onClick={() => { setPlaying(false); setPlacingPoint((current) => !current); }} disabled={editorLocked}>{placingPoint ? "Cancelar posicionamento" : "Posicionar ponto ausente"}</Button>
+              <Button variant="secondary" onClick={confirmPoint} disabled={editorLocked || !drawablePose(selectedPoint) || selectedPoint?.source === "predicted"}>Confirmar ponto após revisar</Button>
+              <div className="undo-row"><Button variant="ghost" size="sm" icon={<Undo2 size={15} />} onClick={undo} disabled={!activeEvents.length || editorLocked}>Desfazer</Button><Button variant="ghost" size="sm" icon={<Redo2 size={15} />} disabled>Refazer</Button></div>
             </section>
             <BehaviorReview experiment={experiment} samples={correctedSamples} currentTime={currentTime} duration={duration}
-              disabled={viewMode === "raw"} onSeek={(time) => { setPlaying(false); setTime(time); }}
+              disabled={editorLocked} onSeek={(time) => { setVideoView("editor"); setPlaying(false); setTime(time); }}
               onChange={(patch) => updateExperiment(experiment.id, patch)} />
             <section className="inspector-section frame-quality">
               <div className="inspector-label">Qualidade: {keypointLabels[referenceKeypoint] ?? referenceKeypoint}</div>

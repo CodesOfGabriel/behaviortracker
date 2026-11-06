@@ -5,9 +5,11 @@ Aplicação desktop para preparar, revisar e documentar análises comportamentai
 ## O que já funciona
 
 - criação do experimento e importação local de vídeo;
+- compactação local sem perda, comparação de pixels/tempos e reutilização da cópia preparada;
 - captura de frame e seleção separada dos quatro vértices da borda superior e dos quatro vértices do chão;
 - importação de pose em CSV canônico;
 - execução remota do SuperAnimal TopViewMouse em runtime GPU elegível do Colab;
+- vídeo rotulado pelo DeepLabCut, salvo localmente e reproduzido em uma aba separada do editor;
 - upload em blocos, verificação SHA-256, progresso persistido e importação automática do resultado;
 - fluxograma horizontal com checkpoints, GPU confirmada pelo runtime e diário persistido de cada execução;
 - editor com overlay, timeline de qualidade e correção por arraste;
@@ -34,6 +36,18 @@ Essa separação evita depender de uma chamada HTTP longa para concluir o modelo
 O checkpoint mostra a contagem de frames e a porcentagem do **lote atual**, quando disponíveis no log do SuperAnimal. O detector pode chegar a 100% antes da próxima fase; isso não conclui a análise. O app só baixa o resultado depois de o worker terminar com sucesso. **Ver log técnico** carrega o último estado consultado, os 16 KiB finais da saída por tarefa e o traceback de falhas, salvos no dispositivo; os arquivos completos permanecem na pasta do job no runtime enquanto ela existir. Avisos de configuração permanecem no log, separados da mensagem da exceção.
 
 Interrupções da resposta MCP e deadlines tentam se reanexar à mesma consulta e ao mesmo `executionId`, sem criar um novo job. A resposta em streaming é encerrada no resultado final, sem aguardar o fechamento da conexão HTTP. Se todas as tentativas falharem, o app informa que o resultado não foi confirmado e preserva a sessão remota, que pode continuar executando. Isso não impede o Colab de encerrar ou substituir o runtime, não persiste dependências entre máquinas e não contorna limites do provedor. Os tokens são renovados durante o acompanhamento e antes do download.
+
+## Preparar o vídeo e conferir a saída do Colab
+
+Ao selecionar um vídeo no app desktop, o BehaveTracker prepara uma cópia local com FFmpeg, antes do envio. A política `lossless-upload-1` usa H.264 sem perda (`libx264`, CRF 0), sem redimensionar nem descartar frames, remover detalhes por compressão com perda ou converter o formato de pixel. Áudio não necessário ao tracking é removido somente da cópia. O arquivo escolhido permanece intacto. O app só aceita a cópia se ela for menor, mantiver os metadados visuais e passar pela comparação SHA-256 dos pixels decodificados de **cada frame**, com mesma contagem e timestamps relativos dentro de 1 ms. Isso valida a equivalência da imagem, não a acurácia do modelo.
+
+Se a cópia ficar maior, o formato/rotação não for compatível, a verificação divergir ou FFmpeg/ffprobe não estiverem disponíveis, o app mantém o original e explica o motivo. Não existe redução garantida para um vídeo já bem comprimido. A [documentação do DeepLabCut](https://github.com/DeepLabCut/DeepLabCut/blob/main/docs/recipes/io.md) descreve re-encoding e redução de resolução; este app deliberadamente não reduz resolução/FPS automaticamente, para preservar os detalhes de animais parcialmente visíveis. Arquivo menor reduz transferência/armazenamento, mas não promete acelerar a inferência quando o número e o tamanho dos frames são iguais.
+
+FFmpeg e ffprobe devem estar no PATH, em `/opt/homebrew/bin`, em `/usr/local/bin`, ou ser indicados por `BEHAVETRACKER_FFMPEG` / `BEHAVETRACKER_FFPROBE`. Os executáveis não estão empacotados neste protótipo. A comparação completa pode levar tempo; ela ocorre localmente e não instala modelos. A cópia validada fica em cache e é reutilizada ao analisar, inclusive após reabrir o app enquanto o cache existir. Se o cache for removido, selecione novamente o original. A prévia web não compacta arquivos.
+
+Após a análise, o runtime usa o [renderizador do DeepLabCut](https://github.com/DeepLabCut/DeepLabCut/blob/main/deeplabcut/utils/make_labeled_video.py) com o H5 bruto e score de visualização ≥ 0,10. Borda/chão e offset do recorte são respeitados, mantendo a resolução original. Essa saída mostra os pontos do modelo, **sem as correções humanas nem a segunda passagem de recuperação**. O MP4 de reprodução é codificado em H.264/yuv420p com CRF 18; essa compressão afeta apenas a prévia e não as poses utilizadas para análise.
+
+O arquivo retornado só é publicado localmente após conferir tamanho e SHA-256. Abra **Vídeo do DeepLabCut** na barra do editor para reproduzi-lo com controles nativos. Volte para **Editor** para revisar/corrigir. O vídeo fica no diretório `results` do app, acessível ao player pelo protocolo de arquivos limitado a `results/*.mp4`, sem carregar o arquivo inteiro no JavaScript. Falhas de renderização/download preservam as poses e exibem aviso. Execuções antigas não possuem esse artefato: use **Reprocessar no Colab**. A integração real no Colab ainda precisa ser validada; os testes locais usam vídeos sintéticos e contratos falsos do modelo.
 
 ## Borda, chão e visibilidade parcial
 
@@ -99,7 +113,7 @@ Para processar um vídeo:
 
 1. Crie o experimento, selecione o vídeo e confirme separadamente a borda superior e o chão da arena.
 2. No editor, clique em **Analisar no Colab**.
-3. Se o projeto foi reaberto, selecione novamente o vídeo original quando solicitado; o navegador não persiste objetos `File`.
+3. A cópia preparada é reutilizada enquanto estiver no cache. Se o cache não existir, selecione novamente o vídeo original quando solicitado.
 4. Aguarde os estágios de runtime, upload, instalação, inferência e download. Ao terminar, o CSV é importado automaticamente e fica salvo no diretório de dados do app.
 
 A primeira execução pode demorar porque o runtime instala o DeepLabCut e baixa os pesos do modelo. Mantenha o aplicativo aberto para receber o resultado: fechar o app encerra o acompanhamento local, mas um worker já iniciado pode continuar no Colab. Ao reabrir, o job fica marcado como não confirmado/falho, sem retomada automática. Verifique o runtime antes de iniciar outra análise para não duplicar processamento.

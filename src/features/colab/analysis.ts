@@ -1,5 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
-import type { ArenaConfig } from "../../types";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import type { ArenaConfig, VideoPreparation } from "../../types";
 
 const STAGING_CHUNK_SIZE = 4 * 1024 * 1024;
 
@@ -68,6 +68,21 @@ export function startColabJob(experimentId: string, uploadId: string,
   return invoke<ColabJob>("start_colab_analysis", {
     request: { experimentId, uploadId, workload, arena: { ...arena, videoWidth: workload.width, videoHeight: workload.height } },
   });
+}
+
+export async function prepareVideo(experimentId: string, file: File, metadata: { width: number; height: number },
+  onProgress: (progress: number, message: string) => void): Promise<VideoPreparation> {
+  const uploadId = await stageVideo(experimentId, file, onProgress);
+  onProgress(0, "Compactando sem perda e verificando os frames · o original permanece intacto");
+  const result = await invoke<VideoPreparation>("prepare_analysis_video", { uploadId, width: metadata.width, height: metadata.height });
+  onProgress(100, result.message);
+  return result;
+}
+
+export type ColabVideoArtifact = { jobId: string; videoPath: string | null; videoError: string | null };
+export async function loadColabVideo(jobId: string) {
+  const artifact = await invoke<ColabVideoArtifact>("get_colab_job_video", { jobId });
+  return { ...artifact, videoUrl: artifact.videoPath ? convertFileSrc(artifact.videoPath) : null };
 }
 
 export function loadColabJob(jobId: string) {

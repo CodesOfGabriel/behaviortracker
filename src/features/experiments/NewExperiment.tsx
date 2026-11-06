@@ -21,6 +21,8 @@ import { centerPolygonPx, pointsToSvg, validateArenaRegions } from "../../lib/ge
 import { formatBytes, formatDuration } from "../../lib/format";
 import { useAppStore } from "../../store/AppStore";
 import type { ArenaConfig, Experiment, Point, VideoAsset, VideoMetadata } from "../../types";
+import { prepareVideo } from "../colab/analysis";
+import { isTauriRuntime } from "../colab/connection";
 
 const STEPS = [
   { label: "Experimento", helper: "Protocolo e sujeito" },
@@ -236,6 +238,7 @@ function ArenaPreview({
 
 export function NewExperiment() {
   const { navigate, saveExperiment } = useAppStore();
+  const [draftId] = useState(() => crypto.randomUUID());
   const [step, setStep] = useState(0);
   const [title, setTitle] = useState("");
   const [subjectId, setSubjectId] = useState("");
@@ -249,6 +252,7 @@ export function NewExperiment() {
   const [videoError, setVideoError] = useState<string | null>(null);
   const [frameError, setFrameError] = useState<string | null>(null);
   const [loadingVideo, setLoadingVideo] = useState(false);
+  const [preparationMessage, setPreparationMessage] = useState("");
   const [capturingFrame, setCapturingFrame] = useState(false);
   const [frameCandidateSec, setFrameCandidateSec] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -259,7 +263,7 @@ export function NewExperiment() {
   );
 
   const regionsConfirmed = confirmedRegions.rim && confirmedRegions.floor;
-  const canContinue = [Boolean(subjectId.trim()), Boolean(video), !arenaError && regionsConfirmed, true][step];
+  const canContinue = !loadingVideo && [Boolean(subjectId.trim()), Boolean(video), !arenaError && regionsConfirmed, true][step];
 
   const changeRegion = (layer: ArenaLayer, corners: ArenaConfig["cornersPx"]) => {
     setArena((current) => ({ ...current, [layer === "rim" ? "rimCornersPx" : "cornersPx"]: corners }));
@@ -267,6 +271,8 @@ export function NewExperiment() {
   };
 
   const loadDemo = () => {
+    if (loadingVideo) return;
+    setPreparationMessage("");
     setVideo({
       filename: "arena_demo_sintetica.mp4",
       sizeBytes: 0,
@@ -287,8 +293,9 @@ export function NewExperiment() {
 
   const handleVideo = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file || loadingVideo) return;
     setLoadingVideo(true);
+    setPreparationMessage("Lendo vídeo e capturando o frame de calibração…");
     setVideoError(null);
     setFrameError(null);
     const objectUrl = URL.createObjectURL(file);
@@ -309,6 +316,9 @@ export function NewExperiment() {
         calibrationFrameSec: captured.timeSec,
         lastModified: file.lastModified,
       };
+      if (isTauriRuntime()) {
+        metadata.preparation = await prepareVideo(draftId, file, metadata, (_progress, message) => setPreparationMessage(message));
+      } else setPreparationMessage("A compactação local está disponível no aplicativo desktop. A prévia web mantém o original.");
       if (asset.objectUrl) URL.revokeObjectURL(asset.objectUrl);
       setVideo(metadata);
       setAsset({ objectUrl, frameDataUrl: captured.frameDataUrl, frameTimeSec: captured.timeSec, file });
@@ -347,7 +357,7 @@ export function NewExperiment() {
   const createExperiment = () => {
     if (!video || arenaError || !regionsConfirmed) return;
     const now = new Date().toISOString();
-    const id = crypto.randomUUID();
+    const id = draftId;
     const experiment: Experiment = {
       id,
       schemaVersion: "1.0",
@@ -417,7 +427,7 @@ export function NewExperiment() {
               {!video ? (
                 <div className="video-dropzone" onClick={() => fileRef.current?.click()}>
                   <div className="upload-icon"><UploadCloud size={27} /></div>
-                  <h3>{loadingVideo ? "Lendo metadados…" : "Selecione um vídeo"}</h3>
+                  <h3>{loadingVideo ? "Preparando vídeo…" : "Selecione um vídeo"}</h3>
                   <p>MP4, MOV ou AVI · o arquivo permanece no dispositivo</p>
                   <Button type="button" variant="secondary" loading={loadingVideo} icon={<FileVideo2 size={17} />}>Escolher arquivo</Button>
                   <button className="demo-link" type="button" onClick={(event) => { event.stopPropagation(); loadDemo(); }}>ou usar uma arena sintética</button>
@@ -428,10 +438,11 @@ export function NewExperiment() {
                     {asset.frameDataUrl ? <img src={asset.frameDataUrl} alt="Frame extraído do vídeo" /> : <div className="synthetic-preview"><span /></div>}
                     <div className="video-play-badge"><Play size={16} fill="currentColor" /></div>
                   </div>
-                  <div className="video-file-info"><Badge tone="success" dot>Arquivo lido</Badge><h3>{video.filename}</h3><p>{formatBytes(video.sizeBytes)} · {formatDuration(video.durationSec)} · {video.width} × {video.height}</p><small>FPS e timestamps precisos serão confirmados pelo ffprobe no backend desktop.</small></div>
-                  <Button variant="secondary" size="sm" onClick={() => fileRef.current?.click()}>Trocar</Button>
+                  <div className="video-file-info"><Badge tone="success" dot>Arquivo lido</Badge><h3>{video.filename}</h3><p>{formatBytes(video.sizeBytes)} · {formatDuration(video.durationSec)} · {video.width} × {video.height}</p><small>Resolução e frames preservados; não reduzimos automaticamente a imagem do animal.</small></div>
+                  <Button variant="secondary" size="sm" disabled={loadingVideo} onClick={() => fileRef.current?.click()}>Trocar</Button>
                 </div>
               )}
+              {preparationMessage && <div className="video-preparation-note" role="status"><Info size={16} /><div><strong>{loadingVideo ? "Preparação local em andamento" : video?.preparation?.status === "optimized" ? "Vídeo otimizado sem perda" : "Qualidade original preservada"}</strong><p>{preparationMessage}</p>{video?.preparation && <small>Original: {formatBytes(video.preparation.originalBytes)} · envio: {formatBytes(video.preparation.uploadBytes)} · sem reduzir resolução/FPS</small>}</div></div>}
               {videoError && <div className="form-error">{videoError}</div>}
               <div className="privacy-note"><Info size={16} /><span>O frame foi extraído apenas para a calibração. Ao reabrir o projeto, o app solicitará o arquivo se o caminho não estiver mais disponível.</span></div>
             </div>

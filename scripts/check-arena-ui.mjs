@@ -119,6 +119,13 @@ try {
   assert.notDeepEqual(experiment.arena.cornersPx, experiment.arena.rimCornersPx);
   assert.equal(experiment.subjectId, "ARENA_UI_TEST");
   assert.ok(await evaluate(`!!document.querySelector('.tracking-overlay polygon[stroke="#bb9aff"]')`));
+  await click("Vídeo do DeepLabCut");
+  await waitFor(`!!document.querySelector('.dlc-video-panel')`);
+  assert.ok(await evaluate(`!document.querySelector('.tracking-overlay')`), "O vídeo bruto do DLC não pode mostrar correções do editor");
+  assert.ok(await evaluate(`document.querySelector('.dlc-video-panel').textContent.includes('sem correções do editor')`));
+  assert.ok(await evaluate(`${button("Confirmar ponto após revisar")}.disabled`));
+  await click("Editor");
+  await waitFor(`!!document.querySelector('.tracking-overlay')`);
   await waitFor(`!!document.querySelector('.behavior-review')`);
   // Episódios precisos, erros de intervalo e undo auditável, sem contas externas.
   await click("Confirmar episódio");
@@ -152,8 +159,45 @@ try {
   assert.ok(await evaluate(`document.querySelector('.behavior-results').textContent.includes('Revisão parcial')`));
   const resultsScreen = await command("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
   await writeFile(join(directory, "behavior-results.png"), Buffer.from(resultsScreen.data, "base64"));
+  // MP4 real para testar o player; todas as chamadas nativas abaixo são falsas.
+  const clipPath = join(directory, "playback-fixture.mp4");
+  const encoder = spawn(process.env.BEHAVETRACKER_FFMPEG ?? "/usr/local/bin/ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=size=160x120:rate=24", "-t", "1", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", clipPath], { stdio: "ignore" });
+  await new Promise((resolve, reject) => { encoder.once("error", reject); encoder.once("exit", (code) => code === 0 ? resolve() : reject(new Error(`FFmpeg fixture: ${code}`))); });
+  const clipBase64 = (await readFile(clipPath)).toString("base64");
+  await command("Page.addScriptToEvaluateOnNewDocument", { source: `(() => {
+    const saved = JSON.parse(localStorage.getItem('behavetracker.experiments.v1'))[0];
+    saved.video.timingSource = 'browser-estimate'; saved.video.durationSec = 1; saved.corrections = [];
+    localStorage.setItem('behavetracker.experiments.v1', JSON.stringify([saved]));
+    const url = URL.createObjectURL(new Blob([Uint8Array.from(atob(${JSON.stringify(clipBase64)}), c => c.charCodeAt(0))], {type:'video/mp4'}));
+    const job = {jobId:'local-video-fixture',experimentId:saved.id,status:'succeeded',stage:'completed',progress:100,message:'Fixture',runtimeName:null,error:null,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),events:[]};
+    window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {unregisterListener: () => {}};
+    window.__TAURI_INTERNALS__ = {
+      transformCallback: () => 1, unregisterCallback: () => {}, convertFileSrc: () => url,
+      invoke: async (name) => {
+        if (name.startsWith('plugin:event|')) return 1;
+        if (name === 'get_google_oauth_config') return {connected:false,eligibleGpuCount:0,providerError:null};
+        if (name === 'list_colab_jobs') return [job];
+        if (name === 'get_colab_job_video') return {jobId:job.jobId,videoPath:'/fake/results/dlc.mp4',videoError:null};
+        if (name === 'get_colab_job_result') return 'frame_index,timestamp_sec,keypoint,x_px,y_px,likelihood,status\\n0,0,body_center,400,400,.9,valid\\n1,.041667,body_center,401,400,.9,valid';
+        throw new Error('Chamada nativa inesperada: ' + name);
+      }
+    };
+  })();` });
+  await command("Page.reload");
+  await waitFor(`!!document.querySelector('.experiment-row')`);
+  await evaluate(`document.querySelector('.experiment-row').click()`);
+  await waitFor(`!!document.querySelector('.tracking-overlay')`);
+  await click("Vídeo do DeepLabCut");
+  await waitFor(`document.querySelector('.dlc-video-panel video')?.readyState >= 2`);
+  assert.equal(await evaluate(`document.querySelector('.dlc-video-panel video').videoWidth`), 160);
+  await evaluate(`(() => { const video = document.querySelector('.dlc-video-panel video'); video.muted = true; return video.play(); })()`);
+  await waitFor(`document.querySelector('.dlc-video-panel video').currentTime > .1`);
+  await evaluate(`document.querySelector('.dlc-video-panel video').pause()`);
+  assert.ok(await evaluate(`!document.querySelector('.tracking-overlay')`));
+  const videoScreen = await command("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
+  await writeFile(join(directory, "dlc-video-playback.png"), Buffer.from(videoScreen.data, "base64"));
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ dualSelection: "passed", confirmation: "passed", pointerAndKeyboard: "passed", persistence: "passed", desktopAndMobile: "passed", behaviorIntervalsUndoAndResults: "passed", directory }));
+  console.log(JSON.stringify({ dualSelection: "passed", confirmation: "passed", pointerAndKeyboard: "passed", persistence: "passed", desktopAndMobile: "passed", behaviorIntervalsUndoAndResults: "passed", separateDlcVideoView: "passed", realMp4PlaybackWithMockNativeBridge: "passed", directory }));
 } finally {
   if (ws?.readyState === WebSocket.OPEN) {
     await command("Browser.close").catch(() => {});

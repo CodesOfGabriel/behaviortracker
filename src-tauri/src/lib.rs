@@ -1,5 +1,6 @@
 mod colab;
 mod oauth;
+mod video;
 
 #[derive(serde::Serialize)]
 struct AppInfo {
@@ -13,7 +14,7 @@ fn app_info() -> AppInfo {
     AppInfo {
         app_version: env!("CARGO_PKG_VERSION"),
         schema_version: "1.0",
-        analysis_method_version: "oft-0.1",
+        analysis_method_version: "oft-0.2",
     }
 }
 
@@ -37,10 +38,12 @@ pub fn run() {
             colab::begin_video_staging,
             colab::append_video_staging_chunk,
             colab::finish_video_staging,
+            video::prepare_analysis_video,
             colab::start_colab_analysis,
             colab::get_colab_job,
             colab::get_colab_job_log,
             colab::get_colab_job_result,
+            colab::get_colab_job_video,
             colab::get_latest_colab_job,
             colab::list_colab_jobs
         ])

@@ -86,6 +86,10 @@ def snapshot(directory, task):
     if recovery and (not matches or recovery[-1].start() > matches[-1].start()):
         current, total = recovery[-1].groups()
         report["progressText"] = f"Recuperação visual: {current}/{total} frames verificados"
+    video_phase = list(re.finditer(r"BEHAVETRACKER_VIDEO_PHASE=([^\r\n]+)", clean))
+    last_progress = max(matches[-1].start() if matches else -1, recovery[-1].start() if recovery else -1)
+    if video_phase and video_phase[-1].start() > last_progress:
+        report["progressText"] = video_phase[-1].group(1)
     return report
 
 

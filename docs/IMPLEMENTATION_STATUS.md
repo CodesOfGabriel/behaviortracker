@@ -5,6 +5,7 @@
 - [x] React + TypeScript + Vite + Tailwind CSS, preparado para Tauri 2.
 - [x] Dashboard local e fluxo de criação de experimento OFT.
 - [x] Leitura de metadados de vídeo no frontend e captura de frame de referência.
+- [x] Compactação local sem perda com FFmpeg/ffprobe, comparação de pixels e timestamps por frame, fallback explícito para original e cache da preparação por upload.
 - [x] Marcação e confirmação separadas dos quatro vértices da borda e dos quatro vértices do chão; arraste e teclado em coordenadas da resolução original.
 - [x] Validação de quadrilátero e visualização da região central por fração da área.
 - [x] Importação do CSV canônico de pose.
@@ -38,11 +39,12 @@
 - [x] Segunda passagem visual com ROI temporal, pose runner reutilizado, procedência e dados originais no CSV; partes ocultas não são interpoladas.
 - [x] Método `oft-0.2`: exclusão de baixa confiança/saltos/recuperações não confirmadas; intervalos inválidos ou longos são desconhecidos, não tempo de ocupação.
 - [x] Persistência do CSV retornado no diretório de dados e restauração ao reabrir o experimento.
+- [x] Renderização do H5 bruto pelo DeepLabCut, MP4 compatível com o player, validação SHA-256 no download e aba de reprodução sem intervenções do editor.
 
 ## Implementado como protótipo, ainda não validado para uso científico
 
 - Experimentos ainda usam `localStorage`; a configuração e a sessão Google OAuth usam SQLite. O produto final deve migrar os projetos para SQLite e arquivos versionados.
-- A captura de frame usa o decoder do WebView; o backend deve integrar ffprobe/FFmpeg, PTS real, VFR e rotação.
+- A captura de frame usa o decoder do WebView. A preparação local integra FFmpeg/ffprobe e compara PTS relativos, mas a análise remota ainda usa frame/FPS; VFR e normalização completa de rotação precisam de integração própria.
 - O CSV é deliberadamente simples e não suporta campos com vírgula arbitrária nem HDF5 do DeepLabCut.
 - O conjunto sintético demonstra a interface, mas nunca deve ser usado como resultado experimental.
 - As metas de desempenho com vídeo 1080p/30 FPS ainda precisam de benchmark.
@@ -52,11 +54,13 @@
 - O fluxo Colab compila e possui testes locais de contrato, mas ainda precisa completar o gate P0 com um vídeo real e evidências sanitizadas da conta alvo.
 - A continuidade do worker após encerramento/KeyboardInterrupt da célula de lançamento foi testada localmente com tarefas sintéticas. Falta confirmar esse comportamento no runtime Colab real; substituição da máquina e políticas do provedor continuam podendo encerrar processos. Fechar e reabrir o app não retoma o acompanhamento automaticamente.
 - A primeira execução em um runtime sem ambiente compatível prepara o DeepLabCut e pode demorar; instalações válidas são reutilizadas. O ranking de GPU é heurístico e ainda não tem benchmark por acelerador. Não há compra automática de recursos.
+- A compactação sem perda foi testada localmente com FFmpeg real e vídeo sintético. Ela pode não reduzir vídeos já comprimidos; não há redução automática de resolução/FPS nem promessa de ganho de velocidade na GPU. FFmpeg ainda não é empacotado.
+- O renderizador de vídeo rotulado foi testado por contrato, sem executar DeepLabCut no Colab. O transporte possui testes HTTP locais de integridade; falta validar a renderização e reprodução com uma execução real na conta alvo.
 
 ## Ainda não implementado
 
 - [ ] Persistência SQLite dos experimentos, migrations versionadas e recuperação após crash.
-- [ ] ffprobe/FFmpeg no Rust, checksum SHA-256 e indexação de PTS.
+- [ ] Indexação completa de PTS e uso de timestamps reais/VFR na análise e no player científico.
 - [ ] Interpolação assistida com prévia e confirmação.
 - [ ] Importador HDF5/CSV nativo do DeepLabCut e adapters versionados.
 - [ ] Heatmap ponderado por duração e pacote ZIP completo com proveniência/checksums.
