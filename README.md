@@ -9,6 +9,7 @@ Aplicação desktop para preparar, revisar e documentar análises comportamentai
 - importação de pose em CSV canônico;
 - execução remota do SuperAnimal TopViewMouse em runtime GPU elegível do Colab;
 - upload em blocos, verificação SHA-256, progresso persistido e importação automática do resultado;
+- fluxograma horizontal com checkpoints, GPU confirmada pelo runtime e diário persistido de cada execução;
 - editor com overlay, timeline de qualidade e correção por arraste;
 - preservação do tracking bruto e eventos de revisão;
 - métricas OFT locais e exportações CSV/JSON;
@@ -17,6 +18,8 @@ Aplicação desktop para preparar, revisar e documentar análises comportamentai
 A tela Google Colab permite configurar o Client ID por perfil local, autorizar a Conta Google com OAuth 2.0 + PKCE e consultar assinatura/runtimes elegíveis. A configuração e a autorização ficam no SQLite do diretório de dados do app. Segredos e tokens não são devolvidos à interface nem devem ser versionados. O Keychain só é consultado pelo botão **Recuperar conexão anterior**, para importar credenciais de instalações antigas.
 
 No editor de um experimento real, **Analisar no Colab** cria ou reutiliza um runtime GPU elegível, transfere o vídeo pela API Jupyter, executa o DeepLabCut e importa o CSV canônico. O fluxo está implementado, mas a prova P0 com uma conta e um vídeo reais ainda deve ser registrada antes de tratá-lo como validado. O app não promete GPU gratuita e não contorna cotas, billing ou regras do provedor.
+
+Antes do upload, o app cria uma pasta identificada na sessão Python e confirma que ela está acessível pela API Jupyter. Isso trata a diferença entre o caminho absoluto `/content/...` e os caminhos relativos à raiz do servidor Jupyter. O fluxo mostra preparação, GPU, envio, integridade do vídeo, instalação do modelo, inferência e recebimento do resultado. Falhas preservam o checkpoint e os eventos anteriores; registros de análises antigas podem não conter esse detalhamento.
 
 ## Rodar localmente
 

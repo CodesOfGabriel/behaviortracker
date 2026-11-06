@@ -22,6 +22,8 @@
 - [x] Job Colab persistido no SQLite, com progresso, falha terminal e recuperação de jobs interrompidos.
 - [x] Criação/reuso de runtime GPU elegível e acompanhamento da operação de criação.
 - [x] Upload local e remoto do vídeo em blocos, com validação SHA-256 dentro do runtime.
+- [x] Pasta de trabalho confirmada entre a sessão Python e a raiz da API Jupyter antes do upload; testes locais com raízes `/` e `/content`.
+- [x] Fluxograma horizontal com GPU reportada por `nvidia-smi`, checkpoints persistidos e diário por execução; a falha mantém a etapa original.
 - [x] Execução remota resumível via MCP, instalação do DeepLabCut e SuperAnimal TopViewMouse.
 - [x] Conversão do H5 do DeepLabCut para CSV canônico e importação automática no editor.
 - [x] Persistência do CSV retornado no diretório de dados e restauração ao reabrir o experimento.

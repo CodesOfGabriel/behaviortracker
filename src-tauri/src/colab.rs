@@ -9,7 +9,7 @@ use std::{
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use rand::RngCore;
 use reqwest::blocking::{Client, Response};
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -45,6 +45,18 @@ pub struct ColabJob {
     error: Option<String>,
     created_at: String,
     updated_at: String,
+    events: Vec<ColabJobEvent>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ColabJobEvent {
+    id: i64,
+    stage: String,
+    status: String,
+    progress: i64,
+    message: String,
+    created_at: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -177,7 +189,17 @@ fn prepare_tables(app: &AppHandle) -> CommandResult<()> {
                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
              );
              CREATE INDEX IF NOT EXISTS idx_colab_jobs_experiment
-               ON colab_jobs(experiment_id, created_at);",
+               ON colab_jobs(experiment_id, created_at);
+             CREATE TABLE IF NOT EXISTS colab_job_events (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               job_id TEXT NOT NULL REFERENCES colab_jobs(job_id),
+               stage TEXT NOT NULL,
+               status TEXT NOT NULL,
+               progress INTEGER NOT NULL,
+               message TEXT NOT NULL,
+               created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+             );
+             CREATE INDEX IF NOT EXISTS idx_colab_events_job ON colab_job_events(job_id, id);",
         )
         .map_err(|_| "Não foi possível preparar o armazenamento dos jobs Colab.".to_string())?;
     Ok(())
@@ -350,11 +372,13 @@ fn row_to_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<ColabJob> {
         error: row.get(7)?,
         created_at: row.get(8)?,
         updated_at: row.get(9)?,
+        events: Vec::new(),
     })
 }
 
 fn get_job(app: &AppHandle, job_id: &str) -> CommandResult<ColabJob> {
-    open_database(app)?
+    let connection = open_database(app)?;
+    let mut job = connection
         .query_row(
             "SELECT job_id, experiment_id, status, stage, progress, message,
                     runtime_name, error, created_at, updated_at
@@ -362,7 +386,33 @@ fn get_job(app: &AppHandle, job_id: &str) -> CommandResult<ColabJob> {
             params![job_id],
             row_to_job,
         )
-        .map_err(|_| "Job Colab não encontrado.".to_string())
+        .map_err(|_| "Job Colab não encontrado.".to_string())?;
+    job.events = job_events(&connection, job_id)?;
+    Ok(job)
+}
+
+fn job_events(connection: &Connection, job_id: &str) -> CommandResult<Vec<ColabJobEvent>> {
+    let mut statement = connection
+        .prepare(
+            "SELECT id, stage, status, progress, message, created_at
+           FROM colab_job_events WHERE job_id = ?1 ORDER BY id",
+        )
+        .map_err(|_| "Não foi possível consultar as etapas da análise.".to_string())?;
+    let events = statement
+        .query_map(params![job_id], |row| {
+            Ok(ColabJobEvent {
+                id: row.get(0)?,
+                stage: row.get(1)?,
+                status: row.get(2)?,
+                progress: row.get(3)?,
+                message: row.get(4)?,
+                created_at: row.get(5)?,
+            })
+        })
+        .map_err(|_| "Não foi possível ler as etapas da análise.".to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "Não foi possível carregar as etapas da análise.".to_string())?;
+    Ok(events)
 }
 
 #[tauri::command]
@@ -380,7 +430,22 @@ fn update_job(
     progress: i64,
     message: &str,
 ) -> CommandResult<()> {
-    open_database(app)?
+    let mut connection = open_database(app)?;
+    record_job_update(&mut connection, job_id, status, stage, progress, message)
+}
+
+fn record_job_update(
+    connection: &mut Connection,
+    job_id: &str,
+    status: &str,
+    stage: &str,
+    progress: i64,
+    message: &str,
+) -> CommandResult<()> {
+    let transaction = connection
+        .transaction()
+        .map_err(|_| "Não foi possível iniciar o registro da etapa.".to_string())?;
+    transaction
         .execute(
             "UPDATE colab_jobs
                 SET status = ?2, stage = ?3, progress = ?4, message = ?5,
@@ -389,7 +454,32 @@ fn update_job(
             params![job_id, status, stage, progress.clamp(0, 100), message],
         )
         .map_err(|_| "Não foi possível atualizar o job Colab.".to_string())?;
+    transaction
+        .execute(
+            "INSERT INTO colab_job_events(job_id, status, stage, progress, message)
+         SELECT ?1, ?2, ?3, ?4, ?5 WHERE NOT EXISTS (
+           SELECT 1 FROM colab_job_events WHERE id = (
+             SELECT MAX(id) FROM colab_job_events WHERE job_id = ?1
+           ) AND status = ?2 AND stage = ?3 AND message = ?5
+         )",
+            params![job_id, status, stage, progress.clamp(0, 100), message],
+        )
+        .map_err(|_| "Não foi possível registrar a etapa da análise.".to_string())?;
+    transaction
+        .commit()
+        .map_err(|_| "Não foi possível salvar a etapa da análise.".to_string())?;
     Ok(())
+}
+
+fn fail_job(app: &AppHandle, job_id: &str, error: &str) -> CommandResult<()> {
+    let job = get_job(app, job_id)?;
+    open_database(app)?
+        .execute(
+            "UPDATE colab_jobs SET error = ?2 WHERE job_id = ?1",
+            params![job_id, error],
+        )
+        .map_err(|_| "Não foi possível registrar o erro da análise.".to_string())?;
+    update_job(app, job_id, "failed", &job.stage, job.progress, error)
 }
 
 fn response_json(response: Response, context: &str) -> CommandResult<Value> {
@@ -550,28 +640,70 @@ fn put_jupyter_model(
     Ok(())
 }
 
-fn ensure_jupyter_directory(
-    client: &Client,
+fn workspace_candidates(absolute_directory: &str) -> Vec<String> {
+    let parts: Vec<_> = absolute_directory.trim_matches('/').split('/').collect();
+    (0..parts.len())
+        .map(|index| parts[index..].join("/"))
+        .collect()
+}
+
+fn resolve_jupyter_workspace(
     connection: &ConnectionInfo,
-    remote_path: &str,
-) -> CommandResult<()> {
-    let response = client
-        .get(jupyter_url(
-            connection,
-            &format!("api/contents/{remote_path}?content=0"),
-        ))
-        .header("X-Colab-Runtime-Proxy-Token", &connection.token)
-        .send()
-        .map_err(|_| "Falha de rede ao verificar a pasta remota.".to_string())?;
-    if response.status().is_success() {
-        return Ok(());
+    absolute_directory: &str,
+    marker: &str,
+) -> CommandResult<String> {
+    let client = api_client()?;
+    for candidate in workspace_candidates(absolute_directory) {
+        let response = client
+            .get(jupyter_url(
+                connection,
+                &format!("api/contents/{candidate}/workspace.txt?content=1&format=text"),
+            ))
+            .header("X-Colab-Runtime-Proxy-Token", &connection.token)
+            .send()
+            .map_err(|_| "Falha ao confirmar a pasta compartilhada com o Colab.".to_string())?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            continue;
+        }
+        let model = response_json(response, "Não foi possível confirmar a pasta do vídeo")?;
+        if model.get("content").and_then(Value::as_str).map(str::trim) == Some(marker) {
+            return Ok(candidate);
+        }
     }
-    put_jupyter_model(
-        client,
-        connection,
-        remote_path,
-        &json!({ "type": "directory" }),
+    Err("A API de upload e a sessão Python não enxergam a mesma pasta. O vídeo não foi enviado. Tente novamente com outro runtime Colab.".into())
+}
+
+fn prepare_workspace_code(absolute_directory: &str, marker: &str) -> String {
+    format!(
+        r#"import json, subprocess
+from pathlib import Path
+workspace = Path({absolute_directory:?})
+workspace.mkdir(parents=True, exist_ok=True)
+(workspace / "workspace.txt").write_text({marker:?}, encoding="utf-8")
+gpu = subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"], capture_output=True, text=True, check=True).stdout.strip()
+if not gpu:
+    raise RuntimeError("O runtime não reportou uma GPU disponível")
+print("BEHAVETRACKER_WORKSPACE=" + json.dumps({{"gpu": gpu}}))
+"#
     )
+}
+
+fn workspace_gpu(payload: &Value) -> CommandResult<String> {
+    payload
+        .get("stdout")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .lines()
+        .filter_map(|line| line.strip_prefix("BEHAVETRACKER_WORKSPACE="))
+        .filter_map(|value| serde_json::from_str::<Value>(value).ok())
+        .find_map(|value| {
+            value
+                .get("gpu")
+                .and_then(Value::as_str)
+                .filter(|name| !name.trim().is_empty())
+                .map(|name| name.chars().take(200).collect())
+        })
+        .ok_or_else(|| "A sessão Colab não confirmou a GPU alocada.".to_string())
 }
 
 fn upload_video(
@@ -579,19 +711,17 @@ fn upload_video(
     job_id: &str,
     connection: &ConnectionInfo,
     local_path: &Path,
-    remote_directory: &str,
     remote_file: &str,
     size: i64,
 ) -> CommandResult<()> {
     let client = api_client()?;
-    ensure_jupyter_directory(&client, connection, "behavetracker")?;
-    ensure_jupyter_directory(&client, connection, remote_directory)?;
     let mut file = File::open(local_path)
         .map_err(|_| "O vídeo temporário não está mais disponível.".to_string())?;
     let mut buffer = vec![0_u8; REMOTE_CHUNK_SIZE];
     let mut sent = 0_i64;
     let mut chunk_number = 1_i64;
     let chunked = size > REMOTE_CHUNK_SIZE as i64;
+    let mut last_percent = -1;
     loop {
         let read = file
             .read(&mut buffer)
@@ -611,6 +741,11 @@ fn upload_video(
         }
         put_jupyter_model(&client, connection, remote_file, &model)?;
         chunk_number += 1;
+        let percent = ((sent * 100) / size).min(100);
+        if percent == last_percent {
+            continue;
+        }
+        last_percent = percent;
         let progress = 20 + ((sent as f64 / size as f64) * 25.0).round() as i64;
         update_job(
             app,
@@ -758,7 +893,9 @@ fn execute_code(access_token: &str, session: &str, code: &str) -> CommandResult<
                         .unwrap_or("");
                     return Err(format!("{name}: {message}\n{stderr}"));
                 }
-                return Ok(result);
+                return structured.ok_or_else(|| {
+                    "O Colab não retornou os detalhes da execução Python.".to_string()
+                });
             }
             Err(error)
                 if error.contains("DEADLINE_EXCEEDED")
@@ -1010,23 +1147,13 @@ fn run_analysis(app: AppHandle, job_id: String, upload_id: String) -> CommandRes
         .map_err(|_| "Não foi possível registrar o runtime do job.".to_string())?;
 
     let short_job = job_id.split('-').next().unwrap_or("job");
-    let remote_directory = format!("behavetracker/{short_job}");
-    let remote_video = format!(
-        "{remote_directory}/input{}",
+    let absolute_directory = format!("/content/behavetracker/{job_id}");
+    let absolute_video = format!(
+        "{absolute_directory}/input{}",
         safe_extension(&original_filename)
     );
-    let remote_output = format!("/content/{remote_directory}/output");
-    let remote_csv = format!("/content/{remote_directory}/canonical_pose.csv");
-    upload_video(
-        &app,
-        &job_id,
-        &connection,
-        Path::new(&local_path),
-        &remote_directory,
-        &remote_video,
-        size,
-    )?;
-
+    let remote_output = format!("{absolute_directory}/output");
+    let remote_csv = format!("{absolute_directory}/canonical_pose.csv");
     let session = format!("{}/sessions/behavetracker-{short_job}", runtime.name);
     open_database(&app)?
         .execute(
@@ -1039,17 +1166,85 @@ fn run_analysis(app: AppHandle, job_id: String, upload_id: String) -> CommandRes
             &app,
             &job_id,
             "running",
+            "workspace",
+            15,
+            "Abrindo a sessão e identificando a GPU do Colab",
+        )?;
+        let workspace = execute_code(
+            &access_token,
+            &session,
+            &prepare_workspace_code(&absolute_directory, &job_id),
+        )?;
+        let gpu = workspace_gpu(&workspace)?;
+        update_job(
+            &app,
+            &job_id,
+            "running",
+            "gpu_ready",
+            18,
+            &format!("{gpu} encontrada · sessão pronta"),
+        )?;
+        update_job(
+            &app,
+            &job_id,
+            "running",
+            "uploading",
+            19,
+            "Confirmando a pasta do vídeo entre a API de upload e a sessão Python",
+        )?;
+        let remote_directory =
+            resolve_jupyter_workspace(&connection, &absolute_directory, &job_id)?;
+        update_job(
+            &app,
+            &job_id,
+            "running",
+            "uploading",
+            20,
+            "Pasta compartilhada confirmada · enviando o vídeo ao Colab",
+        )?;
+        let remote_video = format!(
+            "{remote_directory}/input{}",
+            safe_extension(&original_filename)
+        );
+        upload_video(
+            &app,
+            &job_id,
+            &connection,
+            Path::new(&local_path),
+            &remote_video,
+            size,
+        )?;
+        update_job(
+            &app,
+            &job_id,
+            "running",
             "verifying",
             47,
             "Validando o vídeo dentro do runtime",
         )?;
         let verification = format!(
-            "import hashlib, os\np={:?}\nassert os.path.getsize(p)=={}\nh=hashlib.sha256()\nwith open(p,'rb') as f:\n    for b in iter(lambda:f.read(1048576), b''): h.update(b)\nassert h.hexdigest()=={:?}\nprint('BEHAVETRACKER_VIDEO_OK')",
-            format!("/content/{remote_video}"),
+            "import hashlib\nfrom pathlib import Path\np=Path({:?})\nif not p.is_file():\n    raise RuntimeError('O runtime perdeu o vídeo após o envio. A sessão pode ter reiniciado. Inicie a análise novamente.')\nif p.stat().st_size != {}:\n    raise RuntimeError('O vídeo recebido está incompleto ou foi alterado: tamanho diferente do original.')\nh=hashlib.sha256()\nwith p.open('rb') as f:\n    for b in iter(lambda:f.read(1048576), b''): h.update(b)\nif h.hexdigest() != {:?}:\n    raise RuntimeError('O vídeo recebido não corresponde ao original: SHA-256 diferente.')\nprint('BEHAVETRACKER_VIDEO_OK')",
+            absolute_video,
             size,
             sha256.unwrap_or_default()
         );
-        execute_code(&access_token, &session, &verification)?;
+        let verified = execute_code(&access_token, &session, &verification)?;
+        if !verified
+            .get("stdout")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .contains("BEHAVETRACKER_VIDEO_OK")
+        {
+            return Err("O Colab não confirmou a integridade do vídeo enviado.".into());
+        }
+        update_job(
+            &app,
+            &job_id,
+            "running",
+            "video_ready",
+            50,
+            "Vídeo recebido e validado · tamanho e SHA-256 conferem",
+        )?;
 
         update_job(
             &app,
@@ -1075,59 +1270,51 @@ print("BEHAVETRACKER_SETUP_OK")"#;
         execute_code(
             &access_token,
             &session,
-            &inference_code(
-                &format!("/content/{remote_video}"),
-                &remote_output,
-                &remote_csv,
-            ),
+            &inference_code(&absolute_video, &remote_output, &remote_csv),
+        )?;
+        update_job(
+            &app,
+            &job_id,
+            "running",
+            "downloading",
+            93,
+            "Baixando o CSV canônico",
+        )?;
+        let result_directory = app
+            .path()
+            .app_data_dir()
+            .map_err(|_| "Não foi possível localizar os dados do aplicativo.".to_string())?
+            .join("results");
+        fs::create_dir_all(&result_directory)
+            .map_err(|_| "Não foi possível preparar a pasta de resultados.".to_string())?;
+        let result_path = result_directory.join(format!("{job_id}.csv"));
+        let refreshed_runtime = get_runtime(&api_client()?, &access_token, &runtime.name)?;
+        let refreshed_connection = refreshed_runtime.connection_info.ok_or_else(|| {
+            "O runtime não renovou os dados de conexão para o download.".to_string()
+        })?;
+        download_result(
+            &refreshed_connection,
+            &format!("{remote_directory}/canonical_pose.csv"),
+            &result_path,
+        )?;
+        open_database(&app)?
+            .execute(
+                "UPDATE colab_jobs SET result_path = ?2 WHERE job_id = ?1",
+                params![&job_id, result_path.to_string_lossy().as_ref()],
+            )
+            .map_err(|_| "Não foi possível registrar o resultado do job.".to_string())?;
+        update_job(
+            &app,
+            &job_id,
+            "succeeded",
+            "completed",
+            100,
+            "Rastreamento concluído",
         )?;
         Ok(())
     })();
-    if let Err(error) = session_result {
-        best_effort_delete_session(&access_token, &session);
-        return Err(error);
-    }
-
-    update_job(
-        &app,
-        &job_id,
-        "running",
-        "downloading",
-        93,
-        "Baixando o CSV canônico",
-    )?;
-    let result_directory = app
-        .path()
-        .app_data_dir()
-        .map_err(|_| "Não foi possível localizar os dados do aplicativo.".to_string())?
-        .join("results");
-    fs::create_dir_all(&result_directory)
-        .map_err(|_| "Não foi possível preparar a pasta de resultados.".to_string())?;
-    let result_path = result_directory.join(format!("{job_id}.csv"));
-    let refreshed_runtime = get_runtime(&api_client()?, &access_token, &runtime.name)?;
-    let refreshed_connection = refreshed_runtime
-        .connection_info
-        .ok_or_else(|| "O runtime não renovou os dados de conexão para o download.".to_string())?;
-    download_result(
-        &refreshed_connection,
-        &format!("{remote_directory}/canonical_pose.csv"),
-        &result_path,
-    )?;
     best_effort_delete_session(&access_token, &session);
-    open_database(&app)?
-        .execute(
-            "UPDATE colab_jobs SET result_path = ?2 WHERE job_id = ?1",
-            params![&job_id, result_path.to_string_lossy().as_ref()],
-        )
-        .map_err(|_| "Não foi possível registrar o resultado do job.".to_string())?;
-    update_job(
-        &app,
-        &job_id,
-        "succeeded",
-        "completed",
-        100,
-        "Rastreamento concluído",
-    )?;
+    session_result?;
     let _ = fs::remove_file(local_path);
     Ok(())
 }
@@ -1165,7 +1352,7 @@ pub fn start_colab_analysis(
         .optional()
         .map_err(|_| "Não foi possível verificar jobs ativos.".to_string())?
     {
-        return Ok(active);
+        return get_job(&app, &active.job_id);
     }
     let job_id = new_uuid_v4();
     connection
@@ -1181,25 +1368,21 @@ pub fn start_colab_analysis(
             ],
         )
         .map_err(|_| "Não foi possível criar o job Colab.".to_string())?;
+    update_job(
+        &app,
+        &job_id,
+        "queued",
+        "queued",
+        0,
+        "Vídeo preparado no desktop · aguardando runtime Colab",
+    )?;
     let job = get_job(&app, &job_id)?;
     let task_app = app.clone();
     let task_job_id = job_id.clone();
     let task_upload_id = request.upload_id;
     tauri::async_runtime::spawn_blocking(move || {
         if let Err(error) = run_analysis(task_app.clone(), task_job_id.clone(), task_upload_id) {
-            let _ = open_database(&task_app).and_then(|connection| {
-                connection
-                    .execute(
-                        "UPDATE colab_jobs
-                            SET status = 'failed', stage = 'failed', error = ?2,
-                                message = 'A análise falhou',
-                                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                          WHERE job_id = ?1",
-                        params![&task_job_id, &error],
-                    )
-                    .map(|_| ())
-                    .map_err(|_| "Não foi possível registrar a falha do job.".to_string())
-            });
+            let _ = fail_job(&task_app, &task_job_id, &error);
         }
     });
     Ok(job)
@@ -1232,18 +1415,18 @@ pub fn get_latest_colab_job(
 ) -> CommandResult<Option<ColabJob>> {
     validate_local_id(&experiment_id, "Experimento")?;
     prepare_tables(&app)?;
-    open_database(&app)?
+    let latest: Option<String> = open_database(&app)?
         .query_row(
-            "SELECT job_id, experiment_id, status, stage, progress, message,
-                    runtime_name, error, created_at, updated_at
+            "SELECT job_id
                FROM colab_jobs
               WHERE experiment_id = ?1
               ORDER BY created_at DESC LIMIT 1",
             params![experiment_id],
-            row_to_job,
+            |row| row.get(0),
         )
         .optional()
-        .map_err(|_| "Não foi possível consultar o último job do experimento.".to_string())
+        .map_err(|_| "Não foi possível consultar o último job do experimento.".to_string())?;
+    latest.map(|id| get_job(&app, &id)).transpose()
 }
 
 #[tauri::command]
@@ -1260,33 +1443,51 @@ pub fn list_colab_jobs(app: AppHandle, experiment_id: String) -> CommandResult<V
               ORDER BY created_at DESC",
         )
         .map_err(|_| "Não foi possível consultar o histórico de análises.".to_string())?;
-    let jobs = statement
+    let mut jobs = statement
         .query_map(params![experiment_id], row_to_job)
         .map_err(|_| "Não foi possível ler o histórico de análises.".to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| "Não foi possível montar o histórico de análises.".to_string())?;
+    for job in &mut jobs {
+        job.events = job_events(&connection, &job.job_id)?;
+    }
     Ok(jobs)
 }
 
 pub fn recover_interrupted_jobs(app: &AppHandle) -> CommandResult<()> {
     prepare_tables(app)?;
-    open_database(app)?
-        .execute(
-            "UPDATE colab_jobs
-                SET status = 'failed', stage = 'failed',
-                    message = 'O aplicativo foi encerrado durante a análise',
-                    error = 'Job interrompido pelo encerramento do aplicativo. Inicie a análise novamente.',
-                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-              WHERE status IN ('queued', 'running')",
-            [],
-        )
-        .map_err(|_| "Não foi possível recuperar os jobs interrompidos.".to_string())?;
+    let connection = open_database(app)?;
+    let mut statement = connection
+        .prepare("SELECT job_id FROM colab_jobs WHERE status IN ('queued', 'running')")
+        .map_err(|_| "Não foi possível consultar jobs interrompidos.".to_string())?;
+    let ids = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|_| "Não foi possível ler jobs interrompidos.".to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "Não foi possível carregar jobs interrompidos.".to_string())?;
+    for id in ids {
+        fail_job(
+            app,
+            &id,
+            "Análise interrompida pelo encerramento do aplicativo. Inicie novamente.",
+        )?;
+    }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{new_uuid_v4, parse_mcp_payload, safe_extension};
+    use super::{
+        job_events, new_uuid_v4, parse_mcp_payload, record_job_update, resolve_jupyter_workspace,
+        safe_extension, workspace_gpu, ConnectionInfo,
+    };
+    use rusqlite::Connection;
+    use serde_json::json;
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        thread,
+    };
 
     #[test]
     fn generates_a_uuid_v4_request_id() {
@@ -1306,5 +1507,135 @@ mod tests {
     fn parses_a_final_sse_message() {
         let payload = "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\n\n";
         assert!(parse_mcp_payload(payload).unwrap().get("result").is_some());
+    }
+
+    fn fake_jupyter(
+        responses: Vec<(u16, String)>,
+    ) -> (ConnectionInfo, thread::JoinHandle<Vec<String>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let connection = ConnectionInfo {
+            token: "test-proxy-token".into(),
+            url: format!("http://{}", listener.local_addr().unwrap()),
+        };
+        let handle = thread::spawn(move || {
+            let mut requests = Vec::new();
+            for (status, body) in responses {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0_u8; 4096];
+                while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    let count = stream.read(&mut buffer).unwrap();
+                    assert!(count > 0);
+                    request.extend_from_slice(&buffer[..count]);
+                }
+                requests.push(
+                    String::from_utf8(request)
+                        .unwrap()
+                        .lines()
+                        .next()
+                        .unwrap()
+                        .to_owned(),
+                );
+                write!(stream, "HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            }
+            requests
+        });
+        (connection, handle)
+    }
+
+    #[test]
+    fn maps_the_same_kernel_workspace_for_jupyter_root_slash_or_content() {
+        let marker = json!({"type": "file", "format": "text", "content": "job-123"}).to_string();
+        let (connection, handle) = fake_jupyter(vec![(200, marker.clone())]);
+        assert_eq!(
+            resolve_jupyter_workspace(&connection, "/content/behavetracker/job-123", "job-123")
+                .unwrap(),
+            "content/behavetracker/job-123"
+        );
+        assert!(handle.join().unwrap()[0]
+            .contains("/api/contents/content/behavetracker/job-123/workspace.txt"));
+
+        let (connection, handle) = fake_jupyter(vec![(404, "{}".into()), (200, marker)]);
+        assert_eq!(
+            resolve_jupyter_workspace(&connection, "/content/behavetracker/job-123", "job-123")
+                .unwrap(),
+            "behavetracker/job-123"
+        );
+        assert!(
+            handle.join().unwrap()[1].contains("/api/contents/behavetracker/job-123/workspace.txt")
+        );
+    }
+
+    #[test]
+    fn refuses_upload_mapping_when_the_kernel_marker_does_not_match() {
+        let unrelated = json!({"content": "another-job"}).to_string();
+        let (connection, handle) = fake_jupyter(vec![
+            (200, unrelated.clone()),
+            (200, unrelated.clone()),
+            (200, unrelated),
+        ]);
+        assert!(resolve_jupyter_workspace(
+            &connection,
+            "/content/behavetracker/job-123",
+            "job-123"
+        )
+        .is_err());
+        assert_eq!(handle.join().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn reports_only_gpu_names_confirmed_by_python() {
+        assert_eq!(
+            workspace_gpu(&json!({"stdout": "BEHAVETRACKER_WORKSPACE={\"gpu\":\"Tesla T4\"}\n"}))
+                .unwrap(),
+            "Tesla T4"
+        );
+        assert!(workspace_gpu(&json!({"stdout": "starting", "accelerator": "T4"})).is_err());
+    }
+
+    #[test]
+    fn keeps_failed_checkpoint_and_persists_ordered_events_without_duplicates() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(
+            "CREATE TABLE colab_jobs(job_id TEXT PRIMARY KEY, status TEXT, stage TEXT, progress INTEGER, message TEXT, updated_at TEXT);
+             CREATE TABLE colab_job_events(id INTEGER PRIMARY KEY AUTOINCREMENT, job_id TEXT, status TEXT, stage TEXT,
+                 progress INTEGER, message TEXT, created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')));
+             INSERT INTO colab_jobs(job_id) VALUES ('job-1');"
+        ).unwrap();
+        record_job_update(
+            &mut connection,
+            "job-1",
+            "running",
+            "uploading",
+            45,
+            "Vídeo enviado",
+        )
+        .unwrap();
+        record_job_update(
+            &mut connection,
+            "job-1",
+            "running",
+            "uploading",
+            45,
+            "Vídeo enviado",
+        )
+        .unwrap();
+        record_job_update(
+            &mut connection,
+            "job-1",
+            "failed",
+            "verifying",
+            47,
+            "Vídeo ausente",
+        )
+        .unwrap();
+        let events = job_events(&connection, "job-1").unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[1].stage, "verifying");
+        assert_eq!(events[1].status, "failed");
+        let stage: String = connection
+            .query_row("SELECT stage FROM colab_jobs", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(stage, "verifying");
     }
 }

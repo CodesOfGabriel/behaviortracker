@@ -344,6 +344,62 @@ body { background: radial-gradient(circle at 70% -10%, #242143 0, transparent 35
 .analysis-history-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 9px; color: #e9edff; font-size: 10px; font-weight: 750; }.analysis-history-heading small { margin: 0; color: #8993a7; font-size: 8px; }
 .analysis-history-list { display: grid; gap: 6px; }.analysis-run { display: grid; grid-template-columns: 25px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 9px; border-radius: 8px; background: #1b1f2b; }.analysis-run-status { display: grid; place-items: center; color: #b5c0d4; }.analysis-run-succeeded .analysis-run-status { color: #83e9b9; }.analysis-run-failed .analysis-run-status { color: #ff9fa9; }.analysis-run strong, .analysis-run span { display: block; }.analysis-run strong { color: #eef1ff; font-size: 9px; }.analysis-run span { overflow: hidden; margin-top: 2px; color: #9ea8bc; font-size: 8px; white-space: nowrap; text-overflow: ellipsis; }.analysis-run time { display: flex; align-items: center; gap: 4px; color: #aab4c7; font-size: 8px; font-variant-numeric: tabular-nums; }
 
+.tracking-processing { width: calc(100% - 48px); max-width: 1180px; margin: 26px auto; padding: 28px; }
+.tracking-processing .tracking-empty-visual { width: 56px; height: 56px; border-radius: 15px; margin-bottom: 16px; }
+.tracking-processing > p { max-width: 650px; }
+.tracking-processing > .tracking-empty-actions { margin-top: 23px; }
+.tracking-processing .analysis-history { width: 100%; max-width: none; }
+.analysis-run { width: 100%; border: 1px solid transparent; text-align: left; }
+.analysis-run:hover { border-color: #545d78; background: #232938; }
+.analysis-run[aria-pressed="true"] { border-color: #9072d1; }
+.analysis-workflow { width: 100%; margin-top: 5px; padding: 22px; border: 1px solid #343c50; border-radius: 15px; background: radial-gradient(ellipse at 15% 0%, #25243a88, transparent 65%), #10141f; text-align: left; }
+.workflow-heading { display: flex; justify-content: space-between; align-items: center; gap: 15px; margin-bottom: 22px; }
+.workflow-heading .eyebrow { font-size: 9px; letter-spacing: .1em; }
+.workflow-heading h3 { margin: 5px 0 0; color: #edf1ff; font-size: 15px; }
+.workflow-duration { color: #afbbd2; font-size: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.workflow-scroll { position: relative; width: 100%; overflow-x: auto; padding-bottom: 14px; scrollbar-width: thin; scrollbar-color: #4d4868 #151b29; }
+.workflow-checkpoints { display: grid; grid-template-columns: repeat(7, minmax(120px, 1fr)); min-width: 870px; gap: 12px; list-style: none; padding: 0; margin: 0; }
+.checkpoint { min-width: 0; padding: 12px 10px; border: 1px solid #2b3447; border-radius: 11px; background: #171d2a; }
+.checkpoint-path { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.checkpoint-icon { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid #3c465e; border-radius: 11px; color: #8e9bb5; background: #212a3c; }
+.checkpoint-arrow { color: #586680; }
+.checkpoint-number { display: block; color: #8996af; font-size: 8px; text-transform: uppercase; letter-spacing: .09em; }
+.checkpoint > strong { display: block; margin-top: 5px; color: #c2ccde; font-size: 10px; line-height: 1.5; }
+.tracking-processing .checkpoint p { min-height: 42px; margin: 6px 0 8px; color: #8e9bb3; font-size: 9px; line-height: 1.55; }
+.checkpoint > small { display: inline-block; margin: 0; color: #8492a9; font-size: 8px; }
+.checkpoint-active { border-color: #b69aff; background: linear-gradient(150deg, #32294a, #202538); box-shadow: 0 0 0 1px #9d79ed22, 0 0 25px #9873eb12; }
+.checkpoint-active .checkpoint-icon { color: #e6d7ff; border-color: #9372ca; background: #50406e; }
+.checkpoint-active > strong, .checkpoint-active > small { color: #e7d6ff; }
+.checkpoint-done { border-color: #425b38; background: #1a2724; }
+.checkpoint-done .checkpoint-icon { color: #d0ff8b; background: #31482c; border-color: #607e45; }
+.checkpoint-done > small, .checkpoint-done > strong { color: #d2f3bc; }
+.checkpoint-failed { border-color: #a05364; background: #34202b; }
+.checkpoint-failed .checkpoint-icon { color: #ffabb7; background: #512e3a; border-color: #a05364; }
+.checkpoint-failed > small, .checkpoint-failed > strong { color: #ffbac4; }
+.workflow-current { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; padding: 13px 15px; border: 1px solid #3b4260; border-radius: 9px; color: #d1dbef; background: #20283b; font-size: 11px; line-height: 1.6; }
+.workflow-current svg { flex: 0 0 auto; margin-top: 1px; color: #b59aef; }
+.workflow-current > span { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.workflow-current-error { background: #35212b; border-color: #794052; color: #ffbcc7; }
+.workflow-current-error svg { color: #ffa4b6; }
+.workflow-log { margin-top: 15px; padding-top: 13px; border-top: 1px solid #2f384b; }
+.workflow-log summary { color: #d6dff1; cursor: pointer; font-size: 10px; font-weight: 650; }
+.workflow-log summary > span { margin-left: 8px; color: #8795ae; font-size: 8px; font-weight: 450; }
+.workflow-log ol { max-height: 215px; overflow-y: auto; list-style: none; padding: 0; margin: 12px 0 0; scrollbar-width: thin; }
+.workflow-log li { display: grid; grid-template-columns: 62px 8px minmax(0, 1fr); gap: 10px; padding: 8px 3px; border-bottom: 1px solid #252d3c; color: #aab9d0; font-size: 10px; line-height: 1.6; }
+.workflow-log time { color: #7f91af; font-size: 9px; font-variant-numeric: tabular-nums; }
+.workflow-log li > span:last-child { white-space: pre-wrap; overflow-wrap: anywhere; }
+.log-dot { width: 5px; height: 5px; margin-top: 6px; border-radius: 50%; background: #a992db; }
+.workflow-log .log-failed { color: #ffb0bd; }.log-failed .log-dot { background: #ff97ab; }
+.tracking-processing .workflow-legacy-note { margin: 12px 0 0; max-width: none; color: #8e9bb3; font-size: 10px; }
+@media (max-width: 800px) {
+  .tracking-processing { width: calc(100% - 24px); margin: 14px auto; padding: 18px 12px; }
+  .analysis-workflow { padding: 16px 12px; }.workflow-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
+}
+@media (max-width: 520px) {
+  .editor-header { grid-template-columns: 1fr; gap: 12px; }
+  .editor-header-actions { width: 100%; }.editor-header-actions > .button { flex: 1; }
+}
+
 .editor-workspace { min-height: calc(100vh - 132px); grid-template-columns: minmax(0, 1fr) 285px; }.video-column { padding: 16px 20px 22px; }.video-toolbar { padding: 0 2px; }.segmented-control { border-color: #363c4c; background: #171b27; }.segmented-control button { color: #8791a5; }.segmented-control button.active { color: #fff; background: #32384a; box-shadow: none; }.tool-toggle { color: #aab3c4; }.tool-toggle.active { color: #dcff8b; background: #2a3420; }
 .video-stage { border: 1px solid #343a4a; border-radius: 14px; background: #030407; box-shadow: 0 22px 45px rgb(0 0 0 / 44%); }.stage-badges .badge { backdrop-filter: blur(8px); }.playback-bar { padding-top: 9px; }.transport-button { color: #b4bed1; }.transport-button:hover { color: #fff; background: #252b39; }.play-button { background: linear-gradient(135deg, #7651e8, #a76dff); box-shadow: 0 7px 17px rgb(125 82 239 / 30%); }.timecode strong { color: #f4f6ff; }.timecode span, .speed-control { color: #8d97ac; }.speed-control select { color: #dce2f1; }
 .timeline-panel { border-color: #303647; background: #151923; }.timeline-header strong { color: #edf0ff; }.timeline-header > div:first-child span, .timeline-legend span, .timeline-times { color: #929caf; }.timeline-track { background: #2a3040; }.timeline-valid { background: #558c78; }.timeline-low_confidence { background: #d99f47; }.timeline-track b, .timeline-track b::before { background: #e6d9ff; }.timeline-track b { box-shadow: 0 0 0 1px #151923; }

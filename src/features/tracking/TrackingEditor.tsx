@@ -43,12 +43,12 @@ import type { CorrectionEvent, Point, PoseSample, PoseStatus } from "../../types
 import {
   loadColabResult,
   loadColabJobs,
-  loadLatestColabJob,
   stageVideo,
   startColabJob,
   waitForColabJob,
   type ColabJob,
 } from "../colab/analysis";
+import { AnalysisWorkflow } from "../colab/AnalysisWorkflow";
 import {
   COLAB_PROFILE_ID,
   isTauriRuntime,
@@ -127,7 +127,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const videoFileRef = useRef<HTMLInputElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
-  const restoredJobRef = useRef(false);
+  const importedJobRef = useRef<string | null>(null);
   const analysisRequestedRef = useRef(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -137,11 +137,12 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   const [showTrajectory, setShowTrajectory] = useState(true);
   const [csvError, setCsvError] = useState<string | null>(null);
   const [analysisJob, setAnalysisJob] = useState<ColabJob | null>(null);
-  const [analysisProgress, setAnalysisProgress] = useState(0);
   const [analysisMessage, setAnalysisMessage] = useState("");
   const [analysisStarting, setAnalysisStarting] = useState(false);
   const [analysisHistory, setAnalysisHistory] = useState<ColabJob[]>([]);
   const [jobClock, setJobClock] = useState(() => Date.now());
+  const [localStartedAt, setLocalStartedAt] = useState<number | null>(null);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [drag, setDrag] = useState<{ keypoint: string; before: Point; current: Point } | null>(null);
 
   useEffect(() => {
@@ -152,30 +153,25 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   }, [experiment, experimentId, setTrackingData, trackingData]);
 
   useEffect(() => {
-    if (!experiment || trackingData[experimentId] || restoredJobRef.current || !isTauriRuntime()) return;
-    restoredJobRef.current = true;
-    void loadLatestColabJob(experimentId)
-      .then(async (job) => {
-        if (!job) return;
-        setAnalysisJob(job);
-        setAnalysisProgress(job.progress);
-        setAnalysisMessage(job.message);
-        if (job.status === "succeeded") {
-          const samples = parseCanonicalPoseCsv(await loadColabResult(job.jobId));
-          setTrackingData(experimentId, samples);
-          updateExperiment(experimentId, {
-            status: "review",
-            referencePoint: samples.some((sample) => sample.keypoint === "body_center")
-              ? "body_center"
-              : samples[0].keypoint,
-          });
-        } else if (job.status === "failed" && experiment.status === "processing") {
-          updateExperiment(experimentId, { status: "failed" });
-          setCsvError(job.error);
-        }
-      })
-      .catch(() => undefined);
-  }, [experiment, experimentId, setTrackingData, trackingData, updateExperiment]);
+    const job = analysisHistory[0];
+    if (!experiment || !job || analysisStarting || !isTauriRuntime()) return;
+    if (job.status === "succeeded" && !trackingData[experimentId] && importedJobRef.current !== job.jobId) {
+      importedJobRef.current = job.jobId;
+      void loadColabResult(job.jobId).then((csv) => {
+        const samples = parseCanonicalPoseCsv(csv);
+        setTrackingData(experimentId, samples);
+        updateExperiment(experimentId, {
+          status: "review",
+          referencePoint: samples.some((sample) => sample.keypoint === "body_center")
+            ? "body_center"
+            : samples[0].keypoint,
+        });
+      }).catch((error) => setCsvError(typeof error === "string" ? error : "Não foi possível carregar o resultado da análise."));
+    } else if (job.status === "failed" && experiment.status === "processing") {
+      updateExperiment(experimentId, { status: "failed" });
+      setCsvError(job.error);
+    }
+  }, [analysisHistory, analysisStarting, experiment, experimentId, setTrackingData, trackingData, updateExperiment]);
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
@@ -405,7 +401,10 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
       return;
     }
     setAnalysisStarting(true);
-    setAnalysisProgress(0);
+    setAnalysisJob(null);
+    setSelectedJobId(null);
+    setLocalStartedAt(Date.now());
+    setJobClock(Date.now());
     setAnalysisMessage("Verificando a conexão com o Colab");
     setCsvError(null);
     updateExperiment(experiment.id, { status: "processing" });
@@ -418,8 +417,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
       if (connection.eligibleGpuCount < 1) {
         throw new Error("Sua conta não possui um runtime GPU elegível neste momento.");
       }
-      const uploadId = await stageVideo(experiment.id, videoFile, (progress, message) => {
-        setAnalysisProgress(Math.round(progress * 0.05));
+      const uploadId = await stageVideo(experiment.id, videoFile, (_progress, message) => {
         setAnalysisMessage(message);
       });
       const started = await startColabJob(experiment.id, uploadId);
@@ -427,7 +425,6 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
       setAnalysisHistory((jobs) => [started, ...jobs.filter((job) => job.jobId !== started.jobId)]);
       const completed = await waitForColabJob(started.jobId, (job) => {
         setAnalysisJob(job);
-        setAnalysisProgress(job.progress);
         setAnalysisMessage(job.message);
         setAnalysisHistory((jobs) => [job, ...jobs.filter((item) => item.jobId !== job.jobId)]);
       });
@@ -455,6 +452,15 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   const severityCount = referenceSamples.filter((sample) => sample.status !== "valid").length;
   const currentStatus = currentReference?.status ?? "missing";
   const fps = experiment.video.fps || 30;
+  const currentJob = analysisJob
+    ? analysisHistory.find((job) => job.jobId === analysisJob.jobId) ?? analysisJob
+    : localStartedAt !== null ? null : analysisHistory[0] ?? null;
+  const visibleJob = selectedJobId
+    ? analysisHistory.find((job) => job.jobId === selectedJobId) ?? currentJob
+    : currentJob;
+  const analysisBusy = analysisStarting || currentJob?.status === "running" || currentJob?.status === "queued";
+  const elapsedSec = visibleJob ? jobElapsedSeconds(visibleJob, jobClock)
+    : localStartedAt ? Math.max(0, (jobClock - localStartedAt) / 1000) : 0;
 
   return (
     <div className="tracking-page">
@@ -463,25 +469,21 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
         <button className="back-link" onClick={() => navigate({ name: "dashboard" })}><ArrowLeft size={16} /> Experimentos</button>
         <div className="editor-title"><div><h1>{experiment.title}</h1><p>{experiment.subjectId}{experiment.group ? ` · ${experiment.group}` : ""} · Campo aberto</p></div><Badge tone={rawSamples.length ? "warning" : "neutral"} dot>{rawSamples.length ? "Em revisão" : "Sem tracking"}</Badge></div>
         <div className="editor-header-actions">
-          {!rawSamples.length && <Button className="analyze-button header-analyze" icon={<CloudCog size={16} />} onClick={() => void runColabAnalysis()}>Analisar no Colab</Button>}
+          {!rawSamples.length && <Button className="analyze-button header-analyze" disabled={analysisBusy} icon={<CloudCog size={16} />} onClick={() => void runColabAnalysis()}>Analisar no Colab</Button>}
           <Button disabled={!rawSamples.length} icon={<BarChart3 size={16} />} onClick={() => navigate({ name: "results", experimentId })}>Ver resultados</Button>
         </div>
       </header>
 
-      {csvError && <div className="editor-error"><AlertCircle size={16} /> {csvError}</div>}
+      {csvError && csvError !== visibleJob?.error && <div className="editor-error"><AlertCircle size={16} /> {csvError}</div>}
 
       {!rawSamples.length ? (
-        <section className="tracking-empty panel">
+        <section className="tracking-empty tracking-processing panel">
           <div className="tracking-empty-visual"><ScanSearch size={40} /><span /></div>
           <h2>Processar o vídeo no Google Colab</h2>
-          <p>O BehaveTracker envia o vídeo ao runtime elegível, executa o SuperAnimal TopViewMouse e importa o CSV de pose automaticamente.</p>
-          {analysisStarting || analysisJob?.status === "running" || analysisJob?.status === "queued" ? (
-            <div className="colab-job-progress" aria-live="polite">
-              <div><span style={{ width: `${analysisProgress}%` }} /></div>
-              <strong>{analysisProgress}%</strong>
-              <p>{analysisMessage || "Iniciando análise"}</p>
-            </div>
-          ) : (
+          <p>Acompanhe o envio, a GPU alocada e o rastreamento do animal. Cada checkpoint avança após uma confirmação real da execução.</p>
+          <AnalysisWorkflow job={visibleJob} preparing={analysisStarting && !currentJob}
+            message={analysisMessage} localError={!visibleJob ? csvError : null} elapsedSec={elapsedSec} />
+          {!analysisBusy && (
             <div className="tracking-empty-actions">
               <Button className="analyze-button" size="lg" icon={<CloudCog size={19} />} onClick={() => void runColabAnalysis()}>
                 Analisar no Colab
@@ -499,11 +501,12 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
               <div className="analysis-history-heading"><span>Execuções no Colab</span><small>{analysisHistory.length} registro{analysisHistory.length === 1 ? "" : "s"}</small></div>
               <div className="analysis-history-list">
                 {analysisHistory.slice(0, 4).map((job) => (
-                  <article className={`analysis-run analysis-run-${job.status}`} key={job.jobId}>
+                  <button type="button" className={`analysis-run analysis-run-${job.status}`} key={job.jobId}
+                    aria-pressed={visibleJob?.jobId === job.jobId} onClick={() => setSelectedJobId(job.jobId)}>
                     <div className="analysis-run-status">{job.status === "succeeded" ? <CheckCircle2 size={16} /> : job.status === "failed" ? <AlertCircle size={16} /> : <CloudCog size={16} />}</div>
                     <div><strong>{jobStatusLabel(job)}</strong><span>{job.error || job.message}</span></div>
                     <time><Clock3 size={13} /> {formatDuration(jobElapsedSeconds(job, jobClock))}</time>
-                  </article>
+                  </button>
                 ))}
               </div>
             </section>

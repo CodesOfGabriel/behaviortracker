@@ -13,6 +13,16 @@ export type ColabJob = {
   error: string | null;
   createdAt: string;
   updatedAt: string;
+  events: ColabJobEvent[];
+};
+
+export type ColabJobEvent = {
+  id: number;
+  stage: string;
+  status: ColabJob["status"];
+  progress: number;
+  message: string;
+  createdAt: string;
 };
 
 type VideoStaging = {
