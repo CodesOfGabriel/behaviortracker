@@ -297,21 +297,15 @@ pub fn save_google_oauth_config(
     let client_changed = previous_configuration
         .as_ref()
         .is_some_and(|(previous, _)| previous != &client_id);
-    let previously_had_secret = previous_configuration
-        .as_ref()
-        .is_some_and(|(_, has_secret)| *has_secret);
-
     let client_secret = client_secret
         .as_deref()
         .filter(|secret| !secret.trim().is_empty())
         .map(validate_client_secret)
         .transpose()?;
-    if client_changed && client_secret.is_none() {
-        return Err("O Client ID mudou. Informe também o Client secret correspondente.".into());
-    }
-    if client_secret.is_none() && !previously_had_secret {
-        return Err("Informe o Client secret antes de salvar a configuração.".into());
-    }
+    let has_client_secret = client_secret.is_some()
+        || previous_configuration
+            .as_ref()
+            .is_some_and(|(_, has_secret)| *has_secret);
 
     connection
         .execute(
@@ -327,7 +321,7 @@ pub fn save_google_oauth_config(
                 &profile_id,
                 &client_id,
                 client_secret,
-                client_secret.is_some() || previously_had_secret
+                has_client_secret
             ],
         )
         .map_err(|_| "Não foi possível salvar o Client ID no banco local.".to_string())?;

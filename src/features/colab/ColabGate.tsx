@@ -7,8 +7,6 @@ import {
   Cpu,
   Database,
   ExternalLink,
-  Eye,
-  EyeOff,
   KeyRound,
   LockKeyhole,
   RefreshCw,
@@ -39,14 +37,11 @@ export function ColabGate() {
   const desktopRuntime = useMemo(isTauriRuntime, []);
   const [summary, setSummary] = useState<OAuthProfileSummary>(emptyColabSummary);
   const [clientId, setClientId] = useState("");
-  const [clientSecret, setClientSecret] = useState("");
-  const [showSecret, setShowSecret] = useState(false);
   const [activeAction, setActiveAction] = useState<ActiveAction>(desktopRuntime ? "load" : null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const configured = Boolean(summary.clientId && summary.hasClientSecret);
-  const clientIdChanged = clientId.trim() !== summary.clientId;
+  const configured = Boolean(summary.clientId);
   const eligibilityKnown = Boolean(summary.connected && summary.subscriptionTier && !summary.providerError);
 
   useEffect(() => {
@@ -76,7 +71,6 @@ export function ColabGate() {
       setSummary(updated);
       publishColabSummary(updated);
       setClientId(updated.clientId);
-      setClientSecret("");
       setNotice(successMessage);
     } catch (actionError) {
       setError(errorMessage(actionError));
@@ -93,7 +87,7 @@ export function ColabGate() {
       {
         profileId: COLAB_PROFILE_ID,
         clientId: clientId.trim(),
-        clientSecret: clientSecret.trim() || null,
+        clientSecret: null,
       },
       "Credenciais salvas para este perfil local.",
     );
@@ -109,7 +103,6 @@ export function ColabGate() {
       setSummary(emptyColabSummary);
       publishColabSummary(emptyColabSummary);
       setClientId("");
-      setClientSecret("");
       setNotice("Configuração OAuth removida deste perfil local.");
     } catch (deleteError) {
       setError(errorMessage(deleteError));
@@ -166,37 +159,14 @@ export function ColabGate() {
               value={clientId}
             />
           </label>
-          <label>
-            <span>Client secret <b>*</b></span>
-            <div className="secret-input">
-              <input
-                autoComplete="new-password"
-                disabled={!desktopRuntime || activeAction !== null}
-                onChange={(event) => setClientSecret(event.target.value)}
-                placeholder={summary.hasClientSecret ? "Salvo — deixe vazio para manter" : "Cole o Client secret"}
-                spellCheck={false}
-                type={showSecret ? "text" : "password"}
-                value={clientSecret}
-              />
-              <button
-                aria-label={showSecret ? "Ocultar Client secret" : "Mostrar Client secret"}
-                disabled={!clientSecret}
-                onClick={() => setShowSecret((visible) => !visible)}
-                type="button"
-              >
-                {showSecret ? <EyeOff size={15} /> : <Eye size={15} />}
-              </button>
-            </div>
-          </label>
-
           <div className="credential-storage-note">
             <Database size={15} />
-            <span><strong>Client ID, Client secret e autorização</strong> ficam no SQLite deste perfil local. O app não acessa o Keychain durante a análise.</span>
+            <span>Clientes desktop usam <strong>PKCE</strong>. Depois de salvar o Client ID uma vez, basta usar <strong>Conectar conta Google</strong>; não é necessário informar um Client secret.</span>
           </div>
 
           <div className="credential-actions">
             <Button
-              disabled={!desktopRuntime || !clientId.trim() || (!clientSecret.trim() && (!summary.hasClientSecret || clientIdChanged))}
+              disabled={!desktopRuntime || !clientId.trim()}
               icon={<Save size={16} />}
               loading={activeAction === "save"}
               type="submit"
@@ -279,7 +249,7 @@ export function ColabGate() {
           <div className="panel-header compact"><div><h2>Checklist de habilitação</h2><p>Nenhum item é presumido pelo aplicativo.</p></div></div>
           <ul className="readiness-list">
             <li className="done"><Check size={15} /><div><strong>Editor local</strong><span>Disponível sem conta Google</span></div></li>
-            <li className={summary.connected ? "done" : undefined}>{summary.connected ? <Check size={15} /> : <LockKeyhole size={15} />}<div><strong>OAuth 2.0 + PKCE</strong><span>{summary.connected ? "Autorização persistente no Keychain" : configured ? "Credenciais prontas para autorização" : "Cliente ainda não configurado"}</span></div></li>
+            <li className={summary.connected ? "done" : undefined}>{summary.connected ? <Check size={15} /> : <LockKeyhole size={15} />}<div><strong>OAuth 2.0 + PKCE</strong><span>{summary.connected ? "Autorização persistente neste dispositivo" : configured ? "Pronto para conectar sua Conta Google" : "Cliente ainda não configurado"}</span></div></li>
             <li className={eligibilityKnown ? "done" : undefined}>{eligibilityKnown ? <Check size={15} /> : <Cpu size={15} />}<div><strong>Elegibilidade da conta</strong><span>{eligibilityKnown ? `${summary.eligibleRuntimeCount} runtime(s) elegível(is) consultado(s)` : "Subscription e runtime specs ainda não confirmados"}</span></div></li>
             <li><ShieldAlert size={15} /><div><strong>Permissão de uso</strong><span>Execução externa e cenário Free ainda exigem o gate P0</span></div></li>
           </ul>
