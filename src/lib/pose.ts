@@ -1,4 +1,4 @@
-import type { Point, PoseSample } from "../types";
+import type { Point, PoseSample, PoseStatus } from "../types";
 
 /** Somente evidência observada confiável ou confirmação humana entra nas métricas. */
 export function metricEligible(sample: PoseSample | undefined) {
@@ -25,6 +25,38 @@ export function inferredFps(samples: PoseSample[], fallback: number | null = nul
   const last = samples.find((sample) => first && sample.frameIndex > first.frameIndex && sample.timestampSec > first.timestampSec);
   const fps = first && last ? (last.frameIndex - first.frameIndex) / (last.timestampSec - first.timestampSec) : fallback;
   return fps && Number.isFinite(fps) && fps > 0 ? fps : 30;
+}
+
+/** Mantém o relógio dos frames mesmo quando o modelo omite a parte de referência. */
+export function referencePoseSamples(samples: PoseSample[], keypoint: string): PoseSample[] {
+  const frames = new Map<number, PoseSample>();
+  const points = new Map<number, PoseSample>();
+  for (const sample of samples) {
+    frames.set(sample.frameIndex, sample);
+    if (sample.keypoint === keypoint) points.set(sample.frameIndex, sample);
+  }
+  return [...frames.values()].map((frame) => points.get(frame.frameIndex) ?? {
+    frameIndex: frame.frameIndex, timestampSec: frame.timestampSec, keypoint,
+    xPx: null, yPx: null, likelihood: 0, status: "missing" as const, source: "detected" as const,
+  }).sort((a, b) => a.timestampSec - b.timestampSec || a.frameIndex - b.frameIndex);
+}
+
+export function qualityTimelineBins(samples: PoseSample[], duration: number, count = 120): PoseStatus[] {
+  if (!samples.length || !(duration > 0) || count < 1) return [];
+  const severity: Record<PoseStatus, number> = { valid: 0, low_confidence: 1, jump: 2, missing: 3, out_of_arena: 3 };
+  const tolerance = 1.1 / inferredFps(samples);
+  return Array.from({ length: count }, (_, index) => {
+    const start = index / count * duration, end = (index + 1) / count * duration;
+    const middle = (start + end) / 2;
+    const nearest = samples.reduce((a, b) => Math.abs(a.timestampSec - middle) < Math.abs(b.timestampSec - middle) ? a : b);
+    const nearby = Math.abs(nearest.timestampSec - middle) <= tolerance;
+    const inBin = samples.filter((sample) => sample.timestampSec >= start && sample.timestampSec < end);
+    if (nearby) inBin.push(nearest);
+    return inBin.reduce<PoseStatus>((worst, sample) => {
+      const status = sample.source === "recovered" && sample.status === "valid" ? "low_confidence" : sample.status;
+      return severity[status] > severity[worst] ? status : worst;
+    }, nearby ? "valid" : "missing");
+  });
 }
 
 export function drawablePose(sample: PoseSample | undefined): sample is PoseSample & { xPx: number; yPx: number } {

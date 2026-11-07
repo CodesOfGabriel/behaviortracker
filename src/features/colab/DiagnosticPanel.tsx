@@ -32,6 +32,7 @@ export function DiagnosticPanel({ experiment, file, open, disabled, onAttach, on
   const [time, setTime] = useState(0);
   const [clock, setClock] = useState(Date.now());
   const video = useRef<HTMLVideoElement>(null);
+  useEffect(()=>{if(!open)video.current?.pause();},[open]);
   const job = jobs.find((item) => item.jobId === selected) ?? jobs[0];
   const active = starting || jobs.some((item) => ["running", "queued"].includes(item.status));
   useEffect(() => { onBusy(active); }, [active, onBusy]);

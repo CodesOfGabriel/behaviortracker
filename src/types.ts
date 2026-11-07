@@ -55,6 +55,7 @@ export interface CorrectionEvent {
   type: "MOVE_POINT" | "MARK_MISSING" | "CONFIRM_POINT" | "ANNOTATE_BEHAVIOR" | "REJECT_CANDIDATE" | "REVERT_EVENT";
   createdAt: string;
   frameIndex?: number;
+  timestampSec?: number;
   keypoint?: string;
   before?: Point | null;
   after?: Point | null;

@@ -1,5 +1,9 @@
 .training-panel { margin:18px 24px; padding:24px; background:#151923; color:#dde4f0; border:1px solid #394159; }
 .training-panel[hidden] { display:none; }
+.training-panel>.editor-tabs { padding:0; margin:20px 0; background:transparent; }
+.training-annotation-workspace,.training-runs-workspace { padding-top:4px; }
+.training-extraction { padding:20px 0 4px; }.training-extraction details { margin-top:16px; }.training-extraction summary { color:#b7a4db; cursor:pointer; font-size:12px; }
+.training-annotation-workspace .training-image { max-height:520px; }
 .training-preview { width:100%; max-height:260px; display:block; background:#000; margin:12px 0; }
 .training-heading,.training-actions,.training-contexts,.training-fields { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
 .training-heading { justify-content:space-between; }

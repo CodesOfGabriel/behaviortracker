@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseCanonicalPoseCsv, poseToCsv } from "./csv";
-import { confidenceLabel, drawablePose, inferredFps, metricEligible, originalPose, trajectorySegments } from "./pose";
+import { confidenceLabel, drawablePose, inferredFps, metricEligible, originalPose, qualityTimelineBins, trajectorySegments } from "./pose";
 import { applyCorrections } from "./corrections";
 import type { PoseSample } from "../types";
 
@@ -8,6 +8,22 @@ const header = "frame_index,timestamp_sec,animal_id,keypoint,x_px,y_px,likelihoo
 const point = (frameIndex: number, overrides: Partial<PoseSample> = {}): PoseSample => ({
   frameIndex, timestampSec: frameIndex / 24, keypoint: "body_center", xPx: 100 + frameIndex,
   yPx: 200, likelihood: .9, status: "valid", ...overrides,
+});
+
+describe("timeline de qualidade usa o tempo real da seleção", () => {
+  it("não pinta de verde o restante do vídeo quando faltam timestamps", () => {
+    const bins=qualityTimelineBins([point(0),point(1)],1,24);
+    expect(bins[0]).toBe("valid");
+    expect(bins.at(-1)).toBe("missing");
+  });
+  it("preserva alertas curtos e a revisão pendente de recuperações", () => {
+    const samples=Array.from({length:24},(_,i)=>point(i,i===12?{source:"recovered"}:{}));
+    expect(qualityTimelineBins(samples,1,2)).toContain("low_confidence");
+    expect(qualityTimelineBins(samples.map(p=>p.frameIndex===12?{...p,status:"missing"}:p),1,2)).toContain("missing");
+  });
+  it("preenche bins entre frames conhecidos, sem exigir uma amostra por pixel", () => {
+    expect(qualityTimelineBins([point(0),point(1),point(2)],3/24,120).every(status=>status==="valid")).toBe(true);
+  });
 });
 
 describe("poses com visibilidade parcial", () => {

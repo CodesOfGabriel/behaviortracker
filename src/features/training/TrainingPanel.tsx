@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { Button } from "../../components/ui/Button";
+import { EditorTabs } from "../../components/ui/EditorTabs";
 import { downloadText } from "../../lib/csv";
 import type { Experiment, Point } from "../../types";
 import { resolveDiagnosticUpload, type ColabJob } from "../colab/analysis";
@@ -24,8 +25,10 @@ export function TrainingPanel({experiment,file,videoUrl,currentTime,fps,open,onA
   const [error,setError] = useState(""), [epochs,setEpochs] = useState(5), [consent,setConsent] = useState(false), [dirty,setDirty] = useState(false);
   const [loadError,setLoadError]=useState("");
   const [clock,setClock] = useState(Date.now());
+  const [tab,setTab]=useState<"segments"|"annotations"|"runs">("segments");
   const staged = useRef(experiment.video.preparation?.uploadId), svg = useRef<SVGSVGElement>(null);
   const preview=useRef<HTMLVideoElement>(null);
+  useEffect(()=>{if(!open||tab!=="segments")preview.current?.pause();},[open,tab]);
   const seek=(time:number)=>{onSeek(time);if(preview.current){preview.current.pause();preview.current.currentTime=time;}};
   const selectInterval=(interval:TrainingInterval)=>{setSelection({id:interval.id,startSec:interval.startSec,endSec:interval.endSec});setContext(interval.context);setMessage("");seek(interval.startSec);};
   const savedSelection=state.intervals.find((interval)=>interval.id===selection?.id);
@@ -49,7 +52,7 @@ export function TrainingPanel({experiment,file,videoUrl,currentTime,fps,open,onA
   };
   const extract = async(time:number)=>{
     const id=await upload();const result=await extractTrainingFrame(experiment.id,id,Math.max(0,Math.round(time*fps)),experiment.subjectId,time);
-    setFrame(result.frame.reviewed?result.frame:{...result.frame,context});setImage(result.imageUrl);setDirty(!result.frame.reviewed);setTool("box");await refresh();
+    setFrame(result.frame.reviewed?result.frame:{...result.frame,context});setImage(result.imageUrl);setDirty(!result.frame.reviewed);setTool("box");setTab("annotations");await refresh();
   };
   const save = async(reviewed:boolean)=>{
     if(!frame)return;
@@ -70,11 +73,13 @@ export function TrainingPanel({experiment,file,videoUrl,currentTime,fps,open,onA
   const elapsed=trainingJob?Math.max(0,((["running","queued"].includes(trainingJob.status)?clock:Date.parse(trainingJob.updatedAt))-Date.parse(trainingJob.createdAt))/1000):0;
   return <section hidden={!open} className="training-panel panel" aria-label="Treinamento personalizado">
     <div className="training-heading"><div><span className="eyebrow">Dataset humano · versões independentes</span><h2>Ensinar o modelo</h2>
-      <p>Marque trechos, extraia frames e revise a caixa e cada parte visível. Um ponto marcado em um frame não é copiado para o trecho inteiro.</p></div>
+      <p>Exemplos para o modelo. Para corrigir o trajeto deste experimento, use a aba “Revisar vídeo”.</p></div>
       <strong>{reviewed} exemplos revisados · {state.frames.length-reviewed} rascunhos</strong></div>
     {error&&<p role="alert" className="editor-error">{error}</p>}{message&&<p role="status">{message}</p>}
     {loadError&&<p role="alert" className="editor-error">{loadError}</p>}
-    <section className="training-selection-workspace"><h3>1. Selecionar trechos</h3>
+    <EditorTabs id="training" label="Etapas do treinamento" value={tab} onChange={setTab} items={[{id:"segments",label:"1. Selecionar trechos"},{id:"annotations",label:"2. Anotar frames"},{id:"runs",label:"3. Treinar e versões"}]}/>
+    <div hidden={tab!=="segments"} role="tabpanel" id="training-segments-panel" aria-labelledby="training-segments-tab">
+    <section className="training-selection-workspace">
       <div className="training-source-row">
         {videoUrl?<video className="training-preview" ref={preview} src={videoUrl} controls muted playsInline onTimeUpdate={(e)=>onSeek(e.currentTarget.currentTime)}/>:<Button variant="secondary" onClick={onAttach}>Selecionar original para reproduzir e anotar</Button>}
         <div><h4>O que o animal está fazendo?</h4><div className="training-contexts">{Object.entries(CONTEXTS).map(([key,label])=><button key={key} disabled={busy} aria-pressed={context===key} onClick={()=>{setContext(key as Context);setMessage("");}}>{label}</button>)}</div>
@@ -94,14 +99,15 @@ export function TrainingPanel({experiment,file,videoUrl,currentTime,fps,open,onA
         {selection?.id&&<Button size="sm" variant="ghost" disabled={busy} onClick={()=>void action(async()=>{await saveTrainingIntervals(experiment.id,state.intervals.filter((i)=>i.id!==selection.id));setSelection(null);await refresh();})}>Remover trecho selecionado</Button>}
       </div>
     </section>
-    <div className="training-sections"><section><h4>Preparar os exemplos</h4>
+    <section className="training-extraction"><h4>Preparar os exemplos</h4>
       <div className="training-contexts" role="group" aria-label="Frequência dos exemplos"><span>Um exemplo a cada</span>{[.5,1,2,5].map((seconds)=><button key={seconds} disabled={busy} aria-pressed={step===seconds} onClick={()=>setStep(seconds)}>{seconds.toLocaleString("pt-BR")} s</button>)}</div>
       <div className="training-actions"><Button variant="secondary" disabled={busy||dirty} onClick={()=>void action(async()=>{await extract(currentTime);})}>Anotar frame atual</Button>
-        <Button variant="secondary" disabled={busy||dirty||!selection} onClick={()=>void action(async()=>{const times=sampleInterval(start,end,step,experiment.video.durationSec);const id=await upload();for(const [i,time] of times.entries()){setMessage(`Extraindo exemplo ${i+1}/${times.length}`);const result=await extractTrainingFrame(experiment.id,id,Math.max(0,Math.round(time*fps)),experiment.subjectId,time);if(!result.frame.reviewed)await saveTrainingFrame({...result.frame,context,updatedAt:new Date().toISOString()});}await refresh();setMessage("Frames extraídos como rascunhos. Revise cada imagem antes de treinar.");})}>Extrair exemplos do trecho</Button></div>
+        <Button variant="secondary" disabled={busy||dirty||!selection} onClick={()=>void action(async()=>{const times=sampleInterval(start,end,step,experiment.video.durationSec);const id=await upload();for(const [i,time] of times.entries()){setMessage(`Extraindo exemplo ${i+1}/${times.length}`);const result=await extractTrainingFrame(experiment.id,id,Math.max(0,Math.round(time*fps)),experiment.subjectId,time);if(!result.frame.reviewed)await saveTrainingFrame({...result.frame,context,updatedAt:new Date().toISOString()});}await refresh();setTab("annotations");setMessage("Frames extraídos como rascunhos. Revise cada imagem antes de treinar.");})}>Extrair exemplos do trecho</Button></div>
       <small>Os rótulos de comportamento são contexto; este treino aprende caixa e pontos, não classifica comportamentos automaticamente. Comece com frames variados, não só vizinhos. A extração local pode demorar em vídeos longos.</small>
-      <h4>Trechos salvos · {state.intervals.length}</h4>
+      <details><summary>Trechos salvos · {state.intervals.length}</summary>
       {state.intervals.map((interval)=><div className="training-interval" key={interval.id}><button disabled={busy} aria-pressed={selection?.id===interval.id} onClick={()=>selectInterval(interval)}>{CONTEXTS[interval.context]} · {timelineTime(interval.startSec)}–{timelineTime(interval.endSec)}</button></div>)}
-    </section><section><h3>2. Revisar exemplos, inclusive frames sem detecção</h3>
+      </details>
+    </section></div><section hidden={tab!=="annotations"} role="tabpanel" id="training-annotations-panel" aria-labelledby="training-annotations-tab" className="training-annotation-workspace"><h3>Anotar exemplos para o modelo</h3>
       <div className="training-frame-list">{state.frames.map((f)=><button key={f.id} aria-pressed={frame?.id===f.id} disabled={busy} onClick={()=>void action(()=>selectFrame(f))}>Frame {f.frameIndex} · {f.reviewed?"Revisado":"Rascunho"}</button>)}</div>
       {!frame&&<p>Não é necessário ter tracking. Use “Anotar frame atual” para criar pontos mesmo quando nenhum foi detectado.</p>}
       {frame&&image&&<><div className="training-actions"><Button size="sm" variant={tool==="box"?"primary":"secondary"} onClick={()=>setTool("box")}>Desenhar caixa do animal</Button><Button size="sm" variant={tool==="point"?"primary":"secondary"} onClick={()=>setTool("point")}>Posicionar parte selecionada</Button></div>
@@ -119,8 +125,8 @@ export function TrainingPanel({experiment,file,videoUrl,currentTime,fps,open,onA
         <small>Todos os frames do mesmo vídeo devem usar o mesmo grupo. Para avaliar generalização, reserve também animais independentes.</small>
         <div className="training-actions"><Button variant="secondary" disabled={busy} onClick={()=>void action(()=>save(false))}>Salvar rascunho</Button><Button disabled={busy} onClick={()=>void action(()=>save(true))}>Confirmar exemplo revisado</Button><Button variant="ghost" disabled={busy} onClick={()=>{change({keypoints:emptyKeypoints(),bbox:null});}}>Limpar rótulos deste frame</Button></div>
       </>}
-    </section></div>
-    <section><h3>3. Treinar uma nova versão no Colab</h3><p>Serão enviados os frames revisados e seus rótulos de todos os experimentos deste dispositivo, acumulando seus exemplos. Cada execução usa um snapshot imutável do dataset. Alterações posteriores ficam para o próximo treino. Não há promessa de melhora automática.</p>
+    </section>
+    <section hidden={tab!=="runs"} role="tabpanel" id="training-runs-panel" aria-labelledby="training-runs-tab" className="training-runs-workspace"><h3>Treinar uma nova versão no Colab</h3><p>Serão enviados os frames revisados e seus rótulos de todos os experimentos deste dispositivo, acumulando seus exemplos. Cada execução usa um snapshot imutável do dataset. Alterações posteriores ficam para o próximo treino. Não há promessa de melhora automática.</p>
       <p>Dois exemplos permitem testar o fluxo, não demonstram precisão. O treinamento pode demorar; mantenha o app aberto. Separe vídeos e animais para uma avaliação independente.</p>
       <div className="training-fields"><label>Épocas (1–20)<input aria-label="Épocas de treinamento" type="number" min="1" max="20" value={epochs} onChange={(e)=>setEpochs(Number(e.target.value))}/></label></div>
       <label className="training-consent"><input type="checkbox" checked={consent} onChange={(e)=>setConsent(e.target.checked)}/> Autorizo enviar os exemplos revisados de todos os experimentos ao meu Colab e usar GPU para este treinamento experimental.</label>

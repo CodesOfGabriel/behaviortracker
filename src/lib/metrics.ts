@@ -4,7 +4,7 @@ import { metricEligible } from "./pose";
 
 export const METRIC_POLICY = { version: "oft-0.2", maxPairGapSec: .5, minScore: .6,
   immobilityThresholdCmS: 2, minImmobilityDurationSec: .5, minCenterDwellSec: .2,
-  eligibility: "valid_detected_or_manually_confirmed", intervalPolicy: "both_endpoints_valid" } as const;
+  eligibility: "valid_detected_or_manually_confirmed", intervalPolicy: "both_endpoints_valid", requireConsecutiveFrames: true } as const;
 
 export interface MetricOptions {
   maxPairGapSec?: number;
@@ -94,7 +94,8 @@ export function calculateOftMetrics(
     const delta = samples[index + 1].timestampSec - samples[index].timestampSec;
     if (!(delta > 0)) continue;
     analysisDuration += delta;
-    const pairEligible = floorPoints[index] && floorPoints[index + 1] && delta <= maxPairGapSec;
+    const consecutive = samples[index + 1].frameIndex === samples[index].frameIndex + 1;
+    const pairEligible = floorPoints[index] && floorPoints[index + 1] && delta <= maxPairGapSec && consecutive;
     const zone = pairEligible ? zones[index] : "unknown";
     intervals.push({ start: samples[index].timestampSec, duration: delta, zone });
     if (zone === "center") centerTime += delta;
@@ -103,7 +104,7 @@ export function calculateOftMetrics(
 
     const current = floorPoints[index];
     const next = floorPoints[index + 1];
-    if (!current || !next || delta > maxPairGapSec) {
+    if (!current || !next || delta > maxPairGapSec || !consecutive) {
       flushImmobility();
       continue;
     }

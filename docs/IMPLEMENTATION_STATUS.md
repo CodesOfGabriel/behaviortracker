@@ -11,6 +11,9 @@
 - [x] Importação do CSV canônico de pose.
 - [x] Player/timeline, inspeção de QC e navegação até o próximo problema.
 - [x] Correção por arraste/clique, marcação de ponto ausente, confirmação explícita e undo auditável para pontos e comportamentos.
+- [x] Editor organizado em abas exclusivas: revisão, comportamentos, exemplos/treino, diagnóstico e execuções. O treinamento separa seleção, anotação e versões; o histórico de correções agora permite navegar e desfazer registros.
+- [x] Posicionamento de partes omitidas no resultado, arraste com captura do frame/coordenadas originais, prévia de pontos/segmentos e persistência ao soltar. Trajeto e métricas revisados são recalculados localmente, sem alterar poses brutas nem precisar de novo job Colab. Apenas o ponto de referência do experimento controla distância/zonas; as demais partes não o deslocam implicitamente.
+- [x] Métricas exigem pares de frames consecutivos, sem unir linhas omitidas. Timestamps de outras partes preservam o tempo desconhecido quando falta a referência, inclusive no início/fim. Testes numéricos e de interface com vídeo sintético cobrem omissão, reposicionamento, desfazer, bruto/revisado e resultados; não substituem validação científica externa.
 - [x] Anotação de início/fim de rearing, grooming e freezing, revisão completa por classe, frequência/duração e exportação de episódios sem duplicar sobreposições.
 - [x] Sugestões exploratórias de comportamento, com descarte/confirmação humana; ausência de anotação não é tratada como zero.
 - [x] Alternância entre dados brutos e revisados.

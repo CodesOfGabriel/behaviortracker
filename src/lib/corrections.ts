@@ -16,7 +16,22 @@ export function applyCorrections(samples: PoseSample[], events: CorrectionEvent[
       overrides.set(key, [...(overrides.get(key) ?? []), event]);
     }
   });
-  return samples.map((sample) => {
+  // Algumas saídas omitem a linha inteira de uma parte não detectada.
+  // Uma posição humana pode criá-la; confirmação sozinha nunca cria observação.
+  const existing = new Set(samples.map((sample) => `${sample.frameIndex}:${sample.keypoint}`));
+  const frameTimes = new Map(samples.map((sample) => [sample.frameIndex, sample.timestampSec]));
+  const additions: PoseSample[] = [];
+  for (const [key, changes] of overrides) {
+    if (existing.has(key)) continue;
+    const move = changes.find((event) => event.type === "MOVE_POINT" && event.after
+      && Number.isFinite(event.after.x) && Number.isFinite(event.after.y) && event.after.x >= 0 && event.after.y >= 0);
+    if (!move || move.frameIndex == null || !move.keypoint) continue;
+    const timestampSec = frameTimes.get(move.frameIndex) ?? move.timestampSec;
+    if (timestampSec == null || !Number.isFinite(timestampSec) || timestampSec < 0 || !Number.isInteger(move.frameIndex) || move.frameIndex < 0) continue;
+    additions.push({ frameIndex: move.frameIndex, timestampSec, keypoint: move.keypoint, xPx: null, yPx: null,
+      status: "missing", likelihood: 0, source: "detected" });
+  }
+  const result = [...samples, ...additions].map((sample) => {
     const original = sample.original ?? { xPx: sample.xPx, yPx: sample.yPx, likelihood: sample.likelihood,
       status: sample.status, spatialRegion: sample.spatialRegion, supportCount: sample.supportCount, supportTotal: sample.supportTotal };
     return (overrides.get(`${sample.frameIndex}:${sample.keypoint}`) ?? []).reduce<PoseSample>((current, event) => {
@@ -31,5 +46,6 @@ export function applyCorrections(samples: PoseSample[], events: CorrectionEvent[
       return { ...current, original, xPx: event.after.x, yPx: event.after.y, status: "valid", source: "manual", spatialRegion: "unknown" };
     }, sample);
   });
+  return additions.length ? result.sort((a, b) => a.timestampSec - b.timestampSec || a.frameIndex - b.frameIndex || a.keypoint.localeCompare(b.keypoint)) : result;
 }
 

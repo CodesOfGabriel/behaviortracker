@@ -39,7 +39,7 @@ async function waitFor(expression) {
   throw new Error(`Timeout aguardando: ${expression}`);
 }
 
-const button = (label) => `Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim() === ${JSON.stringify(label)})`;
+const button = (label) => `Array.from(document.querySelectorAll('button')).find(b => b.getClientRects().length && b.textContent.trim() === ${JSON.stringify(label)})`;
 async function click(label) {
   await waitFor(`${button(label)} && !${button(label)}.disabled`);
   await evaluate(`${button(label)}.click()`);
@@ -123,9 +123,11 @@ try {
   await waitFor(`!!document.querySelector('.dlc-video-panel')`);
   assert.ok(await evaluate(`!document.querySelector('.tracking-overlay')`), "O vídeo bruto do DLC não pode mostrar correções do editor");
   assert.ok(await evaluate(`document.querySelector('.dlc-video-panel').textContent.includes('sem correções do editor')`));
-  assert.ok(await evaluate(`${button("Confirmar ponto após revisar")}.disabled`));
+  assert.ok(await evaluate(`!${button("Confirmar ponto após revisar")}`));
   await click("Editor");
   await waitFor(`!!document.querySelector('.tracking-overlay')`);
+  assert.ok(await evaluate(`document.querySelector('.behavior-review').getClientRects().length===0`),'Comportamentos não devem poluir a aba de correção');
+  await click('Comportamentos');
   await waitFor(`!!document.querySelector('.behavior-review')`);
   // Episódios precisos, erros de intervalo e undo auditável, sem contas externas.
   await click("Confirmar episódio");
@@ -208,7 +210,7 @@ try {
         if (name === 'append_video_staging_chunk' || name === 'finish_video_staging') return {};
         if (name === 'start_colab_analysis') { const next = {...diagnostic,jobId:'new-diagnostic',status:'queued',stage:'queued',diagnostic:args.request.diagnostic}; mockJobs=[next,...mockJobs]; return next; }
         if (name === 'get_colab_job_video') return {jobId:job.jobId,videoPath:'/fake/results/dlc.mp4',videoError:null};
-        if (name === 'get_colab_job_result') return 'frame_index,timestamp_sec,keypoint,x_px,y_px,likelihood,status\\n0,0,body_center,400,400,.9,valid\\n1,.041667,body_center,401,400,.9,valid';
+        if (name === 'get_colab_job_result') return 'frame_index,timestamp_sec,keypoint,x_px,y_px,likelihood,status\\n0,0,body_center,400,400,.9,valid\\n1,.041667,nose,700,500,.9,valid\\n2,.083333,body_center,420,400,.9,valid';
         throw new Error('Chamada nativa inesperada: ' + name);
       }
     };
@@ -216,6 +218,52 @@ try {
   await command("Page.reload");
   await waitFor(`!!document.querySelector('.experiment-row')`);
   await evaluate(`document.querySelector('.experiment-row').click()`);
+  await waitFor(`!!document.querySelector('.tracking-overlay')`);
+  // Linha do centro omitida no frame 1: o usuário pode posicionar sem CSV nem treino.
+  await evaluate(`document.querySelector('[title="Próximo frame"]').click()`);
+  await waitFor(`document.querySelector('.stage-badges').textContent.includes('Frame 1')`);
+  assert.equal(await evaluate(`document.querySelector('.tracking-point[data-keypoint="body_center"]')`),null);
+  assert.ok(await evaluate(`document.querySelector('.review-feedback').textContent.includes('Não mensurável')`));
+  const editorPoint=async(x,y)=>evaluate(`(()=>{const svg=document.querySelector('.tracking-overlay');svg.scrollIntoView({block:'center'});const p=new DOMPoint(${x},${y}).matrixTransform(svg.getScreenCTM());return {x:p.x,y:p.y};})()`);
+  const moveMouse=async(from,to)=>{
+    await command('Input.dispatchMouseEvent',{type:'mousePressed',...from,button:'left',clickCount:1});
+    await command('Input.dispatchMouseEvent',{type:'mouseMoved',...to,button:'left',buttons:1});
+    await command('Input.dispatchMouseEvent',{type:'mouseReleased',...to,button:'left'});
+  };
+  await moveMouse(await editorPoint(405,395),await editorPoint(410,400));
+  await waitFor(`document.querySelector('.tracking-point[data-keypoint="body_center"]')?.getAttribute('aria-label').includes('manualmente')`);
+  const firstMove=await evaluate(`JSON.parse(localStorage.getItem('behavetracker.experiments.v1'))[0].corrections.at(-1)`);
+  assert.equal(firstMove.frameIndex,1);
+  assert.equal(firstMove.before,null);
+  assert.ok(Math.abs(firstMove.after.x-410)<.01);
+  await waitFor(`!document.querySelector('.review-feedback').textContent.includes('Não mensurável')`);
+  const repairedMetrics=await evaluate(`document.querySelector('.review-feedback').textContent`);
+  assert.ok(repairedMetrics.includes('100.0%'),'Centro recolocado deve restaurar cobertura dos pares adjacentes');
+  await moveMouse(await editorPoint(410,400),await editorPoint(410,440));
+  await waitFor(`document.querySelector('.review-feedback').textContent!==${JSON.stringify(repairedMetrics)}`);
+  const countBeforeClick=await evaluate(`JSON.parse(localStorage.getItem('behavetracker.experiments.v1'))[0].corrections.length`);
+  await moveMouse(await editorPoint(410,440),await editorPoint(410,440));
+  assert.equal(await evaluate(`JSON.parse(localStorage.getItem('behavetracker.experiments.v1'))[0].corrections.length`),countBeforeClick,'Clicar sem mover não pode confirmar um ponto acidentalmente');
+  await click('Histórico');
+  await waitFor(`document.querySelectorAll('.correction-history article').length===2`);
+  await click('Desfazer correção');
+  await waitFor(`document.querySelectorAll('.correction-history article').length===1`);
+  await click('Correção');
+  await click('Bruto');
+  assert.equal(await evaluate(`document.querySelector('.tracking-point[data-keypoint="body_center"]')`),null,'Bruto não pode ganhar a parte criada manualmente');
+  await click('Revisado');
+  assert.ok(await evaluate(`!!document.querySelector('.tracking-point[data-keypoint="body_center"]')`));
+  const cleanEditor=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});
+  await writeFile(join(directory,'tabbed-manual-correction.png'),Buffer.from(cleanEditor.data,'base64'));
+  await click('Ver resultados');
+  await waitFor(`!!document.querySelector('.metric-card strong')`);
+  const correctedDistance=await evaluate(`document.querySelector('.metric-card strong').textContent`);
+  assert.notEqual(correctedDistance,'Não mensurável');
+  await click('Dados brutos');
+  assert.equal(await evaluate(`document.querySelector('.metric-card strong').textContent`),'Não mensurável');
+  await click('Dados revisados');
+  assert.equal(await evaluate(`document.querySelector('.metric-card strong').textContent`),correctedDistance);
+  await click('Voltar ao editor');
   await waitFor(`!!document.querySelector('.tracking-overlay')`);
   await click("Vídeo do DeepLabCut");
   await waitFor(`document.querySelector('.dlc-video-panel video')?.readyState >= 2`);
@@ -236,7 +284,7 @@ try {
   await evaluate(`document.querySelector('.diagnostic-player video').currentTime = 3/24`);
   await waitFor(`document.querySelectorAll('.diagnostic-player svg circle').length === 3`);
   assert.equal(await evaluate(`document.querySelector('.diagnostic-player svg rect').getAttribute('x')`), '20');
-  assert.ok(await evaluate(`!!document.querySelector('.tracking-overlay')`), 'Diagnóstico não deve substituir o editor');
+  assert.ok(await evaluate(`!document.querySelector('.tracking-overlay')`), 'Diagnóstico deve ocupar sua própria aba sem misturar ferramentas');
   assert.equal(await evaluate(`window.__MOCK_CALLS.filter(c => c.name === 'get_colab_job_result').some(c => c.args.jobId === 'local-diagnostic-fixture')`), false, 'Pontos brutos de diagnóstico não podem virar métricas do experimento');
   await setField('[aria-label="Fim do diagnóstico"]',61);
   assert.ok(await evaluate(`${button("Testar trecho no Colab")}.disabled`));
@@ -267,9 +315,13 @@ try {
   assert.equal(await evaluate(`window.__MOCK_CALLS.filter(c => c.name === 'start_colab_analysis' && !c.args.request.diagnostic).length`),0);
   await click('Ensinar o modelo');
   await waitFor(`!document.querySelector('.training-panel').hidden`);
+  assert.equal(await evaluate(`Array.from(document.querySelectorAll('.training-panel [role=tabpanel]')).filter(p=>p.getClientRects().length).length`),1,'Trechos, anotações e versões não podem aparecer empilhados');
   await click('Nas duas patas');
   assert.equal(await evaluate(`document.querySelector('[aria-label="Início do trecho de treino"]')`),null,'Não deve pedir digitação dos tempos');
-  const timelinePoint=async(time,lane='.range-draft-track')=>evaluate(`(()=>{const track=document.querySelector(${JSON.stringify(lane)}),scroller=document.querySelector('.range-scroll'),left=scroller.scrollLeft;track.scrollIntoView({block:'center',inline:'nearest'});scroller.scrollLeft=left;const rect=track.getBoundingClientRect();return {x:rect.left+rect.width*${time},y:rect.top+rect.height/2};})()`);
+  const timelinePoint=async(time,lane='.range-draft-track')=>{
+    await evaluate(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true))))`);
+    return evaluate(`(()=>{const track=document.querySelector(${JSON.stringify(lane)}),scroller=document.querySelector('.range-scroll'),left=scroller.scrollLeft;track.scrollIntoView({block:'center',inline:'nearest'});scroller.scrollLeft=left;const rect=track.getBoundingClientRect();return {x:rect.left+rect.width*${time},y:rect.top+rect.height/2};})()`);
+  };
   const drag=async(from,to)=>{
     await command('Input.dispatchMouseEvent',{type:'mousePressed',...from,button:'left',clickCount:1});
     await command('Input.dispatchMouseEvent',{type:'mouseMoved',...to,button:'left',buttons:1});
@@ -284,7 +336,7 @@ try {
   assert.ok(Math.abs(await evaluate(`window.__TRAINING.intervals[0].startSec`))<.0001);
   assert.ok(Math.abs(await evaluate(`window.__TRAINING.intervals[0].endSec`)-.5)<.0001);
   const savedIntervalId=await evaluate(`window.__TRAINING.intervals[0].id`);
-  const handlePoint=async(edge)=>evaluate(`(()=>{const handle=document.querySelector('.range-handle-'+${JSON.stringify(edge)});handle.scrollIntoView({block:'center'});const r=handle.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};})()`);
+  const handlePoint=async(edge)=>{await timelinePoint(0);return evaluate(`(()=>{const handle=document.querySelector('.range-handle-'+${JSON.stringify(edge)});const r=handle.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};})()`);};
   await drag(await handlePoint('end'),await timelinePoint(.75));
   await waitFor(`Math.abs(Number(document.querySelector('[aria-label="Ajustar fim do trecho"]').getAttribute('aria-valuenow'))-.75)<.0001`);
   await click('Salvar alterações do trecho');
@@ -363,6 +415,8 @@ try {
   assert.ok(Math.abs(annotated.keypoints.nose.x-40)<.01);
   assert.equal(annotated.keypoints.hip.x,null);
   assert.equal(annotated.keypoints.hip.state,'occluded');
+  await click('3. Treinar e versões');
+  assert.equal(await evaluate(`document.querySelector('.training-image').getClientRects().length`),0,'Anotação deve ficar preservada, mas oculta na aba de treino');
   assert.ok(await evaluate(`${button('Enviar exemplos e treinar no Colab')}.disabled`),'Treino não pode iniciar com um único frame e sem consentimento');
   assert.equal(await evaluate(`window.__MOCK_CALLS.filter(c=>c.name==='start_custom_training').length`),0);
   assert.equal(await evaluate(`JSON.stringify(JSON.parse(localStorage.getItem('behavetracker.experiments.v1'))[0].corrections)`),preserved,'Anotações de treino não podem alterar correções científicas');
@@ -370,6 +424,7 @@ try {
   await writeFile(join(directory,'custom-training-labels.png'),Buffer.from(trainingScreen.data,'base64'));
   await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false});
   assert.ok(await evaluate(`document.querySelector('.training-panel').scrollWidth<=document.querySelector('.training-panel').clientWidth+1`),'Overflow interno na anotação mobile');
+  await click('1. Selecionar trechos');
   await click('Novo trecho');
   await command('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:1});
   const touchStart=await timelinePoint(.2),touchEnd=await timelinePoint(.8);
@@ -384,8 +439,13 @@ try {
   await command('Input.dispatchTouchEvent',{type:'touchCancel',touchPoints:[]});
   assert.ok(Math.abs(await evaluate(`Number(document.querySelector('.range-handle-start').getAttribute('aria-valuenow'))`)-5/24)<.0001,'Gesto cancelado deve preservar a seleção anterior');
   await command('Emulation.setTouchEmulationEnabled',{enabled:false});
+  await click('Revisar vídeo');
+  assert.ok(await evaluate(`document.querySelector('.training-panel').hidden`));
+  const mobileReview=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});
+  await writeFile(join(directory,'tabbed-review-mobile.png'),Buffer.from(mobileReview.data,'base64'));
+  assert.ok(await evaluate(`document.documentElement.scrollWidth<=innerWidth`),'Abas não podem causar overflow na página');
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ dualSelection: "passed", confirmation: "passed", pointerAndKeyboard: "passed", persistence: "passed", desktopAndMobile: "passed", behaviorIntervalsUndoAndResults: "passed", separateDlcVideoView: "passed", realMp4PlaybackWithMockNativeBridge: "passed", diagnosticRawOverlayAndIsolation: "passed", missingCacheRecovery: "passed", trainingIntervalsAndManualParts: "passed", trainingTimelineDragTrimMoveZoomAndTouch: "passed",trainingConsentAndScientificIsolation: "passed", directory }));
+  console.log(JSON.stringify({ dualSelection: "passed", confirmation: "passed", pointerAndKeyboard: "passed", persistence: "passed", desktopAndMobile: "passed", behaviorIntervalsUndoAndResults: "passed", tabbedWorkspaces: "passed", manualMissingPointDragMetricsAndUndo: "passed", separateDlcVideoView: "passed", realMp4PlaybackWithMockNativeBridge: "passed", diagnosticRawOverlayAndIsolation: "passed", missingCacheRecovery: "passed", trainingIntervalsAndManualParts: "passed", trainingTimelineDragTrimMoveZoomAndTouch: "passed",trainingConsentAndScientificIsolation: "passed", directory }));
 } catch (error) {
   if(ws?.readyState===WebSocket.OPEN){
     const failure=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true}).catch(()=>null);

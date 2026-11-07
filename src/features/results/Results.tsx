@@ -22,7 +22,7 @@ import { downloadText, poseToCsv } from "../../lib/csv";
 import { centerPolygonPx, pointsToSvg } from "../../lib/geometry";
 import { calculateOftMetrics, METRIC_POLICY } from "../../lib/metrics";
 import { BEHAVIOR_LABELS, BEHAVIOR_POLICY, behaviorCsv, behaviorSummary } from "../../lib/behaviors";
-import { metricEligible, originalPose, trajectorySegments } from "../../lib/pose";
+import { metricEligible, originalPose, referencePoseSamples, trajectorySegments } from "../../lib/pose";
 import { formatDuration } from "../../lib/format";
 import { useAppStore } from "../../store/AppStore";
 import type { OftMetrics } from "../../types";
@@ -62,8 +62,8 @@ export function Results({ experimentId }: { experimentId: string }) {
     [experiment, inputSamples],
   );
   const referencePoint = experiment?.referencePoint ?? "body_center";
-  const rawReference = rawSamples.filter((sample) => sample.keypoint === referencePoint);
-  const reviewedReference = reviewedSamples.filter((sample) => sample.keypoint === referencePoint);
+  const rawReference = useMemo(() => referencePoseSamples(rawSamples,referencePoint),[rawSamples,referencePoint]);
+  const reviewedReference = useMemo(() => referencePoseSamples(reviewedSamples,referencePoint),[reviewedSamples,referencePoint]);
   const rawMetrics = useMemo(
     () => experiment && rawReference.length ? calculateOftMetrics(rawReference, experiment.arena, { revision: "raw" }) : null,
     [experiment, rawReference],
