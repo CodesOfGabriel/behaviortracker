@@ -290,7 +290,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   const boxKeyframes = useMemo(() => {
     if (!macroMode) return [];
     const frames = new Set(activeEvents.filter((event) => event.type === "SET_BOX" && event.keypoint === "box_center").map((event) => event.frameIndex));
-    return reviewedReference.filter((sample) => frames.has(sample.frameIndex) && sample.source === "manual" && sample.bbox);
+    return reviewedReference.filter((sample) => (frames.has(sample.frameIndex) || sample.reason === "manual_anchor") && sample.source === "manual" && sample.bbox);
   }, [activeEvents, macroMode, reviewedReference]);
   const keyframePreview = useMemo(() => macroMode && viewMode === "reviewed"
     ? trajectorySegments(reviewedReference.filter((sample) => sample.bbox && (boxKeyframes.some((keyframe) => keyframe.frameIndex === sample.frameIndex) || sample.reason === "manual_keyframe_interpolation"))

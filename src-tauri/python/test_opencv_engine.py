@@ -9,7 +9,7 @@ try:
     import numpy as np
 except ImportError:
     cv2 = np = None
-from opencv_engine import Segmenter, TemporalTracker, run
+from opencv_engine import ManualVisualTracker, Segmenter, TemporalTracker, run
 
 
 def config(**overrides):
@@ -110,3 +110,50 @@ class OpenCVTests(unittest.TestCase):
         result=Segmenter(cfg).process(self.frame(),0)
         self.assertAlmostEqual(result["xPx"],100,delta=2)
         self.assertGreater(result["bbox"]["width"],20)
+
+    def textured_frame(self, x=None):
+        image=np.zeros((240,320,3),np.uint8)
+        cv2.rectangle(image,(245,85),(272,111),(190,190,190),-1)  # objeto fixo que não é o animal
+        if x is not None:
+            cv2.ellipse(image,(x,110),(16,11),0,0,360,(225,225,225),-1)
+            cv2.circle(image,(x+8,107),3,(30,30,30),-1)
+            cv2.line(image,(x-8,110),(x-2,115),(90,90,90),2)
+        return image
+
+    def test_visual_tracker_learns_only_human_crops_and_stops_after_loss(self):
+        tracker=ManualVisualTracker(320,240,1)
+        box={"x":64,"y":98,"width":32,"height":24}
+        tracker.add_anchor(self.textured_frame(80),box)
+        tracker.begin(self.textured_frame(80),box)
+        for x in range(82,121,2):
+            estimate=tracker.update(self.textured_frame(x))
+            self.assertIsNotNone(estimate, f"animal na posição {x}")
+            self.assertAlmostEqual(estimate["bbox"]["x"]+estimate["bbox"]["width"]/2,x,delta=4)
+        self.assertFalse(any(tracker.update(self.textured_frame(None)) for _ in range(6)))
+
+    @unittest.skipUnless(shutil.which("ffprobe") and shutil.which("ffmpeg"),"FFmpeg necessário")
+    def test_guided_run_preserves_human_anchors_and_marks_estimates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);video=root/"input.mp4"
+            for index in range(70):
+                x=80+index if index<60 else None
+                (root/f"frame{index:02d}.png").write_bytes(cv2.imencode(".png",self.textured_frame(x))[1].tobytes())
+            subprocess.run([shutil.which("ffmpeg"),"-v","error","-framerate","20","-i",str(root/"frame%02d.png"),"-c:v","libx264","-pix_fmt","yuv420p",str(video)],check=True)
+            anchors=[{"frameIndex":i,"timestampSec":i/20,"box":{"x":64+i,"y":98,"width":32,"height":24},"eventId":f"event-{i}"} for i in (0,20)]
+            cfg=config(guidance={"sourceJobId":"prior-job","anchors":anchors},initialBox=anchors[0]["box"])
+            (root/"request.json").write_text(json.dumps({"video":str(video),"config":cfg,"ffprobe":shutil.which("ffprobe"),"ffmpeg":shutil.which("ffmpeg")}))
+            run(root/"request.json")
+            report=json.loads((root/"status.json").read_text())
+            records=[json.loads(line) for line in (root/"samples.jsonl").read_text().splitlines()]
+            self.assertEqual(report["state"],"succeeded")
+            self.assertEqual(report["guidanceSourceJobId"],"prior-job")
+            self.assertEqual(report["manualAnchorCount"],2)
+            self.assertEqual(len(records),70)
+            self.assertEqual(records[0]["source"],"manual")
+            self.assertEqual(records[20]["bbox"],anchors[1]["box"])
+            self.assertEqual(records[10]["source"],"predicted")
+            self.assertEqual(records[10]["reason"],"manual_keyframe_interpolation")
+            self.assertFalse(records[10]["referenceApproved"])
+            self.assertIn(records[30]["reason"],("assisted_visual_and_contour","assisted_visual_match"))
+            self.assertAlmostEqual(records[30]["xPx"],110,delta=5)
+            self.assertEqual(records[69]["status"],"missing")

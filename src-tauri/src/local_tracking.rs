@@ -198,6 +198,33 @@ fn validate_config(config: &Value) -> CommandResult<()> {
             return Err("Caixa inicial fora da imagem".into());
         }
     }
+    if let Some(guidance) = config.get("guidance").filter(|value| !value.is_null()) {
+        let source = guidance["sourceJobId"].as_str().ok_or("Execução de origem ausente")?;
+        validate_local_id(source, "Execução de origem")?;
+        let anchors = guidance["anchors"].as_array().filter(|items| (2..=5000).contains(&items.len()))
+            .ok_or("A continuação precisa de 2 a 5000 caixas humanas")?;
+        let mut previous_frame = None;
+        let mut previous_time = None;
+        for anchor in anchors {
+            let frame = anchor["frameIndex"].as_u64().filter(|value| *value <= 2_000_000).ok_or("Frame manual inválido")?;
+            let time = anchor["timestampSec"].as_f64().filter(|value| value.is_finite() && *value >= 0.).ok_or("Tempo manual inválido")?;
+            if previous_frame.is_some_and(|value| frame <= value) || previous_time.is_some_and(|value| time <= value) {
+                return Err("Caixas humanas devem estar em frames e tempos crescentes".into());
+            }
+            validate_local_id(anchor["eventId"].as_str().ok_or("ID da correção ausente")?, "Correção")?;
+            let b = &anchor["box"];
+            let x = b["x"].as_f64().filter(|value| value.is_finite() && *value >= 0.).ok_or("Caixa humana inválida")?;
+            let y = b["y"].as_f64().filter(|value| value.is_finite() && *value >= 0.).ok_or("Caixa humana inválida")?;
+            let w = b["width"].as_f64().filter(|value| value.is_finite() && *value >= 3.).ok_or("Caixa humana muito pequena")?;
+            let h = b["height"].as_f64().filter(|value| value.is_finite() && *value >= 3.).ok_or("Caixa humana muito pequena")?;
+            if x + w > width as f64 || y + h > height as f64 { return Err("Caixa humana fora da imagem".into()); }
+            previous_frame = Some(frame);
+            previous_time = Some(time);
+        }
+        if previous_time.unwrap() - anchors[0]["timestampSec"].as_f64().unwrap() < 1. {
+            return Err("Marque ao menos 1 segundo de caixas humanas".into());
+        }
+    }
     if config["mode"] == "background"
         && !config["backgroundFrameIndex"]
             .as_u64()
@@ -209,6 +236,27 @@ fn validate_config(config: &Value) -> CommandResult<()> {
         return Err("Confirme a política da referência 2D".into());
     }
     Ok(())
+}
+fn verify_guidance_frames(path: &std::path::Path, anchors: &[Value]) -> CommandResult<()> {
+    let file = File::open(path).map_err(|_| "Resultado de origem indisponível")?;
+    let mut next = 0;
+    for line in BufReader::new(file).lines() {
+        let line = line.map_err(|_| "Resultado de origem ilegível")?;
+        let sample: Value = serde_json::from_str(&line).map_err(|_| "Resultado de origem inválido")?;
+        let frame = sample["frameIndex"].as_u64().ok_or("Frame da origem inválido")?;
+        let expected = anchors[next]["frameIndex"].as_u64().unwrap();
+        if frame > expected { return Err("Caixa manual aponta para um frame ausente na origem".into()); }
+        if frame == expected {
+            let time = sample["timestampSec"].as_f64().ok_or("Tempo da origem inválido")?;
+            let annotated = anchors[next]["timestampSec"].as_f64().unwrap();
+            if sample["keypoint"]!="box_center" || !time.is_finite() || (time-annotated).abs() > 0.002 {
+                return Err("Caixa manual não corresponde ao relógio do vídeo de origem".into());
+            }
+            next += 1;
+            if next == anchors.len() { return Ok(()); }
+        }
+    }
+    Err("Caixa manual aponta para além do vídeo de origem".into())
 }
 #[tauri::command]
 pub async fn start_local_tracking(
@@ -231,6 +279,15 @@ pub async fn start_local_tracking(
         if active{return Err("Aguarde ou cancele a análise local ativa".into());}
         let (path,digest,size):(String,String,i64)=connection.query_row("SELECT local_path,sha256,expected_size FROM video_staging WHERE upload_id=?1 AND experiment_id=?2 AND ready=1",params![upload_id,experiment_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(|_|"Selecione o vídeo original")?;
         if size<=0||fs::metadata(&path).map_err(|_|"Cache do vídeo ausente")?.len()!=size as u64||video::sha256(std::path::Path::new(&path))?!=digest{return Err("Cache do vídeo alterado; selecione novamente o original".into());}
+        if let Some(guidance) = config.get("guidance").filter(|value| !value.is_null()) {
+            let source = guidance["sourceJobId"].as_str().ok_or("Execução de origem ausente")?;
+            let (state,source_digest):(String,String)=connection.query_row(
+                "SELECT state,video_sha256 FROM local_tracking_jobs WHERE job_id=?1 AND experiment_id=?2",
+                params![source,experiment_id],|r|Ok((r.get(0)?,r.get(1)?)))
+                .map_err(|_|"Execução manual de origem não encontrada")?;
+            if state!="succeeded" || source_digest!=digest {return Err("A revisão manual não pertence a uma execução concluída deste vídeo".into());}
+            verify_guidance_frames(&folder(&app,source)?.join("samples.jsonl"),guidance["anchors"].as_array().unwrap())?;
+        }
         let id=new_uuid_v4();let directory=folder(&app,&id)?;fs::create_dir_all(&directory).map_err(|_|"Pasta da execução indisponível")?;
         let request=json!({"video":path,"config":config,"ffprobe":ffprobe,"ffmpeg":ffmpeg});
         fs::write(directory.join("request.json"),request.to_string()).map_err(|_|"Solicitação local indisponível")?;
@@ -414,6 +471,32 @@ mod tests {
         let mut config = valid_config();
         config["mode"] = json!("background");
         assert!(validate_config(&config).is_err());
+    }
+    #[test]
+    fn validates_manual_guidance_and_source_frame_clock() {
+        let anchors=json!([
+            {"frameIndex":0,"timestampSec":0.0,"eventId":"event-0","box":{"x":40,"y":80,"width":30,"height":20}},
+            {"frameIndex":20,"timestampSec":1.0,"eventId":"event-20","box":{"x":60,"y":80,"width":30,"height":20}}
+        ]);
+        let mut config=valid_config();
+        config["guidance"]=json!({"sourceJobId":"prior-job","anchors":anchors});
+        assert!(validate_config(&config).is_ok());
+        let directory=std::env::temp_dir().join(format!("behavetracker-guidance-test-{}",new_uuid_v4()));
+        fs::create_dir(&directory).unwrap();
+        let path=directory.join("samples.jsonl");
+        let lines=(0..=20).map(|frame|json!({"frameIndex":frame,"timestampSec":frame as f64/20.,"keypoint":"box_center"}).to_string()).collect::<Vec<_>>().join("\n");
+        fs::write(&path,lines).unwrap();
+        assert!(verify_guidance_frames(&path,config["guidance"]["anchors"].as_array().unwrap()).is_ok());
+        config["guidance"]["anchors"][1]["timestampSec"]=json!(1.01);
+        assert!(verify_guidance_frames(&path,config["guidance"]["anchors"].as_array().unwrap()).is_err());
+        config["guidance"]["anchors"][1]["timestampSec"]=json!(1.0);
+        config["guidance"]["anchors"][1]["box"]["x"]=json!(310);
+        assert!(validate_config(&config).is_err());
+        config["guidance"]["anchors"][1]["box"]["x"]=json!(60);
+        config["guidance"]["anchors"][1]["frameIndex"]=json!(0);
+        assert!(validate_config(&config).is_err());
+        fs::remove_file(path).unwrap();
+        fs::remove_dir(directory).unwrap();
     }
     #[test]
     fn incremental_reads_wait_for_complete_lines_and_limit_each_batch() {

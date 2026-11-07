@@ -11,7 +11,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "opencv-box-2"
+VERSION = "opencv-box-3"
 
 
 def write_json(path, value):
@@ -86,6 +86,102 @@ class TemporalTracker:
         self.last = (*point, timestamp)
 
 
+class ManualVisualTracker:
+    """Referências visuais de caixas humanas; não é um detector treinado.
+
+    Fluxo óptico orienta a busca, mas cada nova caixa exige correspondência
+    visual com uma das imagens verificadas. Ao perder a evidência, para.
+    """
+    def __init__(self, width, height, scale):
+        import cv2
+        import numpy as np
+        self.cv, self.np = cv2, np
+        self.width, self.height, self.scale = width, height, scale
+        self.templates = []
+        self.previous = None
+        self.points = None
+        self.box = None
+        self.misses = 0
+
+    def gray(self, frame):
+        return self.cv.cvtColor(self.cv.resize(frame, (round(self.width*self.scale), round(self.height*self.scale))), self.cv.COLOR_BGR2GRAY)
+
+    def scaled_box(self, box):
+        return [int(round(box[key]*self.scale)) for key in ("x", "y", "width", "height")]
+
+    def features(self, gray, box):
+        x, y, w, h = box
+        mask = self.np.zeros(gray.shape, self.np.uint8)
+        inset_x, inset_y = max(1, w//8), max(1, h//8)
+        mask[y+inset_y:y+h-inset_y, x+inset_x:x+w-inset_x] = 255
+        return self.cv.goodFeaturesToTrack(gray, 60, .02, 3, mask=mask)
+
+    def add_anchor(self, frame, box):
+        gray = self.gray(frame)
+        x, y, w, h = self.scaled_box(box)
+        crop = gray[y:y+h, x:x+w]
+        if crop.shape[0] >= 5 and crop.shape[1] >= 5 and float(crop.std()) >= 4:
+            self.templates.append(crop.copy())
+        return gray
+
+    def begin(self, frame, box):
+        gray = self.gray(frame)
+        self.box = self.scaled_box(box)
+        self.previous = gray
+        self.points = self.features(gray, self.box)
+        self.misses = 0
+
+    def update(self, frame):
+        cv, np = self.cv, self.np
+        gray = self.gray(frame)
+        if self.box is None or self.previous is None or not self.templates or self.misses >= 5:
+            return None
+        x, y, w, h = self.box
+        center_x, center_y = x+w/2, y+h/2
+        if self.points is not None and len(self.points) >= 4:
+            tracked, state, _ = cv.calcOpticalFlowPyrLK(self.previous, gray, self.points, None)
+            if tracked is not None:
+                back, reverse, _ = cv.calcOpticalFlowPyrLK(gray, self.previous, tracked, None)
+                if back is not None:
+                    good = (state.ravel() == 1) & (reverse.ravel() == 1) & (np.linalg.norm(back-self.points, axis=2).ravel() < 2)
+                    if np.count_nonzero(good) >= 4:
+                        delta = np.median((tracked-self.points)[good, 0], axis=0)
+                        if np.linalg.norm(delta) <= max(w, h)*1.5:
+                            center_x += float(delta[0])
+                            center_y += float(delta[1])
+        radius = int(max(12, max(w, h)*1.25)*(1+.5*self.misses))
+        best = None
+        for template in self.templates:
+            th, tw = template.shape
+            left = max(0, int(center_x-radius-tw/2))
+            top = max(0, int(center_y-radius-th/2))
+            right = min(gray.shape[1], int(center_x+radius+tw/2))
+            bottom = min(gray.shape[0], int(center_y+radius+th/2))
+            search = gray[top:bottom, left:right]
+            if search.shape[0] < th or search.shape[1] < tw:
+                continue
+            scores = cv.matchTemplate(search, template, cv.TM_CCOEFF_NORMED)
+            _, score, _, location = cv.minMaxLoc(scores)
+            candidate_x, candidate_y = left+location[0], top+location[1]
+            distance = math.hypot(candidate_x+tw/2-center_x, candidate_y+th/2-center_y)
+            ranked = score - .08*distance/max(1, radius)
+            if best is None or ranked > best[0]:
+                best = (ranked, score, [candidate_x, candidate_y, tw, th])
+        # Correlação sozinha não é prova suficiente de identidade do animal.
+        if best is None or best[1] < .66 or best[0] < .60:
+            self.misses += 1
+            self.previous = gray
+            self.points = None
+            return None
+        _, score, chosen = best
+        self.box = chosen
+        self.previous = gray
+        self.points = self.features(gray, chosen)
+        self.misses = 0
+        return {"bbox": {"x": chosen[0]/self.scale, "y": chosen[1]/self.scale,
+                         "width": chosen[2]/self.scale, "height": chosen[3]/self.scale}, "matchScore": float(score)}
+
+
 class Segmenter:
     def __init__(self, config, background=None):
         import cv2
@@ -114,7 +210,15 @@ class Segmenter:
     def gray(self, frame):
         return self.cv.GaussianBlur(self.cv.cvtColor(self.cv.resize(frame, self.size), self.cv.COLOR_BGR2GRAY), (5, 5), 0)
 
-    def process(self, frame, timestamp):
+    def reset_to_anchor(self, box, timestamp):
+        center = (box["x"]+box["width"]/2, box["y"]+box["height"]/2)
+        self.tracker.last = (*center, timestamp)
+        self.tracker.velocity = (0., 0.)
+        self.last_box = dict(box)
+        self.last_area = None
+        self.appearance = None  # Uma detecção anterior errada não veta a caixa humana.
+
+    def process(self, frame, timestamp, guide_box=None):
         cv, np, config = self.cv, self.np, self.config
         gray = self.gray(frame)
         color = cv.cvtColor(cv.resize(frame, self.size), cv.COLOR_BGR2LAB)
@@ -139,6 +243,12 @@ class Segmenter:
                 continue
             x, y, width, height = cv.boundingRect(contour)
             center = ((x + width/2)/self.scale, (y + height/2)/self.scale)
+            if guide_box:
+                gx, gy = guide_box["x"]*self.scale, guide_box["y"]*self.scale
+                gw, gh = guide_box["width"]*self.scale, guide_box["height"]*self.scale
+                intersection = max(0, min(x+width,gx+gw)-max(x,gx))*max(0,min(y+height,gy+gh)-max(y,gy))
+                if intersection/max(1, min(width*height, gw*gh)) < .25:
+                    continue
             contour_mask = np.zeros_like(mask)
             cv.drawContours(contour_mask, [contour], -1, 255, -1)
             appearance = np.array(cv.mean(color, mask=contour_mask)[:3])
@@ -154,7 +264,7 @@ class Segmenter:
             candidates.append((contour, area, center, appearance))
         prediction = self.tracker.predict(timestamp)
         seed = config.get("seed")
-        target = prediction or (self.tracker.last if self.tracker.last and timestamp-self.tracker.last[2] <= self.tracker.max_gap else None)
+        target = (guide_box["x"]+guide_box["width"]/2, guide_box["y"]+guide_box["height"]/2) if guide_box else prediction or (self.tracker.last if self.tracker.last and timestamp-self.tracker.last[2] <= self.tracker.max_gap else None)
         if target is None and self.tracker.last is None:
             initial_box = config.get("initialBox")
             if initial_box:
@@ -204,7 +314,7 @@ def run(request_path):
     status_path, samples_path = root/"status.json", root/"samples.jsonl"
     config = request["config"]
     started, parent = time.perf_counter(), os.getppid()
-    counts = {"observed": 0, "predicted": 0, "missing": 0, "suspect": 0}
+    counts = {"observed": 0, "predicted": 0, "missing": 0, "suspect": 0, "manual": 0, "visual": 0}
     metadata=json.loads(subprocess.check_output([request["ffprobe"],"-v","error","-select_streams","v:0","-show_streams","-of","json",video]))["streams"][0]
     total=int(metadata.get("nb_frames","0")) if str(metadata.get("nb_frames","")).isdigit() else 0
     rotation=any(float(side.get("rotation",0))%360 for side in metadata.get("side_data_list",[]))
@@ -222,10 +332,21 @@ def run(request_path):
         capture.close()
         capture=read_frames(video,request["ffmpeg"],config["width"],config["height"])
     segmenter = Segmenter(config, background)
+    guidance = config.get("guidance") or {}
+    anchors = guidance.get("anchors") or []
+    by_frame = {anchor["frameIndex"]: anchor for anchor in anchors}
+    last_anchor = anchors[-1]["frameIndex"] if anchors else -1
+    visual = ManualVisualTracker(config["width"], config["height"], segmenter.scale) if anchors else None
+    # Amostra no máximo oito posturas verificadas, distribuídas pelo trecho.
+    template_frames = {anchors[round(i*(len(anchors)-1)/min(7,len(anchors)-1))]["frameIndex"]
+                       for i in range(min(8,len(anchors)))} if anchors else set()
+    anchor_cursor = 0
     clock = timestamps(video, request["ffprobe"])
     report = {"version": VERSION, "state": "running", "framesProcessed": 0, "totalFrames": total, "counts": counts,
               "reference": "box_center", "scientificallyValidated": False, "accuracyMeasured": False,
-              "referenceApproved": config.get("referenceApproved", False), "timing": "ffprobe_pts", "elapsedSec": 0., "processingFps": 0.}
+              "referenceApproved": config.get("referenceApproved", False), "timing": "ffprobe_pts", "elapsedSec": 0., "processingFps": 0.,
+              "guidanceSourceJobId": guidance.get("sourceJobId"), "manualAnchorCount": len(anchors),
+              "assistedMethod": "manual_templates_lk_1" if anchors else None}
     write_json(status_path, report)
     try:
         with samples_path.open("w", encoding="utf-8", buffering=1) as output:
@@ -241,11 +362,48 @@ def run(request_path):
                 timestamp = next(clock, None)
                 if timestamp is None:
                     raise ValueError("Frames e timestamps divergiram; resultado não publicado")
-                result = segmenter.process(frame, timestamp)
+                if index in by_frame:
+                    anchor = by_frame[index]
+                    box = anchor["box"]
+                    if index in template_frames: visual.add_anchor(frame, box)
+                    segmenter.reset_to_anchor(box, timestamp)
+                    if index == last_anchor:
+                        if not visual.templates:
+                            raise ValueError("As caixas humanas ficaram pequenas ou sem textura na resolução escolhida. Aumente a resolução de processamento e confira as caixas.")
+                        visual.begin(frame, box)
+                    result = {"xPx": box["x"]+box["width"]/2, "yPx": box["y"]+box["height"]/2,
+                              "bbox": box, "source": "manual", "status": "valid", "spatialRegion": "unknown",
+                              "reason": "manual_anchor"}
+                    anchor_cursor += 1
+                elif anchors and anchors[0]["frameIndex"] < index < last_anchor:
+                    start, end = anchors[anchor_cursor-1], anchors[anchor_cursor]
+                    fraction = max(0., min(1., (timestamp-start["timestampSec"])/(end["timestampSec"]-start["timestampSec"])))
+                    box = {key: start["box"][key]+fraction*(end["box"][key]-start["box"][key])
+                           for key in ("x", "y", "width", "height")}
+                    result = {"xPx": box["x"]+box["width"]/2, "yPx": box["y"]+box["height"]/2,
+                              "bbox": box, "source": "predicted", "status": "low_confidence",
+                              "reason": "manual_keyframe_interpolation"}
+                elif visual and index > last_anchor:
+                    estimate = visual.update(frame)
+                    if estimate:
+                        box = estimate["bbox"]
+                        observed = segmenter.process(frame, timestamp, guide_box=box)
+                        if observed["source"] == "segmented" and observed["bbox"]:
+                            result = {**observed, "status": "low_confidence", "reason": "assisted_visual_and_contour"}
+                        else:
+                            result = {"xPx": box["x"]+box["width"]/2, "yPx": box["y"]+box["height"]/2,
+                                      "bbox": box, "source": "recovered", "status": "low_confidence",
+                                      "reason": "assisted_visual_match"}
+                    else:
+                        result = {"xPx": None, "yPx": None, "source": "recovered", "status": "missing",
+                                  "reason": "assisted_visual_lost"}
+                else:
+                    result = segmenter.process(frame, timestamp)
                 sample = {"frameIndex": index, "timestampSec": timestamp, "keypoint": "box_center", "likelihood": 0,
                           "metricReference": "box_center", "referenceApproved": config.get("referenceApproved", False), **result}
                 output.write(json.dumps(sample, allow_nan=False) + "\n")
-                counts["predicted" if result["source"] == "predicted" else "missing" if result["status"] == "missing" else "observed"] += 1
+                bucket = "missing" if result["status"] == "missing" else "manual" if result["source"] == "manual" else "visual" if result["source"] == "recovered" else "predicted" if result["source"] == "predicted" else "observed"
+                counts[bucket] += 1
                 counts["suspect"] += result["status"] == "low_confidence"
                 index += 1
                 if index % 12 == 0:

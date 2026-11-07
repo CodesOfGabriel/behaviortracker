@@ -1,10 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { ArenaConfig, BoundingBox, Point, PoseSample } from "../../types";
+import type { LocalGuidance } from "../../lib/manual-guidance";
 
 export type LocalConfig = {width:number;height:number;arena:ArenaConfig;mode:"light"|"dark"|"background";threshold:number;
-  minAreaFraction:number;maxAreaFraction:number;maxWidth:number;maxPredictionSec:number;referenceApproved:boolean;seed?:Point|null;initialBox?:BoundingBox|null;backgroundFrameIndex?:number|null};
+  minAreaFraction:number;maxAreaFraction:number;maxWidth:number;maxPredictionSec:number;referenceApproved:boolean;seed?:Point|null;initialBox?:BoundingBox|null;backgroundFrameIndex?:number|null;guidance?:LocalGuidance};
 export type LocalJob = {jobId:string;experimentId:string;state:"queued"|"running"|"succeeded"|"cancelled"|"failed";error?:string;config:LocalConfig;createdAt:string;videoSha256:string;
-  report?:{framesProcessed?:number;totalFrames?:number;elapsedSec?:number;processingFps?:number;observationCoveragePct?:number;counts?:{observed:number;predicted:number;missing:number;suspect:number}}};
+  report?:{framesProcessed?:number;totalFrames?:number;elapsedSec?:number;processingFps?:number;observationCoveragePct?:number;
+    guidanceSourceJobId?:string|null;manualAnchorCount?:number;assistedMethod?:string|null;
+    counts?:{observed:number;predicted:number;missing:number;suspect:number;manual?:number;visual?:number}}};
 export const localEnvironment=()=>invoke<{ready:boolean;version?:string;message?:string}>("get_local_tracking_environment");
 export const setupLocalEnvironment=()=>invoke<{ready:boolean;version?:string}>("setup_local_tracking_environment");
 export const listLocalJobs=(experimentId:string)=>invoke<LocalJob[]>("list_local_tracking_jobs",{experimentId});

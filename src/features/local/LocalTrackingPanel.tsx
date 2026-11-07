@@ -3,12 +3,13 @@ import { Button } from "../../components/ui/Button";
 import { provisionalBoxAt } from "../../lib/boxes";
 import { downloadText, poseToCsv } from "../../lib/csv";
 import { pointsToSvg } from "../../lib/geometry";
+import { localGuidance, usableLocalGuidance } from "../../lib/manual-guidance";
 import { trajectorySegments } from "../../lib/pose";
 import type { BoundingBox, Experiment, PoseSample } from "../../types";
 import { BoxOverlay } from "../tracking/BoxOverlay";
 import { resolveDiagnosticUpload } from "../colab/analysis";
 import { isTauriRuntime } from "../colab/connection";
-import { cancelLocalTracking, listLocalJobs, loadLocalResult, localEnvironment, localFrameIndex, localUpdates, setupLocalEnvironment, startLocalTracking, type LocalJob } from "./api";
+import { cancelLocalTracking, listLocalJobs, loadLocalResult, localEnvironment, localFrameIndex, localUpdates, setupLocalEnvironment, startLocalTracking, type LocalConfig, type LocalJob } from "./api";
 import "./local.css";
 
 export function LocalTrackingPanel({experiment,file,videoUrl,open,onAttach,onBusy,onUse}: {
@@ -60,6 +61,9 @@ export function LocalTrackingPanel({experiment,file,videoUrl,open,onAttach,onBus
   const current=samples.reduce<PoseSample|undefined>((best,sample)=>Math.abs(sample.timestampSec-time)<Math.abs((best?.timestampSec??Infinity)-time)?sample:best,undefined);
   const visible=current&&Math.abs(current.timestampSec-time)<.1&&current.xPx!=null&&current.yPx!=null;
   const trajectory=trajectorySegments(samples.filter(s=>s.timestampSec<=time).slice(-150));
+  const guidance=localGuidance(experiment);
+  const canContinue=usableLocalGuidance(guidance);
+  const continueSpan=guidance?.anchors.length ? guidance.anchors.at(-1)!.timestampSec-guidance.anchors[0].timestampSec : 0;
   const saveInitialBox=(box:BoundingBox,provisional=false)=>{
     setInitialBox(box);
     setDrawing(false);
@@ -67,6 +71,23 @@ export function LocalTrackingPanel({experiment,file,videoUrl,open,onAttach,onBus
       ? "Caixa provisória posicionada. Arraste a caixa e seus cantos para ajustar ao animal antes de analisar. O clique não detecta automaticamente a silhueta."
       : "Caixa inicial definida. Confira se ela acompanha somente o animal no primeiro frame antes de analisar.");
   };
+  const startAnalysis=(guided:boolean)=>void action(async()=>{
+    if(guided&&!usableLocalGuidance(guidance))throw new Error("Marque pelo menos duas caixas manuais em frames separados por 1 segundo na revisão OpenCV selecionada.");
+    const upload=await resolveDiagnosticUpload(experiment.id,staged.current,file,(_,m)=>setMessage(m));
+    if(!upload){onAttach();throw new Error("Selecione o original e inicie novamente");}
+    staged.current=upload;
+    const sourceJob=guided?jobs.find(item=>item.jobId===guidance!.sourceJobId):undefined;
+    const config:LocalConfig={width:experiment.video.width,height:experiment.video.height,arena:experiment.arena,mode,threshold,
+      minAreaFraction:minArea,maxAreaFraction:maxArea,maxWidth,maxPredictionSec:.25,
+      referenceApproved:guided?false:approved,
+      initialBox:guided?(sourceJob?.config.initialBox??(guidance!.anchors[0].frameIndex===0?guidance!.anchors[0].box:null)):initialBox,
+      backgroundFrameIndex:background,
+      ...(guided?{guidance:guidance!}:{}),
+    };
+    const started=await startLocalTracking(experiment.id,upload,config);
+    setJobs(old=>[started,...old]);setSelected(started.jobId);
+    setMessage(guided?"Continuação guiada iniciada. Caixas humanas preservadas; posições automáticas exigem revisão no editor.":"Processando somente neste dispositivo. Resultado anterior preservado até sua seleção.");
+  });
   return <section hidden={!open} className="local-tracking-panel panel" aria-label="Análise local OpenCV">
     <div className="local-heading"><div><span className="eyebrow">CPU local · sem conta Google</span><h2>Rastrear o animal inteiro</h2><p>Uma caixa ao redor da região visível, sem depender de focinho ou orelhas. Não classifica comportamentos automaticamente.</p></div>
       {!ready&&<Button disabled={busy||!isTauriRuntime()} onClick={()=>void action(async()=>{setMessage("Preparando ambiente isolado: download de OpenCV, sem modelos de IA. Isso pode levar alguns minutos.");setReady((await setupLocalEnvironment()).ready);setMessage("OpenCV pronto para uso local.");})}>Preparar OpenCV local</Button>}
@@ -101,14 +122,18 @@ export function LocalTrackingPanel({experiment,file,videoUrl,open,onAttach,onBus
       {mode==="background"&&<><Button variant="secondary" disabled={active||!file} onClick={()=>void action(async()=>{const upload=await resolveDiagnosticUpload(experiment.id,staged.current,file,(_,m)=>setMessage(m));if(!upload)throw new Error("Selecione o original");staged.current=upload;setBackground(await localFrameIndex(experiment.id,upload,time));setMessage("Frame de fundo selecionado. Confirme que a caixa estava realmente vazia.");})}>Usar frame atual como fundo vazio</Button><small>{background==null?"Escolha um frame sem animal. Um fundo com o rato gera erros.":`Frame ${background} · fundo fixo`}</small></>}
       <label className="local-consent"><input type="checkbox" checked={approved} disabled={active} onChange={e=>setApproved(e.target.checked)}/> Usar o centro da caixa como referência locomotora 2D experimental. Conferi câmera, contraste e chão; não representa centro anatômico nem altura.</label>
       <small>Sem essa opção, as coordenadas ficam para revisão. Previsões, silhuetas parciais e pontos na parede não entram automaticamente nas métricas, mesmo com a opção marcada.</small>
-      <Button disabled={!ready||active||busy} onClick={()=>void action(async()=>{
-        const upload=await resolveDiagnosticUpload(experiment.id,staged.current,file,(_,m)=>setMessage(m));if(!upload){onAttach();throw new Error("Selecione o original e inicie novamente");}staged.current=upload;
-        const started=await startLocalTracking(experiment.id,upload,{width:experiment.video.width,height:experiment.video.height,arena:experiment.arena,mode,threshold,minAreaFraction:minArea,maxAreaFraction:maxArea,maxWidth,maxPredictionSec:.25,referenceApproved:approved,initialBox,backgroundFrameIndex:background});setJobs(old=>[started,...old]);setSelected(started.jobId);setMessage("Processando somente neste dispositivo. Resultado anterior preservado até sua seleção.");
-      })}>Analisar localmente</Button>
+      <Button disabled={!ready||active||busy} onClick={()=>startAnalysis(false)}>Analisar localmente</Button>
+      {experiment.trackingSelection?.engine==="opencv"&&<div className="local-guidance">
+        <strong>Continuar da revisão manual</strong>
+        <p>{guidance?.anchors.length??0} caixas humanas desta execução · {continueSpan.toFixed(1)} s entre a primeira e a última. Caixas interpoladas não contam como exemplos.</p>
+        <Button variant="secondary" disabled={!ready||active||busy||!canContinue} onClick={()=>startAnalysis(true)}>Continuar vídeo com caixas manuais</Button>
+        <small>Gera uma nova execução sem alterar a anterior. Use ao menos duas caixas marcadas em frames separados por 1 s. O restante é estimativa visual, não resultado validado.</small>
+      </div>}
       {active&&job&&<Button variant="secondary" onClick={()=>void action(()=>cancelLocalTracking(job.jobId))}>Cancelar análise local</Button>}
     </section></div>
     {job&&<section className="local-run"><h3>Execução · {job.state}</h3><p>{job.error}</p><progress aria-label="Progresso OpenCV" max={job.report?.totalFrames||1} value={job.state==="succeeded"?(job.report?.totalFrames||1):job.report?.totalFrames?job.report.framesProcessed||0:undefined}/>
       <div className="local-stats"><span>{job.report?.framesProcessed??0} frames</span><span>{(job.report?.elapsedSec??0).toFixed(1)} s decorridos</span><span>{(job.report?.processingFps??0).toFixed(1)} FPS medidos</span><span>{(job.report?.observationCoveragePct??0).toFixed(1)}% com silhueta (não acurácia)</span></div>
+      {job.config.guidance&&<p className="local-assisted-stats">Guiada por {job.report?.manualAnchorCount??job.config.guidance.anchors.length} caixas humanas · {job.report?.counts?.visual??0} correspondências visuais · {job.report?.counts?.missing??0} lacunas. Estimativas exigem revisão.</p>}
       <div className="training-actions"><Button disabled={job.state!=="succeeded"||busy} onClick={()=>void action(async()=>onUse(job,await loadLocalResult(job.jobId)))}>Usar resultado local no editor</Button><Button variant="secondary" disabled={!samples.length} onClick={()=>downloadText(`opencv-${job.jobId}.csv`,poseToCsv(samples),"text/csv")}>Exportar coordenadas</Button><Button variant="secondary" onClick={()=>downloadText(`opencv-${job.jobId}.json`,JSON.stringify(job,null,2),"application/json")}>Exportar relatório</Button></div>
     </section>}
     {jobs.length>0&&<label className="local-history">Execuções locais salvas<select aria-label="Execução OpenCV salva" value={job?.jobId??""} onChange={e=>setSelected(e.target.value)}>{jobs.map(j=><option key={j.jobId} value={j.jobId}>{j.createdAt} · {j.state} · {j.config.mode}</option>)}</select></label>}
