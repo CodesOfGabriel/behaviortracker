@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boxFromPoints, translateBox } from "./boxes";
+import { boxFromPoints, provisionalBoxAt, translateBox } from "./boxes";
 import { applyCorrections } from "./corrections";
 import { originalPose, metricEligible } from "./pose";
 import { parseCanonicalPoseCsv, poseToCsv } from "./csv";
@@ -13,6 +13,11 @@ describe("caixa macro e correções auditáveis",()=>{
   it("desenha em qualquer direção e limita a translação à imagem",()=>{
     expect(boxFromPoints({x:100,y:90},{x:50,y:30})).toEqual({x:50,y:30,width:50,height:60});
     expect(translateBox({x:10,y:20,width:30,height:40},{x:1000,y:-200},100,80)).toEqual({x:70,y:0,width:30,height:40});
+  });
+  it("clique posiciona uma caixa provisória ajustável dentro da imagem",()=>{
+    expect(provisionalBoxAt({x:50,y:40},100,80)).toEqual({x:44,y:34,width:12,height:12});
+    expect(provisionalBoxAt({x:0,y:0},100,80)).toEqual({x:0,y:0,width:12,height:12});
+    expect(provisionalBoxAt({x:100,y:80},100,80)).toEqual({x:88,y:68,width:12,height:12});
   });
   it("edita caixa e trajeto sem deslocar outros pontos ou alterar o bruto",()=>{
     const [revised,nose]=applyCorrections([raw,{...raw,keypoint:"nose"}],[edit]);

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../../components/ui/Button";
+import { provisionalBoxAt } from "../../lib/boxes";
 import { downloadText, poseToCsv } from "../../lib/csv";
 import { pointsToSvg } from "../../lib/geometry";
 import { trajectorySegments } from "../../lib/pose";
@@ -25,8 +26,15 @@ export function LocalTrackingPanel({experiment,file,videoUrl,open,onAttach,onBus
   useEffect(()=>{if(!open)video.current?.pause();},[open]);
   useEffect(()=>{
     const player=video.current;if(!open||!player||!player.requestVideoFrameCallback)return;
-    let callback=0;const tick=(_:number,metadata:VideoFrameCallbackMetadata)=>{setTime(metadata.mediaTime);callback=player.requestVideoFrameCallback(tick);};callback=player.requestVideoFrameCallback(tick);
-    return()=>player.cancelVideoFrameCallback(callback);
+    let callback=0,active=true;
+    const tick=(_:number,metadata:VideoFrameCallbackMetadata)=>{
+      if(!active)return;
+      // Uma busca pausada não deve ser revertida pelo frame anterior ainda na fila.
+      if(!player.paused&&!player.seeking)setTime(metadata.mediaTime);
+      callback=player.requestVideoFrameCallback(tick);
+    };
+    callback=player.requestVideoFrameCallback(tick);
+    return()=>{active=false;player.cancelVideoFrameCallback(callback);};
   },[open,videoUrl]);
   useEffect(()=>{
     if(!open||!isTauriRuntime())return;
@@ -52,6 +60,13 @@ export function LocalTrackingPanel({experiment,file,videoUrl,open,onAttach,onBus
   const current=samples.reduce<PoseSample|undefined>((best,sample)=>Math.abs(sample.timestampSec-time)<Math.abs((best?.timestampSec??Infinity)-time)?sample:best,undefined);
   const visible=current&&Math.abs(current.timestampSec-time)<.1&&current.xPx!=null&&current.yPx!=null;
   const trajectory=trajectorySegments(samples.filter(s=>s.timestampSec<=time).slice(-150));
+  const saveInitialBox=(box:BoundingBox,provisional=false)=>{
+    setInitialBox(box);
+    setDrawing(false);
+    setMessage(provisional
+      ? "Caixa provisória posicionada. Arraste a caixa e seus cantos para ajustar ao animal antes de analisar. O clique não detecta automaticamente a silhueta."
+      : "Caixa inicial definida. Confira se ela acompanha somente o animal no primeiro frame antes de analisar.");
+  };
   return <section hidden={!open} className="local-tracking-panel panel" aria-label="Análise local OpenCV">
     <div className="local-heading"><div><span className="eyebrow">CPU local · sem conta Google</span><h2>Rastrear o animal inteiro</h2><p>Uma caixa ao redor da região visível, sem depender de focinho ou orelhas. Não classifica comportamentos automaticamente.</p></div>
       {!ready&&<Button disabled={busy||!isTauriRuntime()} onClick={()=>void action(async()=>{setMessage("Preparando ambiente isolado: download de OpenCV, sem modelos de IA. Isso pode levar alguns minutos.");setReady((await setupLocalEnvironment()).ready);setMessage("OpenCV pronto para uso local.");})}>Preparar OpenCV local</Button>}
@@ -65,15 +80,17 @@ export function LocalTrackingPanel({experiment,file,videoUrl,open,onAttach,onBus
           <polygon points={pointsToSvg(experiment.arena.cornersPx)} fill="none" stroke="#a2b3a5" strokeWidth="2"/>
           {trajectory.map((segment,i)=><polyline key={i} points={pointsToSvg(segment)} fill="none" stroke="#bb9aff" strokeWidth="3"/>)}
           {visible&&!(time<.05&&initialBox)&&<BoxOverlay box={current.bbox} width={experiment.video.width} height={experiment.video.height} drawing={false} editable={false} predicted={current.source==="predicted"} onStart={()=>{}} onCancel={()=>{}} onCommit={()=>{}}/>}
-          {(drawing||time<.05)&&<BoxOverlay box={initialBox??undefined} width={experiment.video.width} height={experiment.video.height} drawing={drawing} editable={!active&&time<.05} manual
-            onStart={()=>video.current?.pause()} onCancel={()=>setDrawing(false)} onCommit={box=>{setInitialBox(box);setMessage("Caixa inicial definida. Ela identifica o animal no começo; não inventa coordenadas dos próximos frames.");}}/>}
+          {time<.05&&<BoxOverlay box={initialBox??undefined} width={experiment.video.width} height={experiment.video.height}
+            drawing={!active&&(drawing||!initialBox)} editable={!active} manual
+            onStart={()=>video.current?.pause()} onCancel={()=>setDrawing(false)} onCommit={box=>saveInitialBox(box)}
+            onPlace={point=>saveInitialBox(provisionalBoxAt(point,experiment.video.width,experiment.video.height),true)}/>}
         </svg>
       </div>:<Button variant="secondary" onClick={onAttach}>Abrir vídeo original para calibrar</Button>}
       {videoUrl&&<div className="local-transport"><Button variant="secondary" size="sm" onClick={()=>{setDrawing(false);if(playing)video.current?.pause();else void video.current?.play().catch(error=>setError(String(error)));}}>{playing?"Pausar":"Reproduzir"}</Button>
         <input aria-label="Percorrer vídeo local" type="range" min="0" max={experiment.video.durationSec} step="0.001" value={time} onChange={event=>{setDrawing(false);const value=event.target.valueAsNumber;if(video.current){video.current.pause();video.current.currentTime=value;}setTime(value);}}/>
         <span>{time.toFixed(2)} s</span></div>}
       <Button variant="secondary" disabled={active||!videoUrl} onClick={()=>{if(video.current){video.current.pause();video.current.currentTime=0;}setTime(0);setDrawing(true);}}>Selecionar caixa inicial do animal</Button>
-      <p className="local-note">Arraste um retângulo ao redor do animal no início. Depois, revise o resultado no player. Oclusões completas continuam sendo lacunas, não detecções.</p>
+      <p className="local-note">No primeiro frame, clique no animal para posicionar uma caixa ajustável ou arraste para desenhá-la. Se estiver em outro frame, use “Selecionar caixa inicial” para voltar ao começo. O clique não reconhece automaticamente o contorno.</p>
       {current&&<p>Frame {current.frameIndex} · {current.source==="predicted"?"Previsão incerta, excluída das métricas":current.status==="missing"?"Sem observação":current.status==="low_confidence"?"Silhueta parcial / próxima da parede: revisar":"Silhueta observada"}</p>}
     </div><section className="local-settings">
       <label>Separar animal e fundo<select value={mode} disabled={active} onChange={e=>{const value=e.target.value as typeof mode;setMode(value);setThreshold(value==="background"?25:value==="light"?190:70);}}><option value="light">Animal claro / fundo escuro</option><option value="dark">Animal escuro / fundo claro</option><option value="background">Comparar com caixa vazia</option></select></label>

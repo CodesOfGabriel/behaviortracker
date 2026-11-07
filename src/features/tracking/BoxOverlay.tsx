@@ -3,12 +3,12 @@ import type { BoundingBox, Point } from "../../types";
 import { boxFromPoints, translateBox } from "../../lib/boxes";
 import { validBox } from "../../lib/corrections";
 
-type Drag = { pointerId: number; anchor: Point; box?: BoundingBox; opposite?: Point };
+type Drag = { pointerId: number; anchor: Point; screen: Point; box?: BoundingBox; opposite?: Point };
 
 /** Coordenadas em pixels do original, inclusive com letterboxing no player. */
-export function BoxOverlay({ box, width, height, drawing, editable, predicted, manual, onStart, onCancel, onCommit }: {
+export function BoxOverlay({ box, width, height, drawing, editable, predicted, manual, onStart, onCancel, onCommit, onPlace }: {
   box?: BoundingBox; width: number; height: number; drawing: boolean; editable: boolean; predicted?: boolean; manual?: boolean;
-  onStart: () => void; onCancel: () => void; onCommit: (box: BoundingBox) => void;
+  onStart: () => void; onCancel: () => void; onCommit: (box: BoundingBox) => void; onPlace?: (point: Point) => void;
 }) {
   const [preview, setPreview] = useState<BoundingBox | null>(null);
   const drag = useRef<Drag | null>(null);
@@ -28,7 +28,7 @@ export function BoxOverlay({ box, width, height, drawing, editable, predicted, m
   const begin = (event: PointerEvent<SVGElement>, move?: BoundingBox, opposite?: Point) => {
     if (!editable || event.button !== 0 || !event.isPrimary) return;
     event.preventDefault(); event.stopPropagation(); onStart();
-    drag.current = { pointerId: event.pointerId, anchor: position(event), box: move, opposite };
+    drag.current = { pointerId: event.pointerId, anchor: position(event), screen: { x: event.clientX, y: event.clientY }, box: move, opposite };
     group.current?.setPointerCapture(event.pointerId);
   };
   const nextBox = (event: PointerEvent<SVGElement>, state: Drag) => {
@@ -45,6 +45,10 @@ export function BoxOverlay({ box, width, height, drawing, editable, predicted, m
       event.stopPropagation(); const next = nextBox(event, state);
       drag.current = null; setPreview(null); onCancel();
       if (group.current?.hasPointerCapture(event.pointerId)) group.current.releasePointerCapture(event.pointerId);
+      if (!state.box && !state.opposite && Math.hypot(event.clientX - state.screen.x, event.clientY - state.screen.y) < 5 && onPlace) {
+        onPlace(position(event));
+        return;
+      }
       if (validBox(next) && next.width >= 3 && next.height >= 3 && (!box || Object.keys(next).some(key => Math.abs(next[key as keyof BoundingBox] - box[key as keyof BoundingBox]) > .01))) onCommit(next);
     }}
     onPointerCancel={cancel} onLostPointerCapture={() => { if (drag.current) cancel(); }}>

@@ -2,7 +2,7 @@
 
 ## Entregue neste corte
 
-- [x] Rastreamento macro local `opencv-box-2`: segmentação clara/escura ou fundo vazio fixo, caixa inicial visual, associação temporal/aparência e caixas em coordenadas do vídeo original. Sem DeepLabCut/GPU nem envio do vídeo para fora do dispositivo.
+- [x] Rastreamento macro local `opencv-box-2`: segmentação clara/escura ou fundo vazio fixo, caixa inicial visual no primeiro frame por clique (posição provisória ajustável) ou arraste (tamanho exato), associação temporal/aparência e caixas em coordenadas do vídeo original. Sem DeepLabCut/GPU nem envio do vídeo para fora do dispositivo.
 - [x] Ambiente OpenCV isolado, preparação explícita reutilizada, jobs/configuração/hash no SQLite, leitura incremental, cancelamento e recuperação de estado terminal após reinício. Análise interrompida não é retomada automaticamente.
 - [x] Caixa observada/prevista diferenciada no vídeo; previsão expira em até 0,25 s na configuração da interface e fica fora das métricas. Caixa parcial continua visível com aviso de revisão; nenhum ponto anatômico é fabricado.
 - [x] Editor macro com desenho, translação, redimensionamento e undo por frame, preservando caixa/coordenadas/origem brutas. Trajeto usa centro geométrico da caixa, não centro corporal inventado.

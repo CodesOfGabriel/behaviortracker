@@ -454,8 +454,15 @@ try {
   const colabCorrections=await evaluate(`JSON.parse(localStorage.getItem('behavetracker.experiments.v1'))[0].corrections`);
   await click('Análise local');
   await waitFor(`!!document.querySelector('.local-video-stage video')`);
-  await click('Selecionar caixa inicial do animal');
   const localPoint=async(x,y)=>evaluate(`(()=>{const svg=document.querySelector('.local-video-stage svg');svg.scrollIntoView({block:'center'});const p=new DOMPoint(${x},${y}).matrixTransform(svg.getScreenCTM());return {x:p.x,y:p.y};})()`);
+  // Clicar na imagem deve funcionar sem ativar antes o botão; a caixa é provisória e ajustável.
+  const localClick=await localPoint(410,395);
+  await command('Input.dispatchMouseEvent',{type:'mousePressed',...localClick,button:'left',clickCount:1});
+  await command('Input.dispatchMouseEvent',{type:'mouseReleased',...localClick,button:'left'});
+  await waitFor(`document.querySelector('.local-video-stage [data-tracking-box="animal"]')?.textContent.includes('Caixa manual')`);
+  assert.ok(await evaluate(`document.querySelector('.local-tracking-panel [role=status]')?.textContent.includes('provisória')`));
+  assert.ok(await evaluate(`Number(document.querySelector('.local-video-stage [data-tracking-box="animal"] rect').getAttribute('width'))>3`));
+  await click('Selecionar caixa inicial do animal');
   await moveMouse(await localPoint(380,380),await localPoint(440,420));
   await waitFor(`Array.from(document.querySelectorAll('.local-video-stage [data-tracking-box="animal"]')).some(box=>box.textContent.includes('Caixa manual'))`);
   const calibrationScreen=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});
