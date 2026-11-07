@@ -24,4 +24,43 @@
 .training-dirty { color:#f4cc83 !important; }
 .training-run { border-top:1px solid #384059; padding:12px 0; }.training-run pre { white-space:pre-wrap; overflow-wrap:anywhere; }
 .training-interval { display:flex; justify-content:space-between; gap:8px; margin:8px 0; }
+.training-source-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); align-items:center; gap:24px; margin-bottom:16px; }
+.training-selection-workspace { margin-top:24px; }
+.range-timeline { border:1px solid #3c4358; border-radius:10px; background:#10131c; overflow:hidden; }
+.range-timeline-toolbar { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:12px; padding:12px 16px; background:#1d2230; }
+.range-timeline-toolbar>div { display:flex; flex-wrap:wrap; align-items:center; gap:16px; }
+.range-clock,.range-readout strong { font-family:ui-monospace,SFMono-Regular,monospace; font-variant-numeric:tabular-nums; color:#e2d5ff; }
+.range-clock>span { color:#929eb6; }
+.range-zoom { display:flex; align-items:center; gap:8px !important; }
+.range-zoom button { border:1px solid #4e5870; background:#2a3040; color:#e1e8f6; border-radius:5px; min-width:32px; min-height:32px; padding:4px 8px; }
+.range-timeline button:disabled { opacity:.5; cursor:not-allowed; }
+.training-panel .range-help { margin:0; padding:10px 16px; font-size:12px; }
+.range-scroll { overflow-x:auto; overflow-y:hidden; overscroll-behavior-x:contain; padding:0 14px; scrollbar-color:#655583 #171c28; }
+.range-content { position:relative; min-width:100%; touch-action:none; user-select:none; outline-offset:-2px; }
+.range-content:focus-visible { outline:2px solid #c4a5ff; }
+.range-ruler { position:relative; height:34px; border-bottom:1px solid #3b4255; cursor:col-resize; overflow:hidden; }
+.range-tick { position:absolute; height:100%; border-left:1px solid #4d566e; color:#a6b3ca; padding:0 5px; font-size:11px; line-height:23px; font-family:ui-monospace,SFMono-Regular,monospace; pointer-events:none; }
+.range-draft-track { position:relative; height:66px; background:repeating-linear-gradient(90deg,#ffffff05 0 1px,transparent 1px 10%); border-bottom:1px solid #3b4255; cursor:crosshair; }
+.range-empty { display:block; text-align:center; padding:22px 0; color:#a1acc2; font-size:12px; pointer-events:none; }
+.range-timeline [data-context=walking] { --clip-color:#7cbfae; --clip-fill:#254640; }
+.range-timeline [data-context=rearing] { --clip-color:#bc9aff; --clip-fill:#42335b; }
+.range-timeline [data-context=grooming] { --clip-color:#e6b574; --clip-fill:#51402c; }
+.range-timeline [data-context=freezing] { --clip-color:#86b5ec; --clip-fill:#2d415b; }
+.range-timeline [data-context=other] { --clip-color:#b0b7c9; --clip-fill:#393f4e; }
+.range-selection { position:absolute; top:8px; bottom:8px; min-width:1px; background:var(--clip-fill); border:2px solid var(--clip-color); cursor:grab; }
+.range-content.is-dragging,.range-content.is-dragging .range-selection { cursor:grabbing; }
+.range-selection-label { display:block; overflow:hidden; white-space:nowrap; font-size:12px; line-height:45px; text-align:center; padding:0 14px; color:#fff; pointer-events:none; }
+.range-handle { position:absolute; z-index:4; top:-2px; bottom:-2px; width:24px; padding:0; background:transparent; border:0; border-radius:0; cursor:ew-resize; touch-action:none; }
+.range-handle-start { left:-13px; }.range-handle-end { right:-13px; }
+.range-handle>span { display:block; width:7px; height:100%; margin:auto; background:var(--clip-color); border-radius:2px; box-shadow:0 0 0 1px #10131c; }
+.range-handle:focus-visible { outline:2px solid #fff; outline-offset:0; }
+.range-saved-track { position:relative; height:38px; background:#181d29; border-bottom:1px solid #30374b; }
+.range-track-label { position:sticky; left:0; display:inline-block; color:#b7c2d6; font-size:11px; line-height:36px; padding-left:8px; pointer-events:none; }
+.range-timeline .range-clip { position:absolute; top:4px; height:29px; min-width:4px; padding:0 8px; overflow:hidden; white-space:nowrap; text-align:left; font-size:11px; color:#f1f3fa; background:var(--clip-fill); border:1px solid var(--clip-color); border-radius:4px; cursor:pointer; }
+.range-timeline .range-clip[aria-pressed=true] { background:var(--clip-fill); border-color:#fff; box-shadow:inset 0 0 0 1px #fff; }
+.range-playhead { position:absolute; top:0; bottom:0; width:1px; background:#f0e7ff; z-index:5; pointer-events:none; }
+.range-playhead>span { position:absolute; left:-5px; top:0; width:11px; height:12px; background:#e2cfff; clip-path:polygon(0 0,100% 0,100% 65%,50% 100%,0 65%); }
+.range-readout { display:flex; flex-wrap:wrap; gap:12px 24px; padding:12px 16px; font-size:12px; color:#adb8ce; }
+.range-readout strong { margin-left:6px; }.range-shortcuts { display:block; padding:0 16px 12px; font-size:11px; }
+@media(max-width:700px) { .training-source-row { grid-template-columns:1fr; gap:4px; }.range-timeline-toolbar { padding:10px; }.range-readout { gap:10px; padding:10px; }.range-timeline-toolbar>div { gap:8px; } }
 @media(max-width:1000px) { .training-sections { grid-template-columns:1fr; }.training-panel { margin:12px; padding:16px; }.training-parts { grid-template-columns:1fr; } }

@@ -268,11 +268,76 @@ try {
   await click('Ensinar o modelo');
   await waitFor(`!document.querySelector('.training-panel').hidden`);
   await click('Nas duas patas');
-  await setField('[aria-label="Início do trecho de treino"]',0);
-  await setField('[aria-label="Fim do trecho de treino"]',.5);
+  assert.equal(await evaluate(`document.querySelector('[aria-label="Início do trecho de treino"]')`),null,'Não deve pedir digitação dos tempos');
+  const timelinePoint=async(time,lane='.range-draft-track')=>evaluate(`(()=>{const track=document.querySelector(${JSON.stringify(lane)}),scroller=document.querySelector('.range-scroll'),left=scroller.scrollLeft;track.scrollIntoView({block:'center',inline:'nearest'});scroller.scrollLeft=left;const rect=track.getBoundingClientRect();return {x:rect.left+rect.width*${time},y:rect.top+rect.height/2};})()`);
+  const drag=async(from,to)=>{
+    await command('Input.dispatchMouseEvent',{type:'mousePressed',...from,button:'left',clickCount:1});
+    await command('Input.dispatchMouseEvent',{type:'mouseMoved',...to,button:'left',buttons:1});
+    await command('Input.dispatchMouseEvent',{type:'mouseReleased',...to,button:'left'});
+  };
+  // Seleção invertida com mouse, sem campos de início/fim.
+  await drag(await timelinePoint(.5),await timelinePoint(0));
+  await waitFor(`Math.abs(Number(document.querySelector('[aria-label="Ajustar fim do trecho"]').getAttribute('aria-valuenow'))-.5)<.0001`);
   await click('Salvar trecho');
   await waitFor(`window.__TRAINING.intervals.length===1`);
   assert.equal(await evaluate(`window.__TRAINING.intervals[0].context`),'rearing');
+  assert.ok(Math.abs(await evaluate(`window.__TRAINING.intervals[0].startSec`))<.0001);
+  assert.ok(Math.abs(await evaluate(`window.__TRAINING.intervals[0].endSec`)-.5)<.0001);
+  const savedIntervalId=await evaluate(`window.__TRAINING.intervals[0].id`);
+  const handlePoint=async(edge)=>evaluate(`(()=>{const handle=document.querySelector('.range-handle-'+${JSON.stringify(edge)});handle.scrollIntoView({block:'center'});const r=handle.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};})()`);
+  await drag(await handlePoint('end'),await timelinePoint(.75));
+  await waitFor(`Math.abs(Number(document.querySelector('[aria-label="Ajustar fim do trecho"]').getAttribute('aria-valuenow'))-.75)<.0001`);
+  await click('Salvar alterações do trecho');
+  await waitFor(`Math.abs(window.__TRAINING.intervals[0].endSec-.75)<.0001`);
+  assert.equal(await evaluate(`window.__TRAINING.intervals.length`),1,'Editar alça não pode duplicar trecho');
+  assert.equal(await evaluate(`window.__TRAINING.intervals[0].id`),savedIntervalId);
+  // Mover o miolo preserva a duração; a régua só muda o playhead.
+  await drag(await timelinePoint(.375),await timelinePoint(.625));
+  await click('Salvar alterações do trecho');
+  await waitFor(`Math.abs(window.__TRAINING.intervals[0].startSec-.25)<.0001 && window.__TRAINING.intervals[0].endSec===1`);
+  await drag(await timelinePoint(.5,'.range-ruler'),await timelinePoint(.5,'.range-ruler'));
+  await waitFor(`document.querySelector('.range-clock').textContent.startsWith('00:00.500')`);
+  assert.ok(Math.abs(await evaluate(`Number(document.querySelector('[aria-label="Ajustar início do trecho"]').getAttribute('aria-valuenow'))`)-.25)<.0001);
+  await evaluate(`document.querySelector('.range-handle-start').focus()`);
+  await command('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowRight',code:'ArrowRight',windowsVirtualKeyCode:39});
+  await command('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowRight',code:'ArrowRight',windowsVirtualKeyCode:39});
+  assert.ok(Math.abs(await evaluate(`Number(document.querySelector('.range-handle-start').getAttribute('aria-valuenow'))`)-7/24)<.0001);
+  await click('Novo trecho');
+  await evaluate(`document.querySelector('.range-clip').click()`);
+  await waitFor(`Math.abs(Number(document.querySelector('.range-handle-start').getAttribute('aria-valuenow'))-.25)<.0001`);
+  assert.ok(await evaluate(`document.querySelector('.range-clip').getAttribute('aria-pressed')==='true'`));
+  // Zoom + scroll precisam usar as coordenadas do conteúdo, não da viewport.
+  await evaluate(`document.querySelector('[aria-label="Aumentar zoom da timeline"]').click()`);
+  await evaluate(`document.querySelector('[aria-label="Aumentar zoom da timeline"]').click()`);
+  await evaluate(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true))))`);
+  await click('Novo trecho');
+  await evaluate(`document.querySelector('.range-scroll').scrollLeft=0`);
+  await drag(await timelinePoint(.125),await timelinePoint(.20));
+  assert.ok(Math.abs(await evaluate(`Number(document.querySelector('.range-handle-start').getAttribute('aria-valuenow'))`)-.125)<.0001);
+  await evaluate(`document.querySelector('.range-scroll').scrollLeft=document.querySelector('.range-scroll').clientWidth*2`);
+  await drag(await timelinePoint(.6),await timelinePoint(.7));
+  assert.ok(Math.abs(await evaluate(`Number(document.querySelector('.range-handle-start').getAttribute('aria-valuenow'))`)-14/24)<.0001);
+  await click('Novo trecho');
+  await evaluate(`document.querySelector('.range-scroll').scrollLeft=0`);
+  const panStart=await timelinePoint(.025);
+  const panEdge=await evaluate(`(()=>{const s=document.querySelector('.range-scroll').getBoundingClientRect(),t=document.querySelector('.range-draft-track').getBoundingClientRect();return {x:s.right-8,y:t.top+t.height/2};})()`);
+  await command('Input.dispatchMouseEvent',{type:'mousePressed',...panStart,button:'left',clickCount:1});
+  await command('Input.dispatchMouseEvent',{type:'mouseMoved',...panEdge,button:'left',buttons:1});
+  await waitFor(`document.querySelector('.range-scroll').scrollLeft>24`);
+  await command('Input.dispatchMouseEvent',{type:'mouseReleased',...panEdge,button:'left'});
+  await click('Ajustar');
+  await evaluate(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true))))`);
+  await click('Novo trecho');
+  await evaluate(`document.querySelector('.range-clip').click()`);
+  const cancelStart=await timelinePoint(.05),cancelEnd=await timelinePoint(.15);
+  await command('Input.dispatchMouseEvent',{type:'mousePressed',...cancelStart,button:'left',clickCount:1});
+  await command('Input.dispatchMouseEvent',{type:'mouseMoved',...cancelEnd,button:'left',buttons:1});
+  await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+  await command('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+  await command('Input.dispatchMouseEvent',{type:'mouseReleased',...cancelEnd,button:'left'});
+  await waitFor(`document.querySelector('.range-clip').getAttribute('aria-pressed')==='true'`);
+  assert.ok(Math.abs(await evaluate(`Number(document.querySelector('.range-handle-start').getAttribute('aria-valuenow'))`)-.25)<.0001,'Cancelar arraste deve restaurar a seleção salva');
+  assert.equal(await evaluate(`window.__MOCK_CALLS.filter(c=>c.name==='start_custom_training').length`),0,'Selecionar ou editar trechos nunca deve iniciar treino');
   await click('Anotar frame atual');
   await waitFor(`!!document.querySelector('.training-image svg')`);
   assert.equal(await evaluate(`document.querySelector('.training-image svg').getAttribute('viewBox')`),'0 0 160 120');
@@ -305,8 +370,29 @@ try {
   await writeFile(join(directory,'custom-training-labels.png'),Buffer.from(trainingScreen.data,'base64'));
   await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false});
   assert.ok(await evaluate(`document.querySelector('.training-panel').scrollWidth<=document.querySelector('.training-panel').clientWidth+1`),'Overflow interno na anotação mobile');
+  await click('Novo trecho');
+  await command('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:1});
+  const touchStart=await timelinePoint(.2),touchEnd=await timelinePoint(.8);
+  await command('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{...touchStart,id:1}]});
+  await command('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{...touchEnd,id:1}]});
+  await command('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+  await waitFor(`!!document.querySelector('.range-selection')`);
+  assert.ok(Math.abs(await evaluate(`Number(document.querySelector('.range-handle-start').getAttribute('aria-valuenow'))`)-5/24)<.0001);
+  assert.ok(Math.abs(await evaluate(`Number(document.querySelector('.range-handle-end').getAttribute('aria-valuenow'))`)-19/24)<.0001);
+  const canceledTouch=await timelinePoint(.95);
+  await command('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{...canceledTouch,id:1}]});
+  await command('Input.dispatchTouchEvent',{type:'touchCancel',touchPoints:[]});
+  assert.ok(Math.abs(await evaluate(`Number(document.querySelector('.range-handle-start').getAttribute('aria-valuenow'))`)-5/24)<.0001,'Gesto cancelado deve preservar a seleção anterior');
+  await command('Emulation.setTouchEmulationEnabled',{enabled:false});
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ dualSelection: "passed", confirmation: "passed", pointerAndKeyboard: "passed", persistence: "passed", desktopAndMobile: "passed", behaviorIntervalsUndoAndResults: "passed", separateDlcVideoView: "passed", realMp4PlaybackWithMockNativeBridge: "passed", diagnosticRawOverlayAndIsolation: "passed", missingCacheRecovery: "passed", trainingIntervalsAndManualParts: "passed",trainingConsentAndScientificIsolation: "passed", directory }));
+  console.log(JSON.stringify({ dualSelection: "passed", confirmation: "passed", pointerAndKeyboard: "passed", persistence: "passed", desktopAndMobile: "passed", behaviorIntervalsUndoAndResults: "passed", separateDlcVideoView: "passed", realMp4PlaybackWithMockNativeBridge: "passed", diagnosticRawOverlayAndIsolation: "passed", missingCacheRecovery: "passed", trainingIntervalsAndManualParts: "passed", trainingTimelineDragTrimMoveZoomAndTouch: "passed",trainingConsentAndScientificIsolation: "passed", directory }));
+} catch (error) {
+  if(ws?.readyState===WebSocket.OPEN){
+    const failure=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true}).catch(()=>null);
+    if(failure)await writeFile(join(directory,'failure.png'),Buffer.from(failure.data,'base64'));
+    console.error('UI failure',directory,await evaluate(`Array.from(document.querySelectorAll('.range-handle')).map(h=>({edge:h.dataset.rangeEdit,time:h.getAttribute('aria-valuenow')}))`).catch(()=>[]));
+  }
+  throw error;
 } finally {
   if (ws?.readyState === WebSocket.OPEN) {
     await command("Browser.close").catch(() => {});

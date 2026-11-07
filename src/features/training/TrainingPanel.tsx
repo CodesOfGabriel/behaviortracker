@@ -7,6 +7,8 @@ import { isTauriRuntime } from "../colab/connection";
 import { AnalysisWorkflow } from "../colab/AnalysisWorkflow";
 import { annotationErrors, CONTEXTS, emptyKeypoints, LANDMARKS, sampleInterval, type Context, type Landmark, type TrainingFrame, type TrainingInterval } from "./schema";
 import { extractTrainingFrame, loadTraining, loadTrainingImage, saveTrainingFrame, saveTrainingIntervals, selectCustomModel, trainOnColab, type TrainingState } from "./api";
+import { RangeTimeline } from "./RangeTimeline";
+import { timelineTime, type TimelineSelection } from "./timeline";
 import "./training.css";
 
 export function TrainingPanel({experiment,file,videoUrl,currentTime,fps,open,onAttach,onSeek,onBusy,onRestaged}: {
@@ -15,7 +17,8 @@ export function TrainingPanel({experiment,file,videoUrl,currentTime,fps,open,onA
 }) {
   const [state,setState] = useState<TrainingState>({frames:[],intervals:[],runs:[],activeModelId:null});
   const [frame,setFrame] = useState<TrainingFrame|null>(null), [image,setImage] = useState<string|null>(null);
-  const [context,setContext] = useState<Context>("walking"), [start,setStart] = useState(0), [end,setEnd] = useState(0), [step,setStep] = useState(2);
+  const [context,setContext] = useState<Context>("walking"), [selection,setSelection] = useState<TimelineSelection|null>(null), [step,setStep] = useState(2);
+  const start=selection?.startSec??0,end=selection?.endSec??0;
   const [selected,setSelected] = useState<Landmark>("nose"), [tool,setTool] = useState<"box"|"point">("box");
   const [anchor,setAnchor] = useState<Point|null>(null), [busy,setBusy] = useState(false), [message,setMessage] = useState("");
   const [error,setError] = useState(""), [epochs,setEpochs] = useState(5), [consent,setConsent] = useState(false), [dirty,setDirty] = useState(false);
@@ -23,7 +26,10 @@ export function TrainingPanel({experiment,file,videoUrl,currentTime,fps,open,onA
   const [clock,setClock] = useState(Date.now());
   const staged = useRef(experiment.video.preparation?.uploadId), svg = useRef<SVGSVGElement>(null);
   const preview=useRef<HTMLVideoElement>(null);
-  const seek=(time:number)=>{onSeek(time);if(preview.current)preview.current.currentTime=time;};
+  const seek=(time:number)=>{onSeek(time);if(preview.current){preview.current.pause();preview.current.currentTime=time;}};
+  const selectInterval=(interval:TrainingInterval)=>{setSelection({id:interval.id,startSec:interval.startSec,endSec:interval.endSec});setContext(interval.context);setMessage("");seek(interval.startSec);};
+  const savedSelection=state.intervals.find((interval)=>interval.id===selection?.id);
+  const selectionChanged=!!selection&&(!savedSelection||savedSelection.startSec!==start||savedSelection.endSec!==end||savedSelection.context!==context);
   const trainingJob = state.runs[0]?.job;
   const trainingActive = state.runs.some((r)=>["queued","running"].includes(r.job.status));
   useEffect(()=>{onBusy(trainingActive||busy);},[trainingActive,busy,onBusy]);
@@ -68,17 +74,33 @@ export function TrainingPanel({experiment,file,videoUrl,currentTime,fps,open,onA
       <strong>{reviewed} exemplos revisados · {state.frames.length-reviewed} rascunhos</strong></div>
     {error&&<p role="alert" className="editor-error">{error}</p>}{message&&<p role="status">{message}</p>}
     {loadError&&<p role="alert" className="editor-error">{loadError}</p>}
-    <div className="training-sections"><section><h3>1. Selecionar trechos</h3>
-      {videoUrl?<video className="training-preview" ref={preview} src={videoUrl} controls muted playsInline onTimeUpdate={(e)=>onSeek(e.currentTarget.currentTime)}/>:<Button variant="secondary" onClick={onAttach}>Selecionar original para reproduzir e anotar</Button>}
-      <div className="training-contexts">{Object.entries(CONTEXTS).map(([key,label])=><button key={key} aria-pressed={context===key} onClick={()=>setContext(key as Context)}>{label}</button>)}</div>
-      <div className="training-fields"><label>Início (s)<input aria-label="Início do trecho de treino" type="number" value={start} min={0} step=".001" onChange={(e)=>setStart(Number(e.target.value))}/></label><label>Fim (s)<input aria-label="Fim do trecho de treino" type="number" value={end} min={0} step=".001" onChange={(e)=>setEnd(Number(e.target.value))}/></label></div>
-      <div className="training-actions"><Button size="sm" variant="secondary" onClick={()=>setStart(currentTime)}>Marcar início aqui</Button><Button size="sm" variant="secondary" onClick={()=>setEnd(currentTime)}>Marcar fim aqui</Button>
-        <Button size="sm" disabled={busy} onClick={()=>void action(async()=>{needDesktop();sampleInterval(start,end,Math.max(.25,end-start),experiment.video.durationSec);const intervals=[...state.intervals,{id:crypto.randomUUID(),startSec:start,endSec:end,context}];await saveTrainingIntervals(experiment.id,intervals);await refresh();})}>Salvar trecho</Button></div>
-      <div className="training-fields"><label>Espaçamento de exemplos (s)<input aria-label="Espaçamento dos exemplos" type="number" min=".25" step=".25" value={step} onChange={(e)=>setStep(Number(e.target.value))}/></label></div>
+    <section className="training-selection-workspace"><h3>1. Selecionar trechos</h3>
+      <div className="training-source-row">
+        {videoUrl?<video className="training-preview" ref={preview} src={videoUrl} controls muted playsInline onTimeUpdate={(e)=>onSeek(e.currentTarget.currentTime)}/>:<Button variant="secondary" onClick={onAttach}>Selecionar original para reproduzir e anotar</Button>}
+        <div><h4>O que o animal está fazendo?</h4><div className="training-contexts">{Object.entries(CONTEXTS).map(([key,label])=><button key={key} disabled={busy} aria-pressed={context===key} onClick={()=>{setContext(key as Context);setMessage("");}}>{label}</button>)}</div>
+          <p>Escolha o comportamento e selecione o trecho na timeline abaixo. Os trechos salvos ficam nas faixas coloridas; clique em um para editar.</p>
+          <small>Selecionar o trecho apenas organiza os exemplos. O treinamento só começa quando você autorizar e enviar.</small>
+        </div>
+      </div>
+      <RangeTimeline duration={experiment.video.durationSec} fps={fps} currentTime={currentTime} selection={selection} intervals={state.intervals} context={context} disabled={busy} onChange={(value)=>{setSelection(value);setMessage("");}} onSelect={selectInterval} onSeek={seek}/>
+      {selectionChanged&&<small className="training-dirty">{selection?.id?"Trecho em edição":"Novo trecho selecionado"} · clique em salvar para manter estas alterações.</small>}
+      <div className="training-actions"><Button size="sm" disabled={busy||!selection} onClick={()=>void action(async()=>{
+        needDesktop();sampleInterval(start,end,Math.max(.25,end-start),experiment.video.durationSec);
+        const interval={id:selection?.id??crypto.randomUUID(),startSec:start,endSec:end,context};
+        const intervals=selection?.id?state.intervals.map((i)=>i.id===selection.id?interval:i):[...state.intervals,interval];
+        await saveTrainingIntervals(experiment.id,intervals);setSelection({id:interval.id,startSec:start,endSec:end});await refresh();setMessage("Trecho salvo. Os frames ainda precisam ser extraídos e revisados.");
+      })}>{selection?.id?"Salvar alterações do trecho":"Salvar trecho"}</Button>
+        <Button size="sm" variant="secondary" disabled={busy||!selection} onClick={()=>setSelection(null)}>Novo trecho</Button>
+        {selection?.id&&<Button size="sm" variant="ghost" disabled={busy} onClick={()=>void action(async()=>{await saveTrainingIntervals(experiment.id,state.intervals.filter((i)=>i.id!==selection.id));setSelection(null);await refresh();})}>Remover trecho selecionado</Button>}
+      </div>
+    </section>
+    <div className="training-sections"><section><h4>Preparar os exemplos</h4>
+      <div className="training-contexts" role="group" aria-label="Frequência dos exemplos"><span>Um exemplo a cada</span>{[.5,1,2,5].map((seconds)=><button key={seconds} disabled={busy} aria-pressed={step===seconds} onClick={()=>setStep(seconds)}>{seconds.toLocaleString("pt-BR")} s</button>)}</div>
       <div className="training-actions"><Button variant="secondary" disabled={busy||dirty} onClick={()=>void action(async()=>{await extract(currentTime);})}>Anotar frame atual</Button>
-        <Button variant="secondary" disabled={busy||dirty} onClick={()=>void action(async()=>{const times=sampleInterval(start,end,step,experiment.video.durationSec);const id=await upload();for(const [i,time] of times.entries()){setMessage(`Extraindo exemplo ${i+1}/${times.length}`);const result=await extractTrainingFrame(experiment.id,id,Math.max(0,Math.round(time*fps)),experiment.subjectId,time);if(!result.frame.reviewed)await saveTrainingFrame({...result.frame,context,updatedAt:new Date().toISOString()});}await refresh();setMessage("Frames extraídos como rascunhos. Revise cada imagem antes de treinar.");})}>Extrair exemplos do trecho</Button></div>
+        <Button variant="secondary" disabled={busy||dirty||!selection} onClick={()=>void action(async()=>{const times=sampleInterval(start,end,step,experiment.video.durationSec);const id=await upload();for(const [i,time] of times.entries()){setMessage(`Extraindo exemplo ${i+1}/${times.length}`);const result=await extractTrainingFrame(experiment.id,id,Math.max(0,Math.round(time*fps)),experiment.subjectId,time);if(!result.frame.reviewed)await saveTrainingFrame({...result.frame,context,updatedAt:new Date().toISOString()});}await refresh();setMessage("Frames extraídos como rascunhos. Revise cada imagem antes de treinar.");})}>Extrair exemplos do trecho</Button></div>
       <small>Os rótulos de comportamento são contexto; este treino aprende caixa e pontos, não classifica comportamentos automaticamente. Comece com frames variados, não só vizinhos. A extração local pode demorar em vídeos longos.</small>
-      {state.intervals.map((interval)=><div className="training-interval" key={interval.id}><button onClick={()=>{seek(interval.startSec);setStart(interval.startSec);setEnd(interval.endSec);setContext(interval.context);}}>{CONTEXTS[interval.context]} · {interval.startSec.toFixed(2)}–{interval.endSec.toFixed(2)} s</button><Button size="sm" variant="ghost" disabled={busy} onClick={()=>void action(async()=>{await saveTrainingIntervals(experiment.id,state.intervals.filter((i)=>i.id!==interval.id));await refresh();})}>Remover trecho</Button></div>)}
+      <h4>Trechos salvos · {state.intervals.length}</h4>
+      {state.intervals.map((interval)=><div className="training-interval" key={interval.id}><button disabled={busy} aria-pressed={selection?.id===interval.id} onClick={()=>selectInterval(interval)}>{CONTEXTS[interval.context]} · {timelineTime(interval.startSec)}–{timelineTime(interval.endSec)}</button></div>)}
     </section><section><h3>2. Revisar exemplos, inclusive frames sem detecção</h3>
       <div className="training-frame-list">{state.frames.map((f)=><button key={f.id} aria-pressed={frame?.id===f.id} disabled={busy} onClick={()=>void action(()=>selectFrame(f))}>Frame {f.frameIndex} · {f.reviewed?"Revisado":"Rascunho"}</button>)}</div>
       {!frame&&<p>Não é necessário ter tracking. Use “Anotar frame atual” para criar pontos mesmo quando nenhum foi detectado.</p>}
