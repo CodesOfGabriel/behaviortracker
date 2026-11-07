@@ -18,6 +18,7 @@ import { useMemo, useState } from "react";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { applyCorrections } from "../../lib/corrections";
+import { reviewEvents, trackingSourceKey } from "../../lib/tracking-reviews";
 import { downloadText, poseToCsv } from "../../lib/csv";
 import { centerPolygonPx, pointsToSvg } from "../../lib/geometry";
 import { calculateOftMetrics, METRIC_POLICY } from "../../lib/metrics";
@@ -56,10 +57,11 @@ export function Results({ experimentId }: { experimentId: string }) {
   const [revision, setRevision] = useState<"reviewed" | "raw">("reviewed");
   const [showExport, setShowExport] = useState(false);
   const inputSamples = trackingData[experimentId] ?? [];
+  const events = useMemo(() => experiment ? reviewEvents(experiment) : [], [experiment]);
   const rawSamples = useMemo(() => inputSamples.map(originalPose), [inputSamples]);
   const reviewedSamples = useMemo(
-    () => experiment ? applyCorrections(inputSamples, experiment.corrections) : inputSamples,
-    [experiment, inputSamples],
+    () => applyCorrections(inputSamples, events),
+    [events, inputSamples],
   );
   const referencePoint = experiment?.referencePoint ?? "body_center";
   const rawReference = useMemo(() => referencePoseSamples(rawSamples,referencePoint),[rawSamples,referencePoint]);
@@ -89,7 +91,7 @@ export function Results({ experimentId }: { experimentId: string }) {
   const startPoint = trajectory[0]?.[0], endPoint = trajectory.at(-1)?.at(-1);
   const behaviors = behaviorSummary(experiment, experiment.video.durationSec);
   const centerPct = metrics.centerPctClassifiable ?? 0;
-  const versionLabel = revision === "reviewed" ? `Revisão · ${experiment.corrections.length} eventos` : "Inferência bruta";
+  const versionLabel = revision === "reviewed" ? `Revisão · ${events.length} eventos desta fonte` : "Inferência bruta";
 
   const exportExperiment = () => {
     const scientificExperiment = {
@@ -114,9 +116,12 @@ export function Results({ experimentId }: { experimentId: string }) {
         center_area_fraction: experiment.arena.centerAreaFraction,
         boundary_policy: experiment.arena.boundaryPolicy,
       },
-      tracking: { reference_point: experiment.referencePoint, max_animals: 1,
+      tracking: { reference_point: experiment.referencePoint, max_animals: 1, selection: experiment.trackingSelection,
+        review_source: trackingSourceKey(experiment.trackingSelection), legacy_review_source: experiment.legacyReviewSource,
+        reviews: experiment.trackingReviews,
         coordinate_space: "original_video_pixels", posture_classification: "human_reviewed_candidates",
-        occluded_points: "not_imputed", recovered_points: "excluded_until_human_confirmation" },
+        occluded_points: "not_imputed", recovered_points: "excluded_until_human_confirmation",
+        predicted_boxes: "visual_only_excluded_from_metrics", macro_reference: "geometric_not_anatomical" },
     };
     downloadText("experiment.json", JSON.stringify(scientificExperiment, null, 2), "application/json");
   };
@@ -163,6 +168,7 @@ export function Results({ experimentId }: { experimentId: string }) {
         <div className="context-divider" />
         <Badge tone={metrics.coveragePct >= 90 ? "success" : "warning"} dot>Cobertura {metrics.coveragePct.toFixed(1)}%</Badge>
         <span>{versionLabel}</span>
+        <span>{experiment.video.timingSource === "synthetic" ? "Dados sintéticos" : experiment.trackingSelection?.engine === "opencv" ? "OpenCV · caixa / silhueta" : "Colab · pontos anatômicos"}</span>
         <span>Centro: {Math.round(experiment.arena.centerAreaFraction * 100)}% da área</span>
       </section>
 

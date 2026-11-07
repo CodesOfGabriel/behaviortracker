@@ -5,18 +5,19 @@ export function metricEligible(sample: PoseSample | undefined) {
   return drawablePose(sample) && sample.status === "valid"
     && sample.spatialRegion !== "outside"
     && sample.source !== "predicted" && sample.source !== "recovered"
-    && (sample.source === "manual" || sample.likelihood >= .6);
+    && (sample.source === "manual" || (sample.source === "segmented" ? ["silhouette_centroid", "box_center"].includes(sample.metricReference ?? "") && sample.referenceApproved === true && sample.spatialRegion === "floor" : sample.likelihood >= .6));
 }
 
 export function originalPose(sample: PoseSample): PoseSample {
   if (!sample.original) return sample;
   const { original, ...rest } = sample;
   return { ...rest, ...original, supportCount: original.supportCount, supportTotal: original.supportTotal,
-    source: "detected" };
+    bbox: original.bbox, contour: original.contour, metricReference: original.metricReference, referenceApproved: original.referenceApproved,
+    source: original.source ?? "detected" };
 }
 
 export function poseSourceLabel(sample: PoseSample | undefined) {
-  return sample?.source === "manual" ? "Confirmado manualmente" : sample?.source === "recovered"
+  return sample?.source === "segmented" ? sample.metricReference === "box_center" ? "Caixa segmentada · referência 2D" : "Silhueta segmentada · referência 2D" : sample?.source === "manual" ? "Confirmado manualmente" : sample?.source === "recovered"
     ? "Recuperado · revisar" : sample?.source === "predicted" ? "Previsão · fora das métricas" : "Detecção original";
 }
 
@@ -66,6 +67,7 @@ export function drawablePose(sample: PoseSample | undefined): sample is PoseSamp
 }
 
 export function confidenceLabel(sample: PoseSample | undefined) {
+  if (sample?.source === "segmented") return sample.metricReference === "box_center" ? "Caixa" : "Silhueta";
   if (sample?.source === "manual") return "Manual";
   if (sample?.source === "predicted") return "Previsto";
   return sample && sample.status !== "missing" && Number.isFinite(sample.likelihood) && sample.likelihood > 0 && sample.likelihood <= 1

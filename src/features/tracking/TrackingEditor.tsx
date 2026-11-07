@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import {
   useEffect,
+  useCallback,
   useMemo,
   useRef,
   useState,
@@ -33,6 +34,7 @@ import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { EditorTabs } from "../../components/ui/EditorTabs";
 import { activeCorrectionEvents, applyCorrections } from "../../lib/corrections";
+import { hasUnassignedCorrections, reviewEvents, selectTrackingReview, trackingSourceKey } from "../../lib/tracking-reviews";
 import { parseCanonicalPoseCsv } from "../../lib/csv";
 import { confidenceLabel, drawablePose, inferredFps, originalPose, poseSourceLabel, qualityTimelineBins, referencePoseSamples, trajectorySegments } from "../../lib/pose";
 import { makeDemoPose } from "../../lib/demo-data";
@@ -40,7 +42,7 @@ import { centerPolygonPx, pointsToSvg } from "../../lib/geometry";
 import { calculateOftMetrics } from "../../lib/metrics";
 import { cn, formatDuration } from "../../lib/format";
 import { useAppStore } from "../../store/AppStore";
-import type { CorrectionEvent, Point, PoseSample, PoseStatus } from "../../types";
+import type { BoundingBox, CorrectionEvent, Point, PoseSample, PoseStatus, TrackingSelection } from "../../types";
 import {
   loadColabResult,
   loadColabVideo,
@@ -54,6 +56,9 @@ import {
 import { AnalysisWorkflow } from "../colab/AnalysisWorkflow";
 import { DiagnosticPanel } from "../colab/DiagnosticPanel";
 import { TrainingPanel } from "../training/TrainingPanel";
+import { LocalTrackingPanel } from "../local/LocalTrackingPanel";
+import { listLocalJobs, loadLocalResult, type LocalJob } from "../local/api";
+import { BoxOverlay } from "./BoxOverlay";
 import { BehaviorReview } from "./BehaviorReview";
 import {
   COLAB_PROFILE_ID,
@@ -70,6 +75,8 @@ const statusInfo: Record<PoseStatus, { label: string; tone: "success" | "warning
 };
 
 const keypointLabels: Record<string, string> = {
+  box_center: "Centro da caixa · referência 2D",
+  silhouette_center: "Centroide da silhueta",
   body_center: "Centro corporal",
   nose: "Focinho",
   tail_base: "Base da cauda",
@@ -80,7 +87,7 @@ const keypointLabels: Record<string, string> = {
   neck: "Nuca", mid_back: "Meio do dorso", hip: "Quadril",
 };
 
-type WorkspaceTab = "review" | "behaviors" | "training" | "diagnostic" | "runs";
+type WorkspaceTab = "review" | "behaviors" | "training" | "diagnostic" | "runs" | "local";
 type PointDrag = { keypoint: string; frameIndex: number; timestampSec: number; before: Point | null; current: Point; offset: Point; pointerId: number };
 
 function nearestSample(samples: PoseSample[], time: number) {
@@ -127,7 +134,8 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const videoFileRef = useRef<HTMLInputElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
-  const importedJobRef = useRef<string | null>(null);
+  const sourceRequestRef = useRef(0);
+  useEffect(()=>()=>{++sourceRequestRef.current;},[experimentId]);
   const analysisRequestedRef = useRef(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -147,6 +155,10 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   const [inspectorTab, setInspectorTab] = useState<"points" | "history">("points");
   const [diagnosticBusy, setDiagnosticBusy] = useState(false);
   const [trainingBusy, setTrainingBusy] = useState(false);
+  const [localBusy,setLocalBusy]=useState(false);
+  const [localHistory,setLocalHistory]=useState<LocalJob[]>([]);
+  const [sourceLoading,setSourceLoading]=useState(false);
+  const [drawingBox,setDrawingBox]=useState(false);
   const [analysisHistory, setAnalysisHistory] = useState<ColabJob[]>([]);
   const [jobClock, setJobClock] = useState(() => Date.now());
   const [localStartedAt, setLocalStartedAt] = useState<number | null>(null);
@@ -155,12 +167,22 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   const dragRef = useRef<PointDrag | null>(null);
   const [correctionMessage, setCorrectionMessage] = useState("");
   const diagnosticOpen = workspaceTab === "diagnostic", trainingOpen = workspaceTab === "training";
-  const latestResultJob = analysisHistory.find((job) => job.resultsReady || job.status === "succeeded");
+  const latestResultJob = experiment?.trackingSelection?.engine === "opencv" ? undefined
+    : experiment?.trackingSelection?.engine === "colab" ? analysisHistory.find(job => job.jobId === experiment.trackingSelection?.jobId)
+    : analysisHistory.find((job) => job.resultsReady || job.status === "succeeded");
   const latestSuccessfulJobId = latestResultJob?.jobId;
   const latestResultStage = `${latestResultJob?.stage}:${latestResultJob?.status}`;
+  const applySource = useCallback((selection:TrackingSelection,samples:PoseSample[]) => {
+    if (!samples.length) throw new Error("A execução não contém frames para revisão.");
+    videoRef.current?.pause(); setPlaying(false); dragRef.current=null;setDrag(null);setPlacingPoint(false);setDrawingBox(false);
+    setTrackingData(experimentId,samples);
+    updateExperiment(experimentId,current=>selectTrackingReview(current,selection,samples));
+    setCurrentTime(samples[0].timestampSec);setSelectedKeypoint(samples.some(s=>s.keypoint==="box_center")?"box_center":samples.some(s=>s.keypoint==="body_center")?"body_center":samples[0].keypoint);
+    setVideoView("editor");setViewMode("reviewed");setCsvError(null);setCorrectionMessage("Fonte carregada. Cada execução mantém suas próprias correções.");
+  },[experimentId,setTrackingData,updateExperiment]);
 
   useEffect(() => {
-    if (!latestSuccessfulJobId || !isTauriRuntime()) return;
+    if (!latestSuccessfulJobId || !isTauriRuntime()) {setDlcVideo(null);return;}
     let cancelled = false;
     setDlcVideo(null); setDlcVideoLoading(true); setDlcPlaybackError(false);
     void loadColabVideo(latestSuccessfulJobId).then((video) => { if (!cancelled) setDlcVideo(video); })
@@ -177,31 +199,23 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   }, [experiment, experimentId, setTrackingData, trackingData]);
 
   useEffect(() => {
-    const job = analysisHistory[0];
-    if (!experiment || !job || !isTauriRuntime()) return;
-    if ((job.resultsReady || job.status === "succeeded") && !trackingData[experimentId] && importedJobRef.current !== job.jobId) {
-      importedJobRef.current = job.jobId;
-      void loadColabResult(job.jobId).then((csv) => {
-        const samples = parseCanonicalPoseCsv(csv);
-        setTrackingData(experimentId, samples);
-        updateExperiment(experimentId, {
-          status: "review",
-          analysisMethodVersion: "oft-0.2",
-          referencePoint: samples.some((sample) => sample.keypoint === "body_center")
-            ? "body_center"
-            : samples[0].keypoint,
-        });
-      }).catch((error) => { importedJobRef.current = null; setCsvError(typeof error === "string" ? error : "Não foi possível carregar o resultado da análise."); });
-    } else if (job.status === "failed" && experiment.status === "processing") {
-      updateExperiment(experimentId, { status: "failed" });
-      setCsvError(job.error);
-    }
-  }, [analysisHistory, analysisStarting, experiment, experimentId, setTrackingData, trackingData, updateExperiment]);
+    if (!experiment || trackingData[experimentId] || !isTauriRuntime()) return;
+    const selection = experiment.trackingSelection ?? (latestSuccessfulJobId ? {engine:"colab" as const,jobId:latestSuccessfulJobId} : undefined);
+    if (!selection) return;
+    let cancelled=false;
+    const token=++sourceRequestRef.current;setSourceLoading(true);
+    const promise=selection.engine==="opencv"?loadLocalResult(selection.jobId):loadColabResult(selection.jobId).then(parseCanonicalPoseCsv);
+    void promise.then(samples=>{if(!cancelled&&token===sourceRequestRef.current)applySource(selection,samples);})
+      .catch(error=>{if(!cancelled&&token===sourceRequestRef.current)setCsvError(`A fonte salva não pôde ser carregada. Correções preservadas. ${String(error)}`);})
+      .finally(()=>{if(!cancelled&&token===sourceRequestRef.current)setSourceLoading(false);});
+    return()=>{cancelled=true;};
+  }, [experimentId,experiment?.trackingSelection?.engine,experiment?.trackingSelection?.jobId,latestSuccessfulJobId,!!trackingData[experimentId],applySource]);
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
     let cancelled = false;
     const refreshHistory = () => {
+      void listLocalJobs(experimentId).then(jobs=>{if(!cancelled)setLocalHistory(jobs);}).catch(()=>undefined);
       void loadColabJobs(experimentId)
         .then((jobs) => {
           if (!cancelled) setAnalysisHistory(jobs.filter((job) => !job.diagnostic && !job.training));
@@ -222,12 +236,15 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   const inputSamples = trackingData[experimentId] ?? [];
   const rawSamples = useMemo(() => inputSamples.map(originalPose), [inputSamples]);
   const [placingPoint, setPlacingPoint] = useState(false);
+  const sourceEvents = useMemo(() => experiment ? reviewEvents(experiment) : [],[experiment]);
   const correctedSamples = useMemo(
-    () => experiment ? applyCorrections(inputSamples, experiment.corrections) : inputSamples,
-    [experiment, inputSamples],
+    () => applyCorrections(inputSamples, sourceEvents),
+    [sourceEvents, inputSamples],
   );
   const displayedSamples = viewMode === "raw" ? rawSamples : correctedSamples;
-  const keypoints = useMemo(() => Array.from(new Set([experiment?.referencePoint??"body_center",...rawSamples.map((sample) => sample.keypoint),"nose","tail_base","left_ear","right_ear"])), [rawSamples, experiment?.referencePoint]);
+  const macroMode = experiment?.referencePoint === "box_center";
+  const keypoints = useMemo(() => macroMode ? ["box_center"] : experiment?.trackingSelection?.engine==="opencv" ? [experiment.referencePoint]
+    : Array.from(new Set([experiment?.referencePoint??"body_center",...rawSamples.map((sample) => sample.keypoint),"nose","tail_base","left_ear","right_ear"])), [rawSamples, experiment?.referencePoint,experiment?.trackingSelection?.engine,macroMode]);
 
   useEffect(() => {
     if (keypoints.length && !keypoints.includes(selectedKeypoint)) setSelectedKeypoint(keypoints[0]);
@@ -267,8 +284,8 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     [experiment],
   );
   const activeEvents = useMemo(
-    () => activeCorrectionEvents(experiment?.corrections ?? []),
-    [experiment?.corrections],
+    () => activeCorrectionEvents(sourceEvents),
+    [sourceEvents],
   );
 
   const trajectory = useMemo(() => {
@@ -279,7 +296,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   }, [referenceSamples, currentFrame, drag, viewMode, referenceKeypoint]);
 
   const setTime = (next: number) => {
-    dragRef.current = null; setDrag(null); setPlacingPoint(false);
+    dragRef.current = null; setDrag(null); setPlacingPoint(false);setDrawingBox(false);
     const clamped = Math.max(0, Math.min(duration, next));
     setCurrentTime(clamped);
     if (videoRef.current) videoRef.current.currentTime = clamped;
@@ -316,7 +333,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (workspaceTab !== "review" && workspaceTab !== "behaviors") return;
-      if (event.defaultPrevented || dragRef.current) return;
+      if (event.defaultPrevented || dragRef.current || drawingBox || sourceLoading) return;
       if ((event.target as HTMLElement)?.closest(".diagnostic-panel, .training-panel")) return;
       if (videoView === "deeplabcut") return;
       if ((event.target as HTMLElement)?.closest("input, textarea, select, button, [role=tablist]")) return;
@@ -337,8 +354,28 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   }
 
   const appendEvent = (event: CorrectionEvent) => {
-    updateExperiment(experiment.id, { corrections: [...experiment.corrections, event], status: "review" });
+    updateExperiment(experiment.id, current=>({ corrections: [...current.corrections,
+      {...event,reviewSource:trackingSourceKey(experiment.trackingSelection)}], status: "review" }));
     if(event.type==="REVERT_EVENT")setCorrectionMessage("Correção desfeita. Trajeto e métricas revisados foram recalculados.");
+  };
+
+  const switchSource = async (key:string) => {
+    const selection = key.startsWith("opencv:") ? {engine:"opencv" as const,jobId:key.slice(7)}
+      : key.startsWith("colab:") ? {engine:"colab" as const,jobId:key.slice(6)} : null;
+    if(!selection)return;
+    const token=++sourceRequestRef.current;setSourceLoading(true);setCsvError(null);
+    try {
+      const samples=selection.engine==="opencv"?await loadLocalResult(selection.jobId):parseCanonicalPoseCsv(await loadColabResult(selection.jobId));
+      if(token===sourceRequestRef.current)applySource(selection,samples);
+    }catch(error){if(token===sourceRequestRef.current)setCsvError(`Não foi possível trocar a fonte. O resultado atual e suas correções foram mantidos. ${String(error)}`);}
+    finally{if(token===sourceRequestRef.current)setSourceLoading(false);}
+  };
+
+  const saveBox = (box:BoundingBox) => {
+    if(!currentFrameSample)return;
+    appendEvent({id:crypto.randomUUID(),type:"SET_BOX",createdAt:new Date().toISOString(),source:"manual",keypoint:"box_center",
+      frameIndex:currentFrame,timestampSec:currentFrameSample.timestampSec,beforeBox:currentReference?.bbox??null,afterBox:box});
+    setCorrectionMessage(`Caixa corrigida no frame ${currentFrame}. Trajeto recalculado pelo centro geométrico da caixa; não representa altura nem centro anatômico.`);
   };
 
   const pointFromPointer = (event: ReactPointerEvent<SVGSVGElement | SVGGElement>): Point => {
@@ -407,7 +444,9 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
       type: "MARK_MISSING",
       createdAt: new Date().toISOString(),
       frameIndex: currentFrame,
+      timestampSec: selectedPoint.timestampSec,
       keypoint: selectedPoint.keypoint,
+      beforeBox: selectedPoint.bbox ?? null,
       before: selectedPoint.xPx != null && selectedPoint.yPx != null ? { x: selectedPoint.xPx, y: selectedPoint.yPx } : null,
       after: null,
       source: "manual",
@@ -421,6 +460,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
       type: "CONFIRM_POINT",
       createdAt: new Date().toISOString(),
       frameIndex: currentFrame,
+      timestampSec: selectedPoint.timestampSec,
       keypoint: selectedPoint.keypoint,
       before: { x: selectedPoint.xPx, y: selectedPoint.yPx },
       source: "manual",
@@ -481,6 +521,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     setJobClock(Date.now());
     setAnalysisMessage("Verificando a conexão com o Colab");
     setCsvError(null);
+    const sourceAtStart=sourceRequestRef.current;
     try {
       if (preparation && !await checkVideoStaging(experiment.id, preparation.uploadId)) preparation = undefined;
       if (!preparation && !videoFile) {
@@ -520,16 +561,9 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
         setCsvError(`Poses preservadas para revisão. A execução parou após a inferência: ${completed.error || completed.message}`);
       }
       const samples = parseCanonicalPoseCsv(await loadColabResult(completed.jobId));
-      setTrackingData(experiment.id, samples);
-      updateExperiment(experiment.id, {
-        status: "review",
-        analysisMethodVersion: "oft-0.2",
-        video: { ...experiment.video, preparation },
-        referencePoint: samples.some((sample) => sample.keypoint === "body_center")
-          ? "body_center"
-          : samples[0].keypoint,
-      });
-      setCurrentTime(samples[0].timestampSec);
+      if(sourceRequestRef.current===sourceAtStart)applySource({engine:"colab",jobId:completed.jobId},samples);
+      else setAnalysisMessage("Execução concluída e salva. A fonte que você está revisando não foi alterada; selecione o novo resultado quando quiser.");
+      updateExperiment(experiment.id,current=>({video:{...current.video,preparation},status:"review"}));
     } catch (error) {
       const message = error instanceof Error ? error.message : typeof error === "string" ? error : "Não foi possível executar a análise no Colab.";
       setCsvError(message);
@@ -541,7 +575,9 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
 
   const severityCount = referenceSamples.filter((sample) => sample.status !== "valid" || sample.source === "recovered").length;
   const currentStatus = currentReference?.status ?? "missing";
-  const qualityInfo = currentReference?.source === "recovered" ? { label: "Recuperado · revisar", tone: "warning" as const } : statusInfo[currentStatus];
+  const qualityInfo = macroMode ? currentReference?.source === "predicted" ? {label:"Previsão · não observada",tone:"warning" as const}
+    : currentStatus === "valid" ? {label:"Caixa observada",tone:"success" as const} : currentStatus === "low_confidence" ? {label:"Caixa parcial · revisar",tone:"warning" as const} : statusInfo[currentStatus]
+    : currentReference?.source === "recovered" ? { label: "Recuperado · revisar", tone: "warning" as const } : statusInfo[currentStatus];
   const fps = detectedFps;
   const currentJob = analysisJob
     ? analysisHistory.find((job) => job.jobId === analysisJob.jobId) ?? analysisJob
@@ -550,9 +586,9 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     ? analysisHistory.find((job) => job.jobId === selectedJobId) ?? currentJob
     : currentJob;
   const analysisBusy = analysisStarting || currentJob?.status === "running" || currentJob?.status === "queued";
-  const editorLocked = viewMode === "raw" || videoView === "deeplabcut";
+  const editorLocked = viewMode === "raw" || videoView === "deeplabcut" || sourceLoading;
   const positionLocked = editorLocked || !currentFrameSample;
-  const changeWorkspace = (tab: WorkspaceTab) => {videoRef.current?.pause();setPlaying(false);cancelDrag();setWorkspaceTab(tab);};
+  const changeWorkspace = (tab: WorkspaceTab) => {videoRef.current?.pause();setPlaying(false);cancelDrag();setDrawingBox(false);setWorkspaceTab(tab);};
   const elapsedSec = visibleJob ? jobElapsedSeconds(visibleJob, jobClock)
     : localStartedAt ? Math.max(0, (jobClock - localStartedAt) / 1000) : 0;
 
@@ -563,14 +599,33 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
         <button className="back-link" onClick={() => navigate({ name: "dashboard" })}><ArrowLeft size={16} /> Experimentos</button>
         <div className="editor-title"><div><h1>{experiment.title}</h1><p>{experiment.subjectId}{experiment.group ? ` · ${experiment.group}` : ""} · Campo aberto</p></div><Badge tone={rawSamples.length ? "warning" : "neutral"} dot>{rawSamples.length ? "Em revisão" : "Sem tracking"}</Badge></div>
         <div className="editor-header-actions">
-          <Button className="analyze-button header-analyze" disabled={analysisBusy || diagnosticBusy || trainingBusy} icon={<CloudCog size={16} />} onClick={() => void runColabAnalysis()}>{rawSamples.length ? "Reprocessar no Colab" : "Analisar no Colab"}</Button>
-          <Button disabled={!rawSamples.length} icon={<BarChart3 size={16} />} onClick={() => navigate({ name: "results", experimentId })}>Ver resultados</Button>
+          <Button className="analyze-button header-analyze" disabled={analysisBusy || diagnosticBusy || trainingBusy || localBusy} icon={<CloudCog size={16} />} onClick={() => void runColabAnalysis()}>{rawSamples.length ? "Reprocessar no Colab" : "Analisar no Colab"}</Button>
+          <Button disabled={!rawSamples.length||sourceLoading} icon={<BarChart3 size={16} />} onClick={() => navigate({ name: "results", experimentId })}>Ver resultados</Button>
         </div>
       </header>
+      <div className="tracking-source-bar">
+        <label>Resultado em revisão <select aria-label="Resultado em revisão" value={trackingSourceKey(experiment.trackingSelection)} disabled={sourceLoading}
+          onChange={event=>void switchSource(event.target.value)}>
+          {!experiment.trackingSelection&&<option value="legacy">Revisão anterior</option>}
+          {experiment.trackingSelection&&!analysisHistory.some(job=>`colab:${job.jobId}`===trackingSourceKey(experiment.trackingSelection))&&!localHistory.some(job=>`opencv:${job.jobId}`===trackingSourceKey(experiment.trackingSelection))&&<option value={trackingSourceKey(experiment.trackingSelection)}>Fonte salva · {experiment.trackingSelection.engine} · {experiment.trackingSelection.jobId.slice(0,8)}</option>}
+          {analysisHistory.filter(job=>job.resultsReady||job.status==="succeeded").map(job=><option key={job.jobId} value={`colab:${job.jobId}`}>Colab · {new Date(job.createdAt).toLocaleString()} · {job.jobId.slice(0,8)}</option>)}
+          {localHistory.filter(job=>job.state==="succeeded").map(job=><option key={job.jobId} value={`opencv:${job.jobId}`}>OpenCV · {new Date(job.createdAt).toLocaleString()} · {job.jobId.slice(0,8)}</option>)}
+        </select></label>
+        <span role="status">{sourceLoading?"Carregando fonte salva…":"Correções separadas por execução · nenhum resultado é apagado ao trocar"}</span>
+        {experiment.legacyReviewSource&&experiment.legacyReviewSource!=="legacy"&&experiment.corrections.some(event=>!event.reviewSource&&["MOVE_POINT","SET_BOX","CONFIRM_POINT","MARK_MISSING"].includes(event.type))&&<Button size="sm" variant="ghost" disabled={sourceLoading} onClick={()=>updateExperiment(experiment.id,{legacyReviewSource:"legacy"})}>Reassociar correções antigas</Button>}
+      </div>
+      {hasUnassignedCorrections(experiment)&&<div className="editor-error">
+        <span>Há correções antigas preservadas, mas sem identificação da execução. Elas não serão misturadas ao OpenCV. Selecione o resultado Colab que você corrigiu para associá-las.</span>
+        {experiment.trackingSelection?.engine==="colab"&&<Button size="sm" variant="secondary" disabled={sourceLoading} onClick={()=>updateExperiment(experiment.id,{legacyReviewSource:trackingSourceKey(experiment.trackingSelection)})}>Associar correções antigas a este Colab</Button>}
+      </div>}
       <EditorTabs id="workspace" label="Áreas do experimento" value={workspaceTab} onChange={changeWorkspace} items={[
-        {id:"review",label:"Revisar vídeo"},{id:"behaviors",label:"Comportamentos"},{id:"training",label:"Ensinar o modelo"},
+        {id:"review",label:"Revisar vídeo"},{id:"local",label:"Análise local"},{id:"behaviors",label:"Comportamentos"},{id:"training",label:"Ensinar o modelo"},
         {id:"diagnostic",label:"Testar rastreamento"},{id:"runs",label:"Execuções"},
       ]}/>
+      <div role="tabpanel" id="workspace-local-panel" aria-labelledby="workspace-local-tab" hidden={workspaceTab!=="local"}>
+        <LocalTrackingPanel experiment={experiment} file={asset?.file} videoUrl={asset?.objectUrl} open={workspaceTab==="local"} onAttach={()=>{analysisRequestedRef.current=false;videoFileRef.current?.click();}} onBusy={setLocalBusy}
+          onUse={(job,samples)=>{++sourceRequestRef.current;setSourceLoading(false);applySource({engine:"opencv",jobId:job.jobId},samples);changeWorkspace("review");}}/>
+      </div>
       <div role="tabpanel" id="workspace-training-panel" aria-labelledby="workspace-training-tab" hidden={!trainingOpen}>
       <TrainingPanel key={`training-${experiment.id}`} experiment={experiment} file={asset?.file} videoUrl={asset?.objectUrl} currentTime={currentTime} fps={detectedFps} open={trainingOpen} onSeek={(time)=>setCurrentTime(Math.max(0,Math.min(experiment.video.durationSec,time)))}
         onAttach={()=>{analysisRequestedRef.current=false;videoFileRef.current?.click();}} onBusy={setTrainingBusy} onRestaged={(uploadId)=>{if(asset?.file)updateExperiment(experiment.id,{video:{...experiment.video,preparation:{uploadId,originalBytes:asset.file.size,uploadBytes:asset.file.size,status:"original",policyVersion:"lossless-upload-1",message:"Vídeo original no cache local",pixelVerified:false,frameCount:null}}});}} />
@@ -626,7 +681,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
             <div className="video-toolbar">
               <div className="segmented-control video-source-tabs" aria-label="Fonte do vídeo">
                 <button className={videoView === "editor" ? "active" : ""} onClick={() => { cancelDrag();setPlaying(false); setVideoView("editor"); }}>Editor</button>
-                <button className={videoView === "deeplabcut" ? "active" : ""} onClick={() => { cancelDrag();setPlaying(false); setVideoView("deeplabcut"); }}>{latestResultJob?.customModel?"Vídeo do modelo":"Vídeo do DeepLabCut"}</button>
+                {experiment.trackingSelection?.engine!=="opencv"&&<button className={videoView === "deeplabcut" ? "active" : ""} onClick={() => { cancelDrag();setPlaying(false); setVideoView("deeplabcut"); }}>{latestResultJob?.customModel?"Vídeo do modelo":"Vídeo do DeepLabCut"}</button>}
               </div>
               {videoView === "editor" && <>
               <div className="segmented-control">
@@ -668,7 +723,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
                 preserveAspectRatio="xMidYMid meet"
                 aria-label="Vídeo com pontos editáveis"
                 onPointerDown={(event) => {
-                  if (viewMode === "raw" || workspaceTab!=="review") return;
+                  if (editorLocked || macroMode || workspaceTab!=="review") return;
                   if (placingPoint || !drawablePose(selectedPoint)) beginDrag(event,selectedKeypoint,drawablePose(selectedPoint)?{x:selectedPoint.xPx,y:selectedPoint.yPx}:null,true);
                 }}
                 onPointerMove={(event) => {const value=dragRef.current;if(value?.pointerId===event.pointerId){const next={...value,current:dragPosition(event,value)};dragRef.current=next;setDrag(next);}}}
@@ -695,7 +750,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
                   if (!drawablePose(first) || !drawablePose(second)) return null;
                   return <line key={`${a}-${b}`} x1={first.xPx} y1={first.yPx} x2={second.xPx} y2={second.yPx} stroke="#ecfdf5" strokeOpacity=".8" strokeWidth="4" />;
                 })}
-                {currentPoints.map((sample) => {
+                {!macroMode&&currentPoints.map((sample) => {
                   if (!drawablePose(sample)) return null;
                   const point = drag?.keypoint === sample.keypoint ? drag.current : { x: sample.xPx, y: sample.yPx };
                   const rawPoint = rawCurrentPoints.find((raw) => raw.keypoint === sample.keypoint);
@@ -719,9 +774,16 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
                     </g>
                   );
                 })}
+                {!macroMode&&currentPoints.filter(sample=>drawablePose(sample)&&sample.bbox).map(sample=><BoxOverlay key={`legacy-box-${sample.keypoint}`} box={sample.bbox}
+                  width={experiment.video.width} height={experiment.video.height} drawing={false} editable={false} predicted={sample.source==="predicted"} manual={sample.source==="manual"}
+                  onStart={()=>{}} onCancel={()=>{}} onCommit={()=>{}}/>)}
+                {macroMode&&<BoxOverlay key={`${trackingSourceKey(experiment.trackingSelection)}:${currentFrame}`} box={drawablePose(currentReference)?currentReference.bbox:undefined}
+                  width={experiment.video.width} height={experiment.video.height} drawing={drawingBox} editable={!positionLocked&&workspaceTab==="review"}
+                  predicted={currentReference?.source==="predicted"} manual={currentReference?.source==="manual"}
+                  onStart={()=>{videoRef.current?.pause();setPlaying(false);setCorrectionMessage("");}} onCancel={()=>setDrawingBox(false)} onCommit={saveBox}/>}
               </svg>
               <div className="stage-badges"><Badge tone="neutral">Frame {currentFrame}</Badge><Badge tone={qualityInfo.tone}>{qualityInfo.label}</Badge>{currentReference?.source && currentReference.source !== "detected" && currentReference.source !== "recovered" && <Badge tone="warning">{poseSourceLabel(currentReference)}</Badge>}</div>
-              {workspaceTab==="review"&&viewMode!=="raw"&&(!asset?.objectUrl&&experiment.video.timingSource!=="synthetic"?<div className="placement-hint">Abra o vídeo original para conferir a posição real do animal</div>:(placingPoint||!drawablePose(selectedPoint))&&<div className="placement-hint">{currentFrameSample?`Clique e arraste para posicionar ${keypointLabels[selectedKeypoint] ?? selectedKeypoint}`:"Sem timestamp de origem para este frame · edição bloqueada para não corrigir o frame errado"}</div>)}
+              {workspaceTab==="review"&&viewMode!=="raw"&&(!asset?.objectUrl&&experiment.video.timingSource!=="synthetic"?<div className="placement-hint">Abra o vídeo original para conferir a posição real do animal</div>:macroMode?(drawingBox&&<div className="placement-hint">Arraste de um canto ao outro ao redor do animal · Esc cancela</div>):(placingPoint||!drawablePose(selectedPoint))&&<div className="placement-hint">{currentFrameSample?`Clique e arraste para posicionar ${keypointLabels[selectedKeypoint] ?? selectedKeypoint}`:"Sem timestamp de origem para este frame · edição bloqueada para não corrigir o frame errado"}</div>)}
               {viewMode === "raw" && <div className="raw-lock"><RotateCcw size={15} /> Visualização bruta · edição bloqueada</div>}
             </div>
 
@@ -766,8 +828,8 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
             <EditorTabs id="inspector" label="Inspeção do tracking" value={inspectorTab} onChange={setInspectorTab} items={[{id:"points",label:"Correção"},{id:"history",label:"Histórico"}]}/>
             <div hidden={inspectorTab!=="points"} role="tabpanel" id="inspector-points-panel" aria-labelledby="inspector-points-tab">
             <section className="inspector-section">
-              <div className="inspector-label">Partes do animal · frame {currentFrame}</div>
-              <p className="correction-help">Arraste os pontos no vídeo. Para uma parte ausente, selecione abaixo e clique e arraste na posição correta.</p>
+              <div className="inspector-label">{macroMode?"Animal inteiro · caixa":"Partes do animal"} · frame {currentFrame}</div>
+              <p className="correction-help">{macroMode?"Arraste a caixa para mover; use os cantos para redimensionar. Se não houver detecção, desenhe uma caixa ao redor da parte visível do animal. Não estima partes escondidas.":"Arraste os pontos no vídeo. Para uma parte ausente, selecione abaixo e clique e arraste na posição correta."}</p>
               <div className="keypoint-list">
                 {keypoints.map((keypoint) => {
                   const point = currentPoints.find((sample) => sample.keypoint === keypoint);
@@ -777,9 +839,10 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
             </section>
             <section className="inspector-section correction-actions">
               <div className="inspector-label">Ações no frame {currentFrame}</div>
-              <Button variant="secondary" icon={<MousePointer2 size={16} />} onClick={() => {videoRef.current?.pause();setPlaying(false);setPlacingPoint((current) => !current);}} disabled={positionLocked}>{placingPoint ? "Cancelar posicionamento" : drawablePose(selectedPoint)?"Reposicionar no vídeo":"Posicionar ponto ausente"}</Button>
+              {macroMode?<Button variant="secondary" icon={<MousePointer2 size={16}/>} disabled={positionLocked} onClick={()=>{videoRef.current?.pause();setPlaying(false);setDrawingBox(current=>!current);}}>{drawingBox?"Cancelar desenho":"Desenhar caixa do animal"}</Button>:
+              <Button variant="secondary" icon={<MousePointer2 size={16} />} onClick={() => {videoRef.current?.pause();setPlaying(false);setPlacingPoint((current) => !current);}} disabled={positionLocked}>{placingPoint ? "Cancelar posicionamento" : drawablePose(selectedPoint)?"Reposicionar no vídeo":"Posicionar ponto ausente"}</Button>}
               <Button variant="ghost" icon={<Flag size={16} />} onClick={markMissing} disabled={!drawablePose(selectedPoint) || editorLocked}>Marcar como ausente</Button>
-              <Button variant="secondary" onClick={confirmPoint} disabled={editorLocked || !drawablePose(selectedPoint) || selectedPoint?.source === "predicted"}>Confirmar ponto após revisar</Button>
+              <Button variant="secondary" onClick={confirmPoint} disabled={editorLocked || !drawablePose(selectedPoint) || selectedPoint?.source === "predicted"}>{macroMode?"Confirmar caixa após revisar":"Confirmar ponto após revisar"}</Button>
               <div className="undo-row"><Button variant="ghost" size="sm" icon={<Undo2 size={15} />} onClick={undo} disabled={!activeEvents.length || editorLocked}>Desfazer</Button></div>
               <small>Salvo automaticamente neste dispositivo. A correção vale somente para este frame, sem preencher outros trechos.</small>
             </section>
@@ -788,7 +851,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
               <div className="inspector-label">Qualidade: {keypointLabels[referenceKeypoint] ?? referenceKeypoint}</div>
               <div className={`quality-card quality-${currentReference?.source === "recovered" ? "low_confidence" : currentStatus}`}>
                 {qualityInfo.tone === "success" ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
-                <div><strong>{qualityInfo.label}</strong><span>{latestResultJob?.customModel&&currentReference?.source!=="manual"?"Confiança anatômica não calibrada":`Score do modelo: ${confidenceLabel(currentReference)}`}</span></div>
+                <div><strong>{qualityInfo.label}</strong><span>{macroMode?"Centro geométrico 2D · sem score anatômico":latestResultJob?.customModel&&currentReference?.source!=="manual"?"Confiança anatômica não calibrada":`Score do modelo: ${confidenceLabel(currentReference)}`}</span></div>
               </div>
               <p>Flags indicam trechos para revisão; não provam que a estimativa esteja errada.</p>
               <p>{poseSourceLabel(selectedPoint)}. Score não é probabilidade calibrada de acerto. Pontos recuperados e de baixa confiança só entram nas métricas depois de confirmados.</p>
@@ -808,7 +871,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
               {!activeEvents.length&&<p>Nenhuma correção ativa.</p>}
               {activeEvents.slice().reverse().map((event)=><article key={event.id}>
                 <button onClick={()=>{setPlaying(false);setTime(event.timestampSec??frameTimeline.find((sample)=>sample.frameIndex===event.frameIndex)?.timestampSec??event.startSec??0);if(event.keypoint)setSelectedKeypoint(event.keypoint);}}>
-                  <strong>{event.type==="MOVE_POINT"?"Ponto reposicionado":event.type==="MARK_MISSING"?"Marcado ausente":event.type==="CONFIRM_POINT"?"Ponto confirmado":event.type==="ANNOTATE_BEHAVIOR"?"Comportamento anotado":"Sugestão descartada"}</strong>
+                  <strong>{event.type==="SET_BOX"?"Caixa corrigida":event.type==="MOVE_POINT"?"Ponto reposicionado":event.type==="MARK_MISSING"?"Marcado ausente":event.type==="CONFIRM_POINT"?"Ponto confirmado":event.type==="ANNOTATE_BEHAVIOR"?"Comportamento anotado":"Sugestão descartada"}</strong>
                   <span>{event.keypoint?keypointLabels[event.keypoint]??event.keypoint:event.label} {event.frameIndex!=null?`· frame ${event.frameIndex}`:""}</span>
                   {event.after&&<small>x {event.after.x.toFixed(1)} · y {event.after.y.toFixed(1)} px</small>}
                 </button>

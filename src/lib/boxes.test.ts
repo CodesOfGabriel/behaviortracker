@@ -1,0 +1,57 @@
+import { describe, expect, it } from "vitest";
+import { boxFromPoints, translateBox } from "./boxes";
+import { applyCorrections } from "./corrections";
+import { originalPose, metricEligible } from "./pose";
+import { parseCanonicalPoseCsv, poseToCsv } from "./csv";
+import type { CorrectionEvent, PoseSample } from "../types";
+
+const raw:PoseSample={frameIndex:3,timestampSec:.125,keypoint:"box_center",xPx:50,yPx:60,status:"valid",likelihood:0,source:"segmented",
+  spatialRegion:"floor",bbox:{x:30,y:40,width:40,height:40},metricReference:"box_center",referenceApproved:false};
+const edit:CorrectionEvent={id:"box",type:"SET_BOX",frameIndex:3,timestampSec:.125,keypoint:"box_center",source:"manual",createdAt:"now",afterBox:{x:50,y:50,width:40,height:20}};
+
+describe("caixa macro e correções auditáveis",()=>{
+  it("desenha em qualquer direção e limita a translação à imagem",()=>{
+    expect(boxFromPoints({x:100,y:90},{x:50,y:30})).toEqual({x:50,y:30,width:50,height:60});
+    expect(translateBox({x:10,y:20,width:30,height:40},{x:1000,y:-200},100,80)).toEqual({x:70,y:0,width:30,height:40});
+  });
+  it("edita caixa e trajeto sem deslocar outros pontos ou alterar o bruto",()=>{
+    const [revised,nose]=applyCorrections([raw,{...raw,keypoint:"nose"}],[edit]);
+    expect(revised).toMatchObject({xPx:70,yPx:60,bbox:edit.afterBox,source:"manual"});
+    expect(nose.xPx).toBe(50);
+    expect(originalPose(revised)).toMatchObject(raw);
+    expect(raw.bbox?.x).toBe(30);
+  });
+  it("cria a caixa ausente usando o relógio do frame, sem preencher outros frames",()=>{
+    const missing={...raw,bbox:undefined,xPx:null,yPx:null,status:"missing" as const};
+    expect(applyCorrections([missing],[edit])[0]).toMatchObject({xPx:70,status:"valid",source:"manual"});
+    expect(applyCorrections([],[edit])).toHaveLength(1);
+    expect(applyCorrections([],[{...edit,timestampSec:undefined}])).toEqual([]);
+  });
+  it("exporta e restaura as caixas bruta/revisada e a origem verdadeira",()=>{
+    const [revised]=applyCorrections([raw],[edit]);
+    const [restored]=parseCanonicalPoseCsv(poseToCsv([revised]));
+    expect(restored.bbox).toEqual(edit.afterBox);
+    expect(originalPose(restored)).toMatchObject(raw);
+    expect(metricEligible(originalPose(restored))).toBe(false);
+  });
+  it("não converte previsão em medição por causa de um retângulo",()=>{
+    const predicted={...raw,source:"predicted" as const,referenceApproved:true};
+    expect(metricEligible(predicted)).toBe(false);
+    const [confirmed]=applyCorrections([predicted],[{...edit,type:"CONFIRM_POINT"}]);
+    expect(confirmed.source).toBe("predicted");
+    const [positioned]=applyCorrections([predicted],[edit]);
+    expect(positioned.source).toBe("manual");
+    expect(originalPose(positioned).source).toBe("predicted");
+  });
+  it("centro geométrico segmentado só entra após consentimento e observação estável no chão",()=>{
+    expect(metricEligible(raw)).toBe(false);
+    expect(metricEligible({...raw,referenceApproved:true})).toBe(true);
+    expect(metricEligible({...raw,referenceApproved:true,status:"low_confidence"})).toBe(false);
+    expect(metricEligible({...raw,referenceApproved:true,spatialRegion:"wall_projection"})).toBe(false);
+  });
+  it("desfazer restaura caixa e trajeto originais; rejeita caixas inválidas",()=>{
+    expect(applyCorrections([raw],[edit,{id:"undo",type:"REVERT_EVENT",targetEventId:edit.id,source:"manual",createdAt:"now"}])).toEqual([raw]);
+    expect(applyCorrections([raw],[{...edit,afterBox:{x:10,y:20,width:-3,height:10}}])).toEqual([raw]);
+    expect(()=>parseCanonicalPoseCsv(poseToCsv([{...raw,bbox:{x:10,y:20,width:0,height:10}}]))).toThrow();
+  });
+});

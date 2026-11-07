@@ -15,6 +15,7 @@ Aplicação desktop para preparar, revisar e documentar análises comportamentai
 - fluxograma horizontal com checkpoints, GPU confirmada pelo runtime e diário persistido de cada execução;
 - editor com overlay, timeline de qualidade e correção por arraste;
 - preservação do tracking bruto e eventos de revisão;
+- rastreamento macro local com OpenCV, caixa editável no vídeo e revisões separadas por execução;
 - segunda passagem visual para recuperar falhas curtas do detector, com procedência e confirmação humana;
 - revisão de episódios de rearing, grooming e freezing, sugestões exploratórias e exportação de frequência/duração;
 - métricas OFT locais e exportações CSV/JSON;
@@ -109,6 +110,27 @@ Em **Comportamentos · revisão assistida**, selecione rearing, grooming ou free
 Somente episódios confirmados entram em frequência/duração. Intervalos sobrepostos da mesma classe são unidos. Sem revisão completa, os totais são parciais; **não anotado** não vira zero. Assinale que revisou o vídeo inteiro para cada classe apenas depois de conferir também os trechos sem sugestões. Exporte os episódios em `behaviors.csv` e o histórico em `corrections.jsonl`. O `experiment.json` inclui as políticas e o estado da revisão. Para obter classificação automática validada, ainda é necessário anotar exemplos representativos, treinar um classificador e avaliar em vídeos/animais independentes.
 
 O método `oft-0.2` só calcula métricas a partir de pontos válidos detectados ou confirmados manualmente. Baixa confiança, saltos, previsões e recuperações não confirmadas ficam fora. Um intervalo exige ambos os extremos válidos e no máximo 0,5 s entre eles; os demais são desconhecidos. Imobilidade operacional usa velocidade ≤ 2 cm/s por pelo menos 0,5 s, **não equivale a freezing** e não é um critério biológico validado. Tempos por zona são atribuídos ao extremo inicial de cada intervalo elegível. Distância é parcial, calculada só em pares elegíveis; a cobertura deve acompanhar qualquer comparação. Para comparar resultados anteriores, mantenha a versão do método registrada.
+
+## Rastrear o animal inteiro, sem pontos anatômicos
+
+No aplicativo desktop, abra **Análise local → Preparar OpenCV local**. A instalação é explícita, usa um ambiente Python isolado no diretório de dados do app e não instala DeepLabCut. Requer Python 3 com `venv` e FFmpeg/ffprobe acessíveis. As próximas execuções reutilizam esse ambiente, sem nova instalação.
+
+1. Abra o vídeo original e clique em **Selecionar caixa inicial do animal**. Arraste um retângulo ao redor do animal no primeiro frame.
+2. Escolha animal claro/escuro ou um frame realmente vazio como fundo fixo. Ajuste contraste e limites de área se o fundo for confundido com o animal.
+3. Clique em **Analisar localmente**. O processamento mostra caixas, frames, tempo, FPS e cobertura observada. Cobertura não mede acurácia. Não há envio ao Google nem troca automática da análise em revisão.
+4. Confira a prévia e escolha **Usar resultado local no editor**. Em **Revisar vídeo**, arraste a caixa, redimensione pelos cantos ou use **Desenhar caixa do animal** quando faltar uma observação. Correções valem para o frame escolhido; o trajeto revisado usa o centro geométrico da caixa.
+
+O modo `opencv-box-2` segmenta a região visível dentro da borda da caixa, associa candidatos por proximidade/cor e mantém fundo/aparência fixos para não absorver o animal parado. Em oclusões curtas, pode mostrar uma caixa prevista tracejada por até 0,25 s; ela nunca vira observação nem entra nas métricas. Após esse prazo, mantém uma lacuna. Uma caixa parcial perto da parede permanece visível, mas exige revisão. Não estima partes ocultas, altura, rearing, grooming ou freezing.
+
+O centro da caixa **não equivale ao centro anatômico nem ao ponto de contato com o chão**. Coordenadas automáticas locais só alimentam métricas após consentimento explícito e quando a observação estável está na projeção do piso. Previsões e observações parciais não são liberadas por esse consentimento. Posições corrigidas/confirmadas manualmente continuam sujeitas à geometria e às regras de continuidade. A acurácia nos ratos reais ainda precisa ser medida com anotações independentes; não há promessa de rastreamento sem perdas. O caminho Colab existente continua sendo de pose; o rastreamento macro desta implementação é local.
+
+### Voltar às correções do Colab
+
+Use **Resultado em revisão**, acima das abas, para selecionar a execução Colab ou OpenCV. Dados brutos continuam nos arquivos de cada job; coordenadas manuais, histórico e referência locomotora são isolados por execução. Reprocessar não reaplica automaticamente correções ao novo job. Episódios comportamentais humanos permanecem compartilhados porque descrevem o mesmo vídeo.
+
+Projetos antigos podem ter correções sem identificação de origem. Se a análise local já estava selecionada, o app não adivinha a execução: mostra um aviso, mantém os eventos e permite selecionar o Colab correto e clicar em **Associar correções antigas a este Colab**. Essa associação não modifica coordenadas nem treina modelos. A lista original de eventos é preservada e pode ser exportada integralmente. Uma falha ao carregar outra execução não limpa o resultado ativo.
+
+Os resultados locais têm configuração, hash do vídeo, coordenadas e relatório próprios, em `local-tracking/<jobId>` no diretório de dados, com histórico no SQLite. Cancelar ou reiniciar não substitui resultados anteriores. A retomada de uma análise local interrompida exige iniciar outro job. Os experimentos/eventos ainda ficam no `localStorage`; exporte `experiment.json` e `corrections.jsonl` antes de limpar os dados do app.
 
 ## Rodar localmente
 

@@ -172,12 +172,16 @@ try {
   const pngBase64=(await readFile(pngPath)).toString("base64");
   await command("Page.addScriptToEvaluateOnNewDocument", { source: `(() => {
     const saved = JSON.parse(localStorage.getItem('behavetracker.experiments.v1'))[0];
-    saved.video.timingSource = 'browser-estimate'; saved.video.durationSec = 1; saved.corrections = []; saved.video.sizeBytes = ${Buffer.from(clipBase64,"base64").length};
+    saved.video.timingSource = 'browser-estimate'; saved.video.durationSec = 1;
+    if(!sessionStorage.getItem('mock-native-initialized')) {saved.corrections=[];delete saved.trackingSelection;delete saved.trackingReviews;delete saved.legacyReviewSource;sessionStorage.setItem('mock-native-initialized','yes');}
+    saved.video.sizeBytes = ${Buffer.from(clipBase64,"base64").length};
     saved.video.preparation = {uploadId:'local-prepared-fixture',originalBytes:100,uploadBytes:100,status:'original',message:'Fixture',policyVersion:'lossless-upload-1',pixelVerified:false,frameCount:null};
     localStorage.setItem('behavetracker.experiments.v1', JSON.stringify([saved]));
     const url = URL.createObjectURL(new Blob([Uint8Array.from(atob(${JSON.stringify(clipBase64)}), c => c.charCodeAt(0))], {type:'video/mp4'}));
     const job = {jobId:'local-video-fixture',experimentId:saved.id,status:'succeeded',stage:'completed',progress:100,message:'Fixture',runtimeName:null,error:null,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),events:[]};
     const diagnostic = {...job,jobId:'local-diagnostic-fixture',diagnostic:{startSec:0,endSec:1}};
+    const localJob={jobId:'macro-fixture',experimentId:saved.id,state:'succeeded',createdAt:job.createdAt,config:{mode:'light'},report:{framesProcessed:24,totalFrames:24,observationCoveragePct:95}};
+    const localSamples=Array.from({length:24},(_,i)=>({frameIndex:i,timestampSec:i/24,keypoint:'box_center',xPx:i===1?null:410+i,yPx:i===1?null:400,status:i===1?'missing':'valid',source:'segmented',likelihood:0,metricReference:'box_center',referenceApproved:false,spatialRegion:'floor',bbox:i===1?undefined:{x:380+i,y:380,width:60,height:40}}));
     const frames = Array.from({length:24},(_,i) => ({frameIndex:i,timestampSec:i/24,state:i===0?'detector_missing':i===1?'pose_missing':i===2?'center_missing':'points_available',bbox:i===0?null:{x:20,y:25,width:100,height:75,score:.9},availablePoints:i<2?0:i===2?1:3,strongPoints:i<2?0:i===2?1:3,totalPoints:3,canonicalCenterAvailable:i>=3}));
     const report = {schemaVersion:1,selection:{startSec:0,endSec:1},fps:24,durationSec:1,geometry:{videoWidth:160,videoHeight:120},frames,timings:{modelLoadSec:.3,decodeSec:.1,detectorSec:2,poseSec:1,exportSec:.1,totalSec:3.5},summary:{frameCount:24,states:{detector_missing:1,pose_missing:1,center_missing:1,points_available:21},detectorCoveragePct:100*23/24,centerCoveragePct:87.5,accuracyMeasured:false},warning:'Fixture'};
     const raw = 'frame_index,timestamp_sec,keypoint,x_px,y_px,likelihood,status\\n' + frames.flatMap((f) => ['nose','mid_back','hip'].map((name,n) => [f.frameIndex,f.timestampSec,name,f.frameIndex<2?'':80+n*10,f.frameIndex<2?'':50+n*10,f.frameIndex<2?0:.9,f.frameIndex<2?'missing':'valid'].join(','))).join('\\n');
@@ -204,6 +208,10 @@ try {
         }
         if (name === 'save_training_frame') {window.__TRAINING.frames=window.__TRAINING.frames.map(f=>f.id===args.frame.id?args.frame:f);return;}
         if (name === 'list_colab_jobs') return mockJobs;
+        if (name === 'list_local_tracking_jobs') return [localJob,{...localJob,jobId:'broken-local-fixture'}];
+        if (name === 'get_local_tracking_environment') return {ready:true,version:'test'};
+        if (name === 'get_local_tracking_updates') return args.offset ? {offset:24,samples:[]} : {offset:24,samples:localSamples};
+        if (name === 'get_local_tracking_result') {if(args.jobId==='broken-local-fixture')throw new Error('Fixture unavailable');return localSamples;}
         if (name === 'check_video_staging') return window.__CACHE_AVAILABLE;
         if (name === 'get_colab_diagnostic_result') return {report,rawPoseCsv:raw,clipPath:'/fake/results/clip.mp4'};
         if (name === 'begin_video_staging') return {uploadId:'local-staged-fixture'};
@@ -441,11 +449,91 @@ try {
   await command('Emulation.setTouchEmulationEnabled',{enabled:false});
   await click('Revisar vídeo');
   assert.ok(await evaluate(`document.querySelector('.training-panel').hidden`));
+  // Uma caixa é um resultado próprio: troca de fonte, correção, undo e reload não destroem a revisão Colab.
+  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1080,deviceScaleFactor:1,mobile:false});
+  const colabCorrections=await evaluate(`JSON.parse(localStorage.getItem('behavetracker.experiments.v1'))[0].corrections`);
+  await click('Análise local');
+  await waitFor(`!!document.querySelector('.local-video-stage video')`);
+  await click('Selecionar caixa inicial do animal');
+  const localPoint=async(x,y)=>evaluate(`(()=>{const svg=document.querySelector('.local-video-stage svg');svg.scrollIntoView({block:'center'});const p=new DOMPoint(${x},${y}).matrixTransform(svg.getScreenCTM());return {x:p.x,y:p.y};})()`);
+  await moveMouse(await localPoint(380,380),await localPoint(440,420));
+  await waitFor(`Array.from(document.querySelectorAll('.local-video-stage [data-tracking-box="animal"]')).some(box=>box.textContent.includes('Caixa manual'))`);
+  const calibrationScreen=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});
+  await writeFile(join(directory,'local-box-calibration.png'),Buffer.from(calibrationScreen.data,'base64'));
+  assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem('behavetracker.experiments.v1'))[0].corrections`),colabCorrections,'Calibração local não altera a revisão do Colab');
+  await click('Revisar vídeo');
+  await setField('[aria-label="Resultado em revisão"]','opencv:macro-fixture','select');
+  await waitFor(`!!document.querySelector('.tracking-overlay [data-tracking-box="animal"]')`);
+  assert.equal(await evaluate(`document.querySelectorAll('.tracking-point').length`),0,'Macro não deve exigir focinho/orelhas');
+  assert.equal(await evaluate(`document.querySelectorAll('[data-keypoint-option]').length`),1);
+  const localOriginal=await evaluate(`document.querySelector('.tracking-overlay [data-tracking-box="animal"] rect').getAttribute('x')`);
+  await moveMouse(await editorPoint(410,400),await editorPoint(430,415));
+  await waitFor(`JSON.parse(localStorage.getItem('behavetracker.experiments.v1'))[0].corrections.at(-1).type==='SET_BOX'`);
+  let boxEvent=await evaluate(`JSON.parse(localStorage.getItem('behavetracker.experiments.v1'))[0].corrections.at(-1)`);
+  assert.equal(boxEvent.reviewSource,'opencv:macro-fixture');
+  assert.ok(Math.abs(boxEvent.afterBox.x-400)<.1);
+  await click('Bruto');
+  assert.equal(await evaluate(`document.querySelector('.tracking-overlay [data-tracking-box="animal"] rect').getAttribute('x')`),localOriginal);
+  await click('Revisado');
+  await click('Desfazer');
+  assert.equal(await evaluate(`document.querySelector('.tracking-overlay [data-tracking-box="animal"] rect').getAttribute('x')`),localOriginal);
+  await evaluate(`document.querySelector('[title="Próximo frame"]').click()`);
+  await waitFor(`document.querySelector('.stage-badges').textContent.includes('Frame 1')`);
+  assert.equal(await evaluate(`!!document.querySelector('.tracking-overlay [data-tracking-box="animal"]')`),false);
+  await click('Desenhar caixa do animal');
+  await moveMouse(await editorPoint(390,380),await editorPoint(450,420));
+  await waitFor(`!!document.querySelector('.tracking-overlay [data-tracking-box="animal"]')`);
+  boxEvent=await evaluate(`JSON.parse(localStorage.getItem('behavetracker.experiments.v1'))[0].corrections.at(-1)`);
+  assert.equal(boxEvent.frameIndex,1);
+  assert.ok(Math.abs(boxEvent.afterBox.width-60)<.1);
+  await moveMouse(await editorPoint(450,420),await editorPoint(460,430));
+  await waitFor(`JSON.parse(localStorage.getItem('behavetracker.experiments.v1'))[0].corrections.at(-1).afterBox.width>69`);
+  await setField('[aria-label="Resultado em revisão"]','opencv:broken-local-fixture','select');
+  await waitFor(`document.querySelector('.editor-error')?.textContent.includes('resultado atual')`);
+  assert.equal(await evaluate(`document.querySelector('[aria-label="Resultado em revisão"]').value`),'opencv:macro-fixture');
+  assert.ok(await evaluate(`!!document.querySelector('.tracking-overlay [data-tracking-box="animal"]')`),'Erro de carga não pode limpar o resultado ativo');
+  await setField('[aria-label="Resultado em revisão"]','colab:local-video-fixture','select');
+  await waitFor(`!!document.querySelector('.tracking-point[data-keypoint="body_center"]')`);
+  await evaluate(`document.querySelector('[title="Próximo frame"]').click()`);
+  await waitFor(`document.querySelector('.stage-badges').textContent.includes('Frame 1')`);
+  assert.ok(await evaluate(`document.querySelector('.tracking-point[data-keypoint="body_center"]')?.getAttribute('aria-label').includes('manualmente')`));
+  const preservedEvents=await evaluate(`JSON.parse(localStorage.getItem('behavetracker.experiments.v1'))[0].corrections`);
+  assert.deepEqual(preservedEvents.slice(0,colabCorrections.length),colabCorrections);
+  const restoredPoint=await evaluate(`document.querySelector('.tracking-point[data-keypoint="body_center"]').getAttribute('transform')`);
+  assert.ok(Math.abs(await evaluate(`document.querySelector('.tracking-point[data-keypoint="body_center"]').transform.baseVal.consolidate().matrix.e`)-firstMove.after.x)<.01);
+  await setField('[aria-label="Resultado em revisão"]','opencv:macro-fixture','select');
+  await waitFor(`!!document.querySelector('.tracking-overlay [data-tracking-box="animal"]')`);
+  const macroScreen=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});
+  await writeFile(join(directory,'macro-box-and-source-isolation.png'),Buffer.from(macroScreen.data,'base64'));
+  await command('Page.reload');
+  await waitFor(`!!document.querySelector('.experiment-row')`);
+  await evaluate(`document.querySelector('.experiment-row').click()`);
+  await waitFor(`!!document.querySelector('.tracking-overlay [data-tracking-box="animal"]')`);
+  assert.equal(await evaluate(`document.querySelector('[aria-label="Resultado em revisão"]').value`),'opencv:macro-fixture');
+  assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem('behavetracker.experiments.v1'))[0].corrections`),preservedEvents);
+  await setField('[aria-label="Resultado em revisão"]','colab:local-video-fixture','select');
+  await waitFor(`!!document.querySelector('.tracking-point[data-keypoint="body_center"]')`);
+  await evaluate(`document.querySelector('[title="Próximo frame"]').click()`);
+  await waitFor(`document.querySelector('.stage-badges').textContent.includes('Frame 1')`);
+  assert.equal(await evaluate(`document.querySelector('.tracking-point[data-keypoint="body_center"]').getAttribute('transform')`),restoredPoint);
+  // Projetos que já estavam em OpenCV, com coordenadas antigas sem fonte, exigem associação explícita.
+  await evaluate(`(()=>{const key='behavetracker.experiments.v1';const items=JSON.parse(localStorage.getItem(key));const exp=items[0];exp.trackingSelection={engine:'opencv',jobId:'macro-fixture'};exp.referencePoint='box_center';delete exp.legacyReviewSource;for(const event of exp.corrections){if(event.reviewSource==='colab:local-video-fixture')delete event.reviewSource;}localStorage.setItem(key,JSON.stringify(items));})()`);
+  await command('Page.reload');
+  await waitFor(`!!document.querySelector('.experiment-row')`);
+  await evaluate(`document.querySelector('.experiment-row').click()`);
+  await waitFor(`document.querySelector('.editor-error')?.textContent.includes('sem identificação')`);
+  await setField('[aria-label="Resultado em revisão"]','colab:local-video-fixture','select');
+  await waitFor(`!!${button('Associar correções antigas a este Colab')}`);
+  await click('Associar correções antigas a este Colab');
+  await evaluate(`document.querySelector('[title="Próximo frame"]').click()`);
+  await waitFor(`document.querySelector('.stage-badges').textContent.includes('Frame 1')`);
+  assert.equal(await evaluate(`document.querySelector('.tracking-point[data-keypoint="body_center"]').getAttribute('transform')`),restoredPoint,'Associação legada deve restaurar as coordenadas existentes, sem recalculá-las');
+  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false});
   const mobileReview=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});
   await writeFile(join(directory,'tabbed-review-mobile.png'),Buffer.from(mobileReview.data,'base64'));
   assert.ok(await evaluate(`document.documentElement.scrollWidth<=innerWidth`),'Abas não podem causar overflow na página');
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ dualSelection: "passed", confirmation: "passed", pointerAndKeyboard: "passed", persistence: "passed", desktopAndMobile: "passed", behaviorIntervalsUndoAndResults: "passed", tabbedWorkspaces: "passed", manualMissingPointDragMetricsAndUndo: "passed", separateDlcVideoView: "passed", realMp4PlaybackWithMockNativeBridge: "passed", diagnosticRawOverlayAndIsolation: "passed", missingCacheRecovery: "passed", trainingIntervalsAndManualParts: "passed", trainingTimelineDragTrimMoveZoomAndTouch: "passed",trainingConsentAndScientificIsolation: "passed", directory }));
+  console.log(JSON.stringify({ dualSelection: "passed", confirmation: "passed", pointerAndKeyboard: "passed", persistence: "passed", desktopAndMobile: "passed", behaviorIntervalsUndoAndResults: "passed", tabbedWorkspaces: "passed", manualMissingPointDragMetricsAndUndo: "passed", separateDlcVideoView: "passed", realMp4PlaybackWithMockNativeBridge: "passed", diagnosticRawOverlayAndIsolation: "passed", missingCacheRecovery: "passed", trainingIntervalsAndManualParts: "passed", trainingTimelineDragTrimMoveZoomAndTouch: "passed",trainingConsentAndScientificIsolation: "passed",macroBoxDragDrawResizeAndUndo:"passed",sourceIsolationAndReload:"passed",failedSourceLoadPreservesReview:"passed",initialBoxCalibrationAndLegacyRecovery:"passed", directory }));
 } catch (error) {
   if(ws?.readyState===WebSocket.OPEN){
     const failure=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true}).catch(()=>null);

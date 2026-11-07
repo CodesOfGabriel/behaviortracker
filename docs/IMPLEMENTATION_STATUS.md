@@ -2,6 +2,14 @@
 
 ## Entregue neste corte
 
+- [x] Rastreamento macro local `opencv-box-2`: segmentação clara/escura ou fundo vazio fixo, caixa inicial visual, associação temporal/aparência e caixas em coordenadas do vídeo original. Sem DeepLabCut/GPU nem envio do vídeo para fora do dispositivo.
+- [x] Ambiente OpenCV isolado, preparação explícita reutilizada, jobs/configuração/hash no SQLite, leitura incremental, cancelamento e recuperação de estado terminal após reinício. Análise interrompida não é retomada automaticamente.
+- [x] Caixa observada/prevista diferenciada no vídeo; previsão expira em até 0,25 s na configuração da interface e fica fora das métricas. Caixa parcial continua visível com aviso de revisão; nenhum ponto anatômico é fabricado.
+- [x] Editor macro com desenho, translação, redimensionamento e undo por frame, preservando caixa/coordenadas/origem brutas. Trajeto usa centro geométrico da caixa, não centro corporal inventado.
+- [x] Seletor de resultados Colab/OpenCV por execução, referências e correções isoladas. Reprocessar/trocar fonte não apaga nem reaplica a revisão anterior. Falha ao carregar mantém o resultado ativo; carregamentos atrasados não vencem uma seleção posterior.
+- [x] Compatibilidade com eventos antigos: vínculo conservador quando a origem é conhecida e associação explícita ao Colab quando o projeto já estava no modo local. Nenhum evento é descartado. Episódios comportamentais permanecem ligados ao vídeo, não ao motor.
+- [x] Exportações preservam caixas bruta/revisada, procedência, consentimento e fonte/execução no manifesto. Testes numéricos, vídeo sintético com FFmpeg real e interface com ponte nativa simulada verificam edição, alternância, falha de carga e reabertura.
+
 - [x] React + TypeScript + Vite + Tailwind CSS, preparado para Tauri 2.
 - [x] Dashboard local e fluxo de criação de experimento OFT.
 - [x] Leitura de metadados de vídeo no frontend e captura de frame de referência.
@@ -55,6 +63,9 @@
 - [x] Modelo personalizado selecionado para novas análises/testes curtos, cache remoto por SHA, vídeo de prévia e retorno ao SuperAnimal; confiança anatômica não calibrada é explícita e não libera métricas automaticamente.
 
 ## Implementado como protótipo, ainda não validado para uso científico
+
+- O OpenCV local depende do contraste e de uma câmera fixa; reflexos, grades, sombras, oclusões e mudanças de iluminação podem causar erros. A referência de cor e o gate temporal são heurísticos, não um detector de ratos treinado. Não há benchmark nem acurácia medida nos vídeos reais do usuário.
+- Caixa/centroide 2D não medem centro anatômico, altura ou contato com o piso. Métricas automáticas locais exigem consentimento e observação estável no chão; parciais/previsões continuam excluídas. A caixa prevista é somente auxílio visual, nunca evidência observada. O pipeline Colab não foi substituído por detector-only neste corte.
 
 - Experimentos ainda usam `localStorage`; a configuração e a sessão Google OAuth usam SQLite. O produto final deve migrar os projetos para SQLite e arquivos versionados.
 - A captura de frame usa o decoder do WebView. A preparação local integra FFmpeg/ffprobe e compara PTS relativos, mas a análise remota ainda usa frame/FPS; VFR e normalização completa de rotação precisam de integração própria.

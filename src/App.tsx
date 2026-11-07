@@ -14,10 +14,10 @@ export default function App() {
       content = <NewExperiment />;
       break;
     case "editor":
-      content = <TrackingEditor experimentId={route.experimentId} />;
+      content = <TrackingEditor key={route.experimentId} experimentId={route.experimentId} />;
       break;
     case "results":
-      content = <Results experimentId={route.experimentId} />;
+      content = <Results key={route.experimentId} experimentId={route.experimentId} />;
       break;
     case "colab":
       content = <ColabGate />;

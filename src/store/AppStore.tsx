@@ -19,7 +19,7 @@ interface AppStoreValue {
   experiments: Experiment[];
   getExperiment: (id: string) => Experiment | undefined;
   saveExperiment: (experiment: Experiment, asset?: VideoAsset) => void;
-  updateExperiment: (id: string, update: Partial<Experiment>) => void;
+  updateExperiment: (id: string, update: Partial<Experiment> | ((current: Experiment) => Partial<Experiment>)) => void;
   deleteExperiment: (id: string) => void;
   openDemo: () => void;
   assets: Record<string, VideoAsset>;
@@ -35,43 +35,46 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [experiments, setExperiments] = useState<Experiment[]>(loadExperiments);
   const [assets, setAssets] = useState<Record<string, VideoAsset>>({});
   const [trackingData, setTrackingDataState] = useState<Record<string, PoseSample[]>>({});
+  const setTrackingData = useCallback((id: string, samples: PoseSample[]) =>
+    setTrackingDataState(current => ({ ...current, [id]: samples })), []);
 
-  const persist = useCallback((next: Experiment[]) => {
-    setExperiments(next);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  const persist = useCallback((change: (current: Experiment[]) => Experiment[]) => {
+    setExperiments(current => {
+      const next=change(current);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
   }, []);
 
   const saveExperiment = useCallback(
     (experiment: Experiment, asset?: VideoAsset) => {
-      persist([experiment, ...experiments.filter((item) => item.id !== experiment.id)]);
+      persist(current => [experiment, ...current.filter((item) => item.id !== experiment.id)]);
       if (asset) setAssets((current) => ({ ...current, [experiment.id]: asset }));
     },
-    [experiments, persist],
+    [persist],
   );
 
   const updateExperiment = useCallback(
-    (id: string, update: Partial<Experiment>) => {
-      persist(
-        experiments.map((experiment) =>
+    (id: string, update: Partial<Experiment> | ((current: Experiment) => Partial<Experiment>)) => {
+      persist(current => current.map((experiment) =>
           experiment.id === id
-            ? { ...experiment, ...update, updatedAt: new Date().toISOString() }
+            ? { ...experiment, ...(typeof update === "function" ? update(experiment) : update), updatedAt: new Date().toISOString() }
             : experiment,
-        ),
-      );
+        ));
     },
-    [experiments, persist],
+    [persist],
   );
 
   const deleteExperiment = useCallback(
     (id: string) => {
-      persist(experiments.filter((experiment) => experiment.id !== id));
+      persist(current => current.filter((experiment) => experiment.id !== id));
       setAssets((current) => {
         const next = { ...current };
         delete next[id];
         return next;
       });
     },
-    [experiments, persist],
+    [persist],
   );
 
   const openDemo = useCallback(() => {
@@ -94,10 +97,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       assets,
       setAsset: (id, asset) => setAssets((current) => ({ ...current, [id]: asset })),
       trackingData,
-      setTrackingData: (id, samples) =>
-        setTrackingDataState((current) => ({ ...current, [id]: samples })),
+      setTrackingData,
     }),
-    [route, experiments, saveExperiment, updateExperiment, deleteExperiment, openDemo, assets, trackingData],
+    [route, experiments, saveExperiment, updateExperiment, deleteExperiment, openDemo, assets, trackingData, setTrackingData],
   );
 
   return <AppStoreContext.Provider value={value}>{children}</AppStoreContext.Provider>;

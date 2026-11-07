@@ -1,4 +1,5 @@
-import type { PoseSample, PoseSource, PoseStatus } from "../types";
+import type { BoundingBox, PoseSample, PoseSource, PoseStatus } from "../types";
+import { validBox } from "./corrections";
 
 const validStatuses = new Set<PoseStatus>([
   "valid",
@@ -23,6 +24,14 @@ export function parseCanonicalPoseCsv(text: string): PoseSample[] {
     const nullableNumber = (column: string) => {
       const raw = values[indexOf(column)];
       return raw === "" ? null : Number(raw);
+    };
+    const readBox = (prefix = ""): BoundingBox | undefined => {
+      const columns = ["bbox_x", "bbox_y", "bbox_width", "bbox_height"].map(name => prefix + name);
+      if (columns.every(name => indexOf(name) < 0 || !values[indexOf(name)])) return undefined;
+      if (columns.some(name=>indexOf(name)<0 || !values[indexOf(name)])) throw new Error(`Caixa incompleta na linha ${rowIndex + 2}.`);
+      const box = { x: number(columns[0]), y: number(columns[1]), width: number(columns[2]), height: number(columns[3]) };
+      if (!validBox(box)) throw new Error(`Caixa inválida na linha ${rowIndex + 2}.`);
+      return box;
     };
     const statusRaw = values[indexOf("status")] as PoseStatus;
     const sample: PoseSample = {
@@ -62,9 +71,13 @@ export function parseCanonicalPoseCsv(text: string): PoseSample[] {
     if (sample.supportCount != null && sample.supportTotal != null && sample.supportCount > sample.supportTotal) throw new Error(`Suporte anatômico inconsistente na linha ${rowIndex + 2}.`);
     const source = values[indexOf("source")];
     if (source) {
-      if (!["detected", "recovered", "predicted", "manual"].includes(source)) throw new Error(`Origem inválida na linha ${rowIndex + 2}.`);
+      if (!["detected", "recovered", "predicted", "manual", "segmented"].includes(source)) throw new Error(`Origem inválida na linha ${rowIndex + 2}.`);
       sample.source = source as PoseSource;
     }
+    const reference = values[indexOf("metric_reference")];
+    if (["silhouette_centroid", "box_center"].includes(reference)) sample.metricReference = reference as PoseSample["metricReference"];
+    sample.bbox = readBox();
+    if (indexOf("reference_approved") >= 0 && values[indexOf("reference_approved")]) sample.referenceApproved = values[indexOf("reference_approved")] === "true";
     if (indexOf("raw_status") >= 0 && values[indexOf("raw_status")]) {
       const rawStatus = values[indexOf("raw_status")] as PoseStatus;
       const x = nullableNumber("raw_x_px"), y = nullableNumber("raw_y_px"), score = number("raw_likelihood");
@@ -72,7 +85,13 @@ export function parseCanonicalPoseCsv(text: string): PoseSample[] {
         || (x != null && (!Number.isFinite(x) || x < 0)) || (y != null && (!Number.isFinite(y) || y < 0))
         || (rawStatus !== "missing" && (x == null || y == null))) throw new Error(`Observação original inválida na linha ${rowIndex + 2}.`);
       sample.original = { xPx: rawStatus === "missing" ? null : x, yPx: rawStatus === "missing" ? null : y,
-        likelihood: score, status: rawStatus, spatialRegion: values[indexOf("raw_spatial_region")] as PoseSample["spatialRegion"] };
+        likelihood: score, status: rawStatus, spatialRegion: values[indexOf("raw_spatial_region")] as PoseSample["spatialRegion"], bbox: readBox("raw_") };
+      const rawSource=values[indexOf("raw_source")];
+      if(rawSource&&!['detected','recovered','predicted','manual','segmented'].includes(rawSource))throw new Error(`Origem original inválida na linha ${rowIndex + 2}.`);
+      sample.original.source = rawSource as PoseSource || "detected";
+      const rawReference=values[indexOf("raw_metric_reference")];
+      if(["silhouette_centroid","box_center"].includes(rawReference))sample.original.metricReference=rawReference as PoseSample["metricReference"];
+      if(values[indexOf("raw_reference_approved")])sample.original.referenceApproved=values[indexOf("raw_reference_approved")]==="true";
       for (const [column, field] of [["raw_support_count", "supportCount"], ["raw_support_total", "supportTotal"]] as const) {
         if (indexOf(column) < 0 || !values[indexOf(column)]) continue;
         const value = number(column);
@@ -96,7 +115,7 @@ function csvCell(value: unknown) {
 }
 
 export function poseToCsv(samples: PoseSample[]) {
-  const header = "frame_index,timestamp_sec,animal_id,keypoint,x_px,y_px,likelihood,status,spatial_region,support_count,support_total,source,raw_x_px,raw_y_px,raw_likelihood,raw_status,raw_spatial_region,raw_support_count,raw_support_total,recovery_state";
+  const header = "frame_index,timestamp_sec,animal_id,keypoint,x_px,y_px,likelihood,status,spatial_region,support_count,support_total,source,raw_x_px,raw_y_px,raw_likelihood,raw_status,raw_spatial_region,raw_support_count,raw_support_total,recovery_state,metric_reference,reference_approved,bbox_x,bbox_y,bbox_width,bbox_height,raw_source,raw_bbox_x,raw_bbox_y,raw_bbox_width,raw_bbox_height,raw_metric_reference,raw_reference_approved";
   const rows = samples.map((sample) =>
     [
       sample.frameIndex,
@@ -119,6 +138,13 @@ export function poseToCsv(samples: PoseSample[]) {
       (sample.original ?? sample).supportCount ?? "",
       (sample.original ?? sample).supportTotal ?? "",
       sample.recoveryState ?? "",
+      sample.metricReference ?? "",
+      sample.referenceApproved ?? "",
+      sample.bbox?.x, sample.bbox?.y, sample.bbox?.width, sample.bbox?.height,
+      sample.original ? sample.original.source ?? "detected" : sample.source ?? "detected",
+      (sample.original ?? sample).bbox?.x, (sample.original ?? sample).bbox?.y,
+      (sample.original ?? sample).bbox?.width, (sample.original ?? sample).bbox?.height,
+      (sample.original ?? sample).metricReference ?? "", (sample.original ?? sample).referenceApproved ?? "",
     ]
       .map(csvCell)
       .join(","),

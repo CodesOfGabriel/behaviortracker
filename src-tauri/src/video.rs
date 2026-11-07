@@ -30,7 +30,7 @@ pub struct VideoPreparation {
     pub frame_count: Option<u64>,
 }
 
-fn binary(name: &str) -> Option<PathBuf> {
+pub(crate) fn binary(name: &str) -> Option<PathBuf> {
     let candidates = std::env::var_os(format!("BEHAVETRACKER_{}", name.to_uppercase()))
         .map(PathBuf::from)
         .into_iter()

@@ -1,4 +1,6 @@
 export type Point = { x: number; y: number };
+export type BoundingBox = { x: number; y: number; width: number; height: number };
+export type TrackingSelection = { engine: "opencv" | "colab"; jobId: string };
 export type Quadrilateral = [Point, Point, Point, Point];
 
 export type ExperimentStatus =
@@ -52,13 +54,16 @@ export interface ArenaConfig {
 
 export interface CorrectionEvent {
   id: string;
-  type: "MOVE_POINT" | "MARK_MISSING" | "CONFIRM_POINT" | "ANNOTATE_BEHAVIOR" | "REJECT_CANDIDATE" | "REVERT_EVENT";
+  type: "MOVE_POINT" | "SET_BOX" | "MARK_MISSING" | "CONFIRM_POINT" | "ANNOTATE_BEHAVIOR" | "REJECT_CANDIDATE" | "REVERT_EVENT";
   createdAt: string;
   frameIndex?: number;
   timestampSec?: number;
   keypoint?: string;
   before?: Point | null;
   after?: Point | null;
+  beforeBox?: BoundingBox | null;
+  afterBox?: BoundingBox;
+  reviewSource?: string;
   targetEventId?: string;
   startSec?: number;
   endSec?: number;
@@ -84,6 +89,9 @@ export interface Experiment {
   referencePoint: string;
   corrections: CorrectionEvent[];
   behaviorReviewed?: Partial<Record<BehaviorLabel, boolean>>;
+  trackingSelection?: TrackingSelection;
+  trackingReviews?: Record<string, { referencePoint: string }>;
+  legacyReviewSource?: string;
 }
 
 export interface VideoAsset {
@@ -95,7 +103,7 @@ export interface VideoAsset {
 
 export type PoseStatus = "valid" | "low_confidence" | "jump" | "missing" | "out_of_arena";
 export type BehaviorLabel = "rearing" | "grooming" | "freezing";
-export type PoseSource = "detected" | "recovered" | "predicted" | "manual";
+export type PoseSource = "detected" | "recovered" | "predicted" | "manual" | "segmented";
 
 export interface PoseSample {
   frameIndex: number;
@@ -109,8 +117,14 @@ export interface PoseSample {
   supportCount?: number;
   supportTotal?: number;
   source?: PoseSource;
+  metricReference?: "silhouette_centroid" | "box_center";
+  referenceApproved?: boolean;
+  bbox?: BoundingBox;
+  contour?: Point[];
+  reason?: string;
+  uncertaintyPx?: number;
   recoveryState?: "ready" | "unavailable" | "limited" | "not_needed";
-  original?: Pick<PoseSample, "xPx" | "yPx" | "likelihood" | "status" | "spatialRegion" | "supportCount" | "supportTotal">;
+  original?: Pick<PoseSample, "xPx" | "yPx" | "likelihood" | "status" | "spatialRegion" | "supportCount" | "supportTotal" | "source" | "bbox" | "contour" | "metricReference" | "referenceApproved">;
 }
 
 export interface OftMetrics {

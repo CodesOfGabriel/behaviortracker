@@ -489,3 +489,10 @@ input::placeholder, textarea::placeholder { color: #717b8f; }
 .stage-badges,.raw-lock { pointer-events:none; }.tracking-overlay { user-select:none; }
 .execution-workspace { margin:24px; max-width:1200px; }.execution-workspace h2 { font-size:20px; margin:0 0 20px; }.execution-workspace>p { color:#9aa6bb; }.execution-workspace .analysis-history-list { margin-top:20px; }
 @media(max-width:760px) { .editor-tabs { padding:0 10px; }.editor-tabs>[role=tab] { padding:12px 10px; font-size:11px; }.editor-workspace { grid-template-columns:1fr; }.editor-header-actions .button { padding:8px; font-size:10px; }.execution-workspace { margin:16px; } }
+/* Seleção explícita de uma execução; revisões nunca se misturam ao trocar a fonte. */
+.tracking-source-bar { display:flex; align-items:center; flex-wrap:wrap; gap:12px 24px; padding:12px 24px; border-bottom:1px solid #2b3140; background:#12151f; }
+.tracking-source-bar label { display:flex; flex-wrap:wrap; align-items:center; gap:10px; font-size:12px; font-weight:600; }
+.tracking-source-bar select { max-width:min(440px,80vw); background:#171923; color:#e7e8ef; border:1px solid #343746; border-radius:6px; padding:7px 10px; }
+.tracking-source-bar > span { font-size:11px; color:#a5aabc; }
+.tracking-box-layer { touch-action:none; }
+.tracking-box-layer text { pointer-events:none; paint-order:stroke; stroke:#14151e; stroke-width:3px; stroke-linejoin:round; }

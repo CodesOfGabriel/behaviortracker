@@ -6,19 +6,29 @@
   "required": ["id", "type", "createdAt", "source"],
   "properties": {
     "id": { "type": "string", "format": "uuid" },
-    "type": { "enum": ["MOVE_POINT", "MARK_MISSING", "ANNOTATE_BEHAVIOR", "REVERT_EVENT"] },
+    "type": { "enum": ["MOVE_POINT", "SET_BOX", "MARK_MISSING", "CONFIRM_POINT", "ANNOTATE_BEHAVIOR", "REJECT_CANDIDATE", "REVERT_EVENT"] },
     "createdAt": { "type": "string", "format": "date-time" },
     "source": { "const": "manual" },
     "frameIndex": { "type": "integer", "minimum": 0 },
+    "timestampSec": { "type": "number", "minimum": 0 },
+    "reviewSource": { "type": "string", "minLength": 1 },
+    "candidateId": { "type": "string" },
     "keypoint": { "type": "string" },
     "before": { "$ref": "#/$defs/nullablePoint" },
     "after": { "$ref": "#/$defs/nullablePoint" },
+    "beforeBox": { "oneOf": [{"type":"null"}, {"$ref":"#/$defs/box"}] },
+    "afterBox": { "$ref": "#/$defs/box" },
     "targetEventId": { "type": "string", "format": "uuid" },
     "startSec": { "type": "number", "minimum": 0 },
     "endSec": { "type": "number", "minimum": 0 },
     "label": { "enum": ["rearing", "grooming", "freezing", "other"] }
   },
+  "allOf": [{"if":{"properties":{"type":{"const":"SET_BOX"}}},"then":{"required":["frameIndex","timestampSec","keypoint","afterBox"],"properties":{"keypoint":{"const":"box_center"}}}}],
   "$defs": {
+    "box": { "type":"object", "required":["x","y","width","height"], "properties": {
+      "x":{"type":"number","minimum":0}, "y":{"type":"number","minimum":0},
+      "width":{"type":"number","exclusiveMinimum":0}, "height":{"type":"number","exclusiveMinimum":0}
+    } },
     "nullablePoint": {
       "oneOf": [
         { "type": "null" },
