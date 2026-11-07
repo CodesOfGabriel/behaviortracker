@@ -1,6 +1,7 @@
 mod colab;
 mod oauth;
 mod video;
+mod training;
 
 #[derive(serde::Serialize)]
 struct AppInfo {
@@ -40,6 +41,13 @@ pub fn run() {
             colab::finish_video_staging,
             video::prepare_analysis_video,
             video::check_video_staging,
+            training::extract_training_frame,
+            training::get_training_image,
+            training::save_training_frame,
+            training::save_training_intervals,
+            training::get_training_state,
+            training::start_custom_training,
+            training::select_custom_model,
             colab::start_colab_analysis,
             colab::get_colab_job,
             colab::get_colab_job_log,

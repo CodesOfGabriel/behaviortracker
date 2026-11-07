@@ -93,7 +93,7 @@ export function DiagnosticPanel({ experiment, file, open, disabled, onAttach, on
     {error && <p role="alert" className="editor-error">{error}</p>}
     {needsVideo && <Button variant="secondary" onClick={onAttach}>Selecionar vídeo original</Button>}
     {jobs.length > 0 && <label className="diagnostic-history">Teste salvo <select aria-label="Teste diagnóstico salvo" value={job?.jobId ?? ""} onChange={(e) => { setSelected(e.target.value); setError(null); }}>
-      {jobs.map((item) => <option key={item.jobId} value={item.jobId}>{item.diagnostic?.startSec}–{item.diagnostic?.endSec} s · {item.status} · {item.createdAt}</option>)}</select></label>}
+      {jobs.map((item) => <option key={item.jobId} value={item.jobId}>{item.customModel?"Personalizado":"SuperAnimal"} · {item.diagnostic?.startSec}–{item.diagnostic?.endSec} s · {item.status} · {item.createdAt}</option>)}</select></label>}
     {(job || starting) && <AnalysisWorkflow job={job ?? null} preparing={starting} message={message} localError={error} elapsedSec={job ? Math.max(0, ((["running", "queued"].includes(job.status) ? clock : Date.parse(job.updatedAt)) - Date.parse(job.createdAt)) / 1000) : 0} />}
     {result && <>
       <div className="diagnostic-stats"><div><strong>{result.report.summary.detectorCoveragePct.toFixed(1)}%</strong><span>Frames com caixa</span></div><div><strong>{result.report.summary.centerCoveragePct.toFixed(1)}%</strong><span>Frames com centro estimado</span></div>
@@ -110,7 +110,7 @@ export function DiagnosticPanel({ experiment, file, open, disabled, onAttach, on
           <Button size="sm" variant="secondary" onClick={() => seek(Math.max(0, time - 1 / result.report.fps))}>−1 frame</Button><Button size="sm" variant="secondary" onClick={() => seek(Math.min(result.report.durationSec - 1 / result.report.fps, time + 1 / result.report.fps))}>+1 frame</Button></div>
         <input aria-label="Posição no trecho diagnóstico" className="diagnostic-seek" type="range" min="0" max={Math.max(0, result.report.durationSec - 1 / result.report.fps)} step={1 / result.report.fps} value={time} onChange={(e) => seek(e.target.valueAsNumber)} />
         <p>Frame {index} · trecho {formatDuration(time)} · origem ≈{formatDuration(result.report.selection.startSec + time)} · {states[frame?.state ?? ""]} · {frame?.availablePoints ?? 0}/{frame?.totalPoints ?? 0} pontos</p>
-        <small>Caixa roxa: detector. Verde: score ≥ 0,60. Amarelo: 0,10–0,60. Sem interpolação ou recuperação. Timestamps por índice/FPS, não PTS exatos.</small>
+        <small>{result.report.confidencePolicy==="uncalibrated"?"Modelo personalizado experimental: pontos sem confiança anatômica calibrada, todos exigem revisão.":"Caixa roxa: detector. Verde: score ≥ 0,60. Amarelo: 0,10–0,60."} Sem interpolação ou recuperação. Timestamps por índice/FPS, não PTS exatos.</small>
       </div><aside>
         <h3>Onde o rastreamento se perde</h3><dl>{Object.entries(result.report.summary.states).map(([state, count]) => <div key={state}><dt>{states[state] ?? state}</dt><dd>{count} frames</dd></div>)}</dl>
         <Button size="sm" variant="secondary" disabled={!failedFrames.some((f) => f.frameIndex > index)} onClick={() => { const next = failedFrames.find((f) => f.frameIndex > index); if (next) seek(next.timestampSec); }}>Próximo frame sem rastreamento</Button>

@@ -17,7 +17,7 @@ LOG_TAIL_BYTES = 16 * 1024
 
 
 def paths(directory, task):
-    if task not in ("setup", "inference", "render"):
+    if task not in ("setup", "inference", "render", "training"):
         raise ValueError("Tarefa desconhecida")
     root = Path(directory)
     return {name: root / (task + suffix) for name, suffix in (
@@ -92,6 +92,10 @@ def snapshot(directory, task):
     if diagnostic and diagnostic[-1].start() > last_progress:
         report["progressText"] = "Diagnóstico: " + diagnostic[-1].group(1)
         last_progress = diagnostic[-1].start()
+    custom = list(re.finditer(r"BEHAVETRACKER_(?:TRAINING|CUSTOM)_PROGRESS=([^\r\n]+)", clean))
+    if custom and custom[-1].start() > last_progress:
+        report["progressText"] = custom[-1].group(1)
+        last_progress = custom[-1].start()
     if video_phase and video_phase[-1].start() > last_progress:
         report["progressText"] = video_phase[-1].group(1)
     return report

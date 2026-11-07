@@ -45,6 +45,10 @@
 - [x] Inferência principal e diagnóstico em lotes de dois frames; recuperação v2 sequencial, sem retries por orelha/cauda isoladas e com orçamento explícito de tentativas/tempo.
 - [x] Worker separado para renderização; CSV recebido e disponível antes do vídeo, inclusive se a renderização for interrompida. Cache preparado não é removido ao concluir o job.
 - [x] Pré-validação do cache (experimento, arquivo presente, tamanho e estado pronto) antes de criar jobs. Cache antigo removido solicita o original e permite refazer o staging sem perder calibração/correções; arquivo ausente não é reportado como falha genérica de ffprobe.
+- [x] Espaço **Ensinar o modelo**: marcação de trechos/contextos, extração de frames exatos com PTS, caixa manual, nove partes com visibilidade, rascunhos e confirmação humana.
+- [x] Imagens e rótulos persistidos separadamente no SQLite/diretório de dados, snapshots cumulativos imutáveis, hashes e bloqueio de duplicatas/vazamento entre treino e validação por vídeo/animal.
+- [x] Treinamento remoto explícito de Keypoint R-CNN personalizado, relatório de loss/avaliação, recebimento de checkpoint com SHA e seleção manual de versões sem sobrescrever modelos anteriores.
+- [x] Modelo personalizado selecionado para novas análises/testes curtos, cache remoto por SHA, vídeo de prévia e retorno ao SuperAnimal; confiança anatômica não calibrada é explícita e não libera métricas automaticamente.
 
 ## Implementado como protótipo, ainda não validado para uso científico
 
@@ -55,7 +59,7 @@
 - As metas de desempenho com vídeo 1080p/30 FPS ainda precisam de benchmark.
 - Borda e chão fornecem contexto geométrico 2D, não classificação automática de rearing nem recuperação de partes ocultas. O recorte e a preservação parcial foram testados com dados sintéticos; ganho de detecção em ratos em pé ainda precisa ser medido no Colab com vídeo real.
 - A recuperação visual e os contratos DeepLabCut foram testados com modelos falsos, sem GPU. Ainda é preciso executar a API real no Colab e medir erros antes/depois com frames anotados. Falha de compatibilidade é visível no editor e não é tratada como recuperação concluída.
-- As sugestões de rearing/grooming/freezing são heurísticas 2D não validadas; não substituem classificador treinado. Só episódios humanos confirmados são contados. Não há estimativa de acurácia, treino supervisionado ou classificação automática validada neste corte.
+- As sugestões de rearing/grooming/freezing são heurísticas 2D não validadas; não substituem classificador treinado. Só episódios humanos confirmados são contados. O treino supervisionado novo aprende caixa/pontos, não classificação de comportamentos. Não há classificação automática validada neste corte.
 - O fluxo Colab compila e possui testes locais de contrato, mas ainda precisa completar o gate P0 com um vídeo real e evidências sanitizadas da conta alvo.
 - A continuidade do worker após encerramento/KeyboardInterrupt da célula de lançamento foi testada localmente com tarefas sintéticas. Falta confirmar esse comportamento no runtime Colab real; substituição da máquina e políticas do provedor continuam podendo encerrar processos. Fechar e reabrir o app não retoma o acompanhamento automaticamente.
 - A primeira execução em um runtime sem ambiente compatível prepara o DeepLabCut e pode demorar; instalações válidas são reutilizadas. O ranking de GPU é heurístico e ainda não tem benchmark por acelerador. Não há compra automática de recursos.
@@ -63,6 +67,9 @@
 - O renderizador de vídeo rotulado foi testado por contrato, sem executar DeepLabCut no Colab. O transporte possui testes HTTP locais de integridade; falta validar a renderização e reprodução com uma execução real na conta alvo.
 - O diagnóstico usa APIs internas dos runners e caixas pós-filtro, não scores pré-filtro da rede. Contratos locais simulados verificam a separação entre falha de detector/pose/centro, lotes e coordenadas; falta validar compatibilidade, desempenho e ganho real no Colab. Caixa/ponto presente não é comprovação de acerto.
 - Os limites da recuperação v2 evitam novas tentativas após o orçamento, mas não interrompem chamadas em andamento. Os valores são heurísticos e podem reduzir recuperações; não há benchmark remoto antes/depois nem promessa de rastreamento sem perdas.
+- O treino personalizado foi verificado por contratos com modelos falsos, sem GPU local. Ainda não foi executado um treino real dos ratos no Colab nem medida melhora. Poucos frames servem para teste técnico; dados sem holdout independente não medem generalização. O erro de pose reportado usa somente caixas correspondidas e deve ser lido com cobertura/recall.
+- O dataset inicial exige exemplos com animal visível e não inclui anotação de negativos de fundo. A validação científica ainda precisa cobrir falsos positivos em cenas sem animal, oclusões, posturas e animais independentes. Os rótulos de trechos não propagam poses e não treinam um classificador de comportamento.
+- Frames de treino são PNG com índice/PTS exatos; a escolha de amostras usa o PTS real mais próximo, não o FPS aproximado do navegador. Cada imagem é revisada antes de entrar no dataset. A extração/indexação de muitos frames longos pode custar tempo local. Snapshots/modelos não têm limpeza automática.
 - Testes de recorte usam FFmpeg real e vídeo sintético, inclusive limites entre frames; o player diagnóstico usa índice/FPS, não PTS reais. Seu alinhamento em vídeo VFR continua aproximado e é identificado na interface/exportação.
 
 ## Ainda não implementado
@@ -74,7 +81,7 @@
 - [ ] Heatmap ponderado por duração e pacote ZIP completo com proveniência/checksums.
 - [ ] Transporte alternativo por Drive/object storage para retomada entre runtimes; o transporte atual usa a API de conteúdo Jupyter em blocos.
 - [ ] Validação externa com vídeos de ratos e dois avaliadores.
-- [ ] Dataset anotado de ratos, treino/adaptação de detector/pose e avaliação independente por animal/vídeo; diagnóstico não substitui esses passos.
+- [ ] Construção humana do dataset real de ratos, execução/benchmark do treino e avaliação independente por animal/vídeo; infraestrutura implementada não substitui esses dados e evidências.
 - [ ] Assinatura, notarização e instaladores.
 
 Consulte também [P0_COLAB_FEASIBILITY.md](./P0_COLAB_FEASIBILITY.md).

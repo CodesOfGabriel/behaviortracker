@@ -49,6 +49,8 @@ pub struct ColabJob {
     events: Vec<ColabJobEvent>,
     diagnostic: Option<DiagnosticRange>,
     results_ready: bool,
+    training: bool,
+    custom_model: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -377,6 +379,7 @@ pub(crate) fn prepare_tables(app: &AppHandle) -> CommandResult<()> {
              );",
         )
         .map_err(|_| "Não foi possível preparar o armazenamento dos jobs Colab.".to_string())?;
+    crate::training::prepare_tables(&open_database(app)?)?;
     Ok(())
 }
 
@@ -550,6 +553,8 @@ fn row_to_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<ColabJob> {
         events: Vec::new(),
         diagnostic: None,
         results_ready: false,
+        training: false,
+        custom_model: false,
     })
 }
 
@@ -570,6 +575,8 @@ fn get_job(app: &AppHandle, job_id: &str) -> CommandResult<ColabJob> {
 }
 
 fn enrich_job(connection: &Connection, job: &mut ColabJob) -> CommandResult<()> {
+    job.training=connection.query_row("SELECT EXISTS(SELECT 1 FROM training_runs WHERE job_id=?1)",[&job.job_id],|r|r.get(0)).map_err(|_|"Não foi possível consultar o tipo de job")?;
+    job.custom_model=connection.query_row("SELECT EXISTS(SELECT 1 FROM custom_analysis_models WHERE job_id=?1)",[&job.job_id],|r|r.get(0)).map_err(|_|"Não foi possível consultar o modelo")?;
     let range: Option<String> = connection.query_row("SELECT range_json FROM colab_job_diagnostics WHERE job_id=?1", [&job.job_id], |row| row.get(0))
         .optional().map_err(|_| "Não foi possível consultar o tipo da execução")?;
     job.diagnostic = range.map(|text| serde_json::from_str(&text).map_err(|_| "Trecho diagnóstico inválido")).transpose()?;
@@ -1398,9 +1405,13 @@ fn run_background_task(
         &background_launch_code(directory, task, source),
         &background_poll_code(directory, task),
         if task == "setup" {
-            "Preparando DeepLabCut"
+            if job.training||job.custom_model {"Preparando ambiente PyTorch"}else{"Preparando DeepLabCut"}
+        } else if job.training {
+            "Treinando detector e pontos personalizados"
         } else if task == "render" {
             "Gerando vídeo rotulado · poses já disponíveis"
+        } else if job.custom_model {
+            "Modelo personalizado experimental em execução"
         } else if job.diagnostic.is_some() {
             "Diagnóstico curto do detector e da pose"
         } else {
@@ -1803,7 +1814,7 @@ fn download_labeled_video(connection: &ConnectionInfo, remote_output: &str, dire
     if manifest["available"].as_bool() != Some(true) {
         return Err(manifest["error"].as_str().unwrap_or("O vídeo do DeepLabCut não foi gerado").chars().take(1500).collect());
     }
-    if manifest["filename"].as_str() != Some("dlc_labeled.mp4") || manifest["source"].as_str() != Some("deeplabcut_raw_h5") {
+    if manifest["filename"].as_str() != Some("dlc_labeled.mp4") || ![Some("deeplabcut_raw_h5"),Some("behavetracker-keypoint-rcnn-v1")].contains(&manifest["source"].as_str()) {
         return Err("Origem do vídeo de resultado não reconhecida".into());
     }
     let bytes = manifest["sizeBytes"].as_u64().filter(|size| *size > 0 && *size <= MAX_VIDEO_SIZE as u64).ok_or("Tamanho inválido do vídeo rotulado")?;
@@ -1822,6 +1833,105 @@ fn download_labeled_video(connection: &ConnectionInfo, remote_output: &str, dire
     })();
     if result.is_err() { let _ = fs::remove_file(&temporary); }
     result
+}
+
+fn custom_code(video:&str,model:&str,output:&str,csv:&str,arena:Option<&AnalysisArena>,range:Option<&DiagnosticRange>)->String {
+    format!(r#"import json,runpy
+from pathlib import Path
+root=Path({output:?});root.mkdir(parents=True,exist_ok=True)
+if not Path({csv:?}+'.complete').is_file():
+    (root/'custom_model.py').write_text({source:?},encoding='utf-8')
+    (root/'arena_helpers.py').write_text({geometry:?},encoding='utf-8')
+    runpy.run_path(str(root/'custom_model.py'))['infer']({video:?},{model:?},str(root),{csv:?},json.loads({arena:?}),runpy.run_path(str(root/'arena_helpers.py')),json.loads({range:?}))
+"#,source=include_str!("../python/custom_model.py"),geometry=include_str!("../python/arena.py"),arena=serde_json::to_string(&arena).unwrap(),range=serde_json::to_string(&range).unwrap())
+}
+fn custom_environment_code()->String {"import torch,torchvision,cv2\nfrom PIL import Image\nif not torch.cuda.is_available(): raise RuntimeError('CUDA não está disponível no runtime. Selecione uma sessão GPU.')\ntorchvision.ops.nms(torch.zeros((0,4),device='cuda'),torch.zeros(0,device='cuda'),0.5)\nprint('BEHAVETRACKER_CUSTOM_ENV_OK '+torch.__version__+' '+torchvision.__version__)".into()}
+fn prepare_custom_environment(app:&AppHandle,job:&str,session:&str,directory:&str)->Result<(),AnalysisFailure>{
+    update_job(app,job,"running","environment_check",52,"Verificando PyTorch, TorchVision, OpenCV e CUDA · não é necessário instalar DeepLabCut para o modelo personalizado")?;
+    run_background_task(app,job,session,directory,"setup",&custom_environment_code())?;
+    update_job(app,job,"running","environment_ready",60,"Ambiente PyTorch/CUDA pronto para o modelo personalizado")?;Ok(())
+}
+fn ensure_remote_model(app:&AppHandle,job:&str,session:&str,connection:&ConnectionInfo,remote_directory:&str,absolute_directory:&str)->Result<Option<String>,AnalysisFailure>{
+    let row:Option<(String,String)>=open_database(app)?.query_row("SELECT r.job_id,r.model_sha256 FROM custom_analysis_models a JOIN training_runs r ON r.job_id=a.model_job_id WHERE a.job_id=?1",[job],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(|_|"Modelo do job indisponível")?;
+    let Some((id,digest))=row else{return Ok(None);};let path=crate::training::model_path(app,&id)?;
+    if crate::video::sha256(&path)?!=digest{return Err("Modelo foi alterado ou removido; selecione novamente uma versão válida".into());}
+    let _=absolute_directory;
+    let destination=format!("/content/behavetracker/models/{digest}.pt");
+    let cache_check=format!("import hashlib\nfrom pathlib import Path\np=Path({destination:?})\np.parent.mkdir(parents=True,exist_ok=True)\nh=hashlib.sha256()\nif p.is_file():\n    with p.open('rb') as f:\n        for b in iter(lambda:f.read(1048576),b''): h.update(b)\nif p.is_file() and h.hexdigest()=={digest:?}: print('BEHAVETRACKER_MODEL_CACHED')");
+    let response=execute_job_code(app,job,&google_access_token(app,PROFILE_ID)?,session,&cache_check)?;
+    if response["stdout"].as_str().unwrap_or("").contains("BEHAVETRACKER_MODEL_CACHED"){
+        update_job(app,job,"running","uploading",45,"Reutilizando o checkpoint personalizado já verificado neste runtime")?;
+        return Ok(Some(destination));
+    }
+    update_job(app,job,"running","uploading",45,"Enviando a versão congelada do modelo personalizado")?;
+    let parent=remote_directory.rsplit_once('/').map(|(parent,_)|parent).ok_or("Pasta remota inválida")?;
+    upload_video(app,job,connection,&path,&format!("{parent}/models/{digest}.pt"),fs::metadata(&path).map_err(|_|"Modelo indisponível")?.len() as i64)?;
+    verify_remote_file(app,job,session,&destination,&digest)?;Ok(Some(destination))
+}
+fn verify_remote_file(app:&AppHandle,job:&str,session:&str,path:&str,digest:&str)->Result<(),AnalysisFailure>{
+    let code=format!("import hashlib\nfrom pathlib import Path\nh=hashlib.sha256()\nwith Path({path:?}).open('rb') as f:\n    for block in iter(lambda:f.read(1048576),b''): h.update(block)\nif h.hexdigest() != {digest:?}: raise RuntimeError('Integridade SHA-256 não confirmada')\nprint('BEHAVETRACKER_FILE_OK')");
+    let response=execute_job_code(app,job,&google_access_token(app,PROFILE_ID)?,session,&code)?;
+    if !response["stdout"].as_str().unwrap_or("").contains("BEHAVETRACKER_FILE_OK"){return Err("O runtime não confirmou a integridade do arquivo".into());}Ok(())
+}
+
+pub(crate) fn start_training(app:AppHandle,experiment_id:String,job_id:String,dataset:PathBuf,digest:String,epochs:u32)->CommandResult<ColabJob>{
+    prepare_tables(&app)?;let connection=open_database(&app)?;let tx=connection.unchecked_transaction().map_err(|_|"Não foi possível iniciar o job")?;
+    let active:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM colab_jobs WHERE status IN ('queued','running'))",[],|r|r.get(0)).map_err(|_|"Não foi possível consultar jobs ativos")?;
+    if active{return Err("Aguarde as análises/treinamentos ativos antes de iniciar um treino. O modelo não foi alterado".into());}
+    tx.execute("INSERT INTO colab_jobs(job_id,profile_id,experiment_id,upload_id,status,stage,progress,message) VALUES (?1,?2,?3,?1,'queued','queued',0,'Snapshot de exemplos humanos preparado')",params![job_id,PROFILE_ID,experiment_id]).map_err(|_|"Não foi possível criar treinamento")?;
+    tx.execute("INSERT INTO training_runs(job_id,dataset_path,dataset_sha256,epochs) VALUES (?1,?2,?3,?4)",params![job_id,dataset.to_string_lossy(),digest,epochs]).map_err(|_|"Não foi possível registrar treinamento")?;tx.commit().map_err(|_|"Registro interrompido")?;
+    update_job(&app,&job_id,"queued","queued",0,"Treinamento solicitado pelo usuário · dataset imutável; modelo atual preservado")?;
+    let job=get_job(&app,&job_id)?;tauri::async_runtime::spawn_blocking(move||{if let Err(error)=run_training(app.clone(),&job_id,&dataset,&digest,epochs){let _=fail_job(&app,&job_id,&error);}});Ok(job)
+}
+fn run_training(app:AppHandle,job:&str,dataset:&Path,digest:&str,epochs:u32)->CommandResult<()> {
+    update_job(&app,job,"running","runtime",10,"Localizando GPU elegível para treinamento experimental")?;
+    let token=google_access_token(&app,PROFILE_ID)?;let(runtime,reason)=choose_or_create_runtime(&token,&AnalysisWorkload{width:1280,height:720,duration_sec:0.})?;
+    update_job(&app,job,"running","runtime",12,&reason)?;
+    let connection=runtime.connection_info.clone().ok_or("Runtime não informou conexão Jupyter")?;
+    let session=format!("{}/sessions/behavetracker-{}",runtime.name,job.split('-').next().unwrap_or("train"));
+    let directory=format!("/content/behavetracker/{job}");
+    open_database(&app)?.execute("UPDATE colab_jobs SET runtime_name=?2,session_name=?3 WHERE job_id=?1",params![job,runtime.name,session]).map_err(|_|"Não foi possível registrar runtime")?;
+    let result=(||->Result<(),AnalysisFailure>{
+        update_job(&app,job,"running","workspace",15,"Abrindo sessão de treinamento")?;
+        let workspace=execute_job_code(&app,job,&token,&session,&prepare_workspace_code(&directory,job))?;
+        update_job(&app,job,"running","gpu_ready",18,&format!("{} encontrada · sessão de treinamento pronta",workspace_gpu(&workspace)?))?;
+        let relative=resolve_jupyter_workspace(&connection,&directory,job)?;
+        update_job(&app,job,"running","uploading",20,"Enviando somente exemplos humanos revisados e suas imagens")?;
+        upload_video(&app,job,&connection,dataset,&format!("{relative}/dataset.jsonl"),fs::metadata(dataset).map_err(|_|"Snapshot indisponível")?.len() as i64)?;
+        update_job(&app,job,"running","verifying",47,"Conferindo integridade do snapshot no Colab")?;
+        verify_remote_file(&app,job,&session,&format!("{directory}/dataset.jsonl"),digest)?;
+        update_job(&app,job,"running","video_ready",50,"Dataset recebido e SHA-256 confirmado")?;
+        prepare_custom_environment(&app,job,&session,&directory)?;
+        let code=format!("import runpy\nfrom pathlib import Path\np=Path({directory:?})\n(p/'custom_model.py').write_text({source:?},encoding='utf-8')\nrunpy.run_path(str(p/'custom_model.py'))['train'](str(p/'dataset.jsonl'),str(p/'output'),{epochs})",source=include_str!("../python/custom_model.py"));
+        update_job(&app,job,"running","training",65,"Ajustando detector e pontos com rótulos humanos · nova versão experimental")?;
+        run_background_task(&app,job,&session,&directory,"training",&code)?;
+        update_job(&app,job,"running","downloading",93,"Recebendo relatório e checkpoint; modelo atual ainda não foi alterado")?;
+        let refreshed=get_runtime(&api_client()?,&google_access_token(&app,PROFILE_ID)?,&runtime.name)?.connection_info.ok_or("Conexão do runtime indisponível")?;
+        let report_path=dataset.with_extension("report.json");let manifest_path=dataset.with_extension("model.json");
+        download_result(&refreshed,&format!("{relative}/output/training_report.json"),&report_path)?;
+        download_result(&refreshed,&format!("{relative}/output/model_artifact.json"),&manifest_path)?;
+        let report:Value=serde_json::from_str(&fs::read_to_string(&report_path).map_err(|_|"Relatório indisponível")?).map_err(|_|"Relatório inválido")?;
+        let manifest:Value=serde_json::from_str(&fs::read_to_string(&manifest_path).map_err(|_|"Manifesto indisponível")?).map_err(|_|"Manifesto inválido")?;
+        let model=crate::training::model_path(&app,job)?;download_model(&refreshed,&format!("{relative}/output/model.pt"),&model,&manifest)?;
+        if report["version"]!="behavetracker-keypoint-rcnn-v1" || report["snapshotId"]!=job{return Err("Relatório não corresponde a este treinamento".into());}
+        open_database(&app)?.execute("UPDATE training_runs SET report_json=?2,model_path=?3,model_sha256=?4 WHERE job_id=?1",params![job,report.to_string(),model.to_string_lossy(),manifest["sha256"].as_str()]).map_err(|_|"Não foi possível registrar modelo")?;
+        update_job(&app,job,"succeeded","completed",100,"Nova versão recebida · seleção para testes é manual; melhora não foi presumida")?;Ok(())
+    })();
+    if !result.as_ref().err().is_some_and(|e|e.preserve_session){if let Ok(token)=google_access_token(&app,PROFILE_ID){best_effort_delete_session(&token,&session);}}
+    result.map_err(|e|e.message)
+}
+fn download_model(connection:&ConnectionInfo,remote:&str,path:&Path,manifest:&Value)->CommandResult<()> {
+    if manifest["version"]!="behavetracker-keypoint-rcnn-v1"||manifest["filename"]!="model.pt"{return Err("Tipo de checkpoint não reconhecido".into());}
+    let bytes=manifest["sizeBytes"].as_u64().filter(|n|*n>0&&*n<=500*1024*1024).ok_or("Tamanho do checkpoint inválido")?;
+    let digest=manifest["sha256"].as_str().filter(|s|s.len()==64&&s.chars().all(|c|c.is_ascii_hexdigit())).ok_or("Hash do checkpoint inválido")?;
+    let client=Client::builder().timeout(Duration::from_secs(600)).build().map_err(|_|"Download indisponível")?;
+    let response=client.get(jupyter_url(connection,&format!("files/{remote}"))).header("X-Colab-Runtime-Proxy-Token",&connection.token).send().map_err(|_|"Falha ao baixar checkpoint")?;
+    if !response.status().is_success(){return Err("Runtime recusou o checkpoint".into());}
+    let temporary=path.with_extension("partial");
+    let result=(||{let mut file=File::create(&temporary).map_err(|_|"Checkpoint local indisponível")?;
+        if std::io::copy(&mut response.take(bytes+1),&mut file).map_err(|_|"Download interrompido")?!=bytes||crate::video::sha256(&temporary)?!=digest{return Err("Integridade do checkpoint não confirmada".into());}
+        fs::rename(&temporary,path).map_err(|_|"Não foi possível publicar o checkpoint")?;Ok(())})();
+    if result.is_err(){let _=fs::remove_file(temporary);}result
 }
 
 fn run_analysis(
@@ -1976,6 +2086,7 @@ fn run_analysis(
             &remote_video,
             size,
         )?;
+        let custom_model=ensure_remote_model(&app,&job_id,&session,&connection,&remote_directory,&absolute_directory)?;
         update_job(
             &app,
             &job_id,
@@ -2008,7 +2119,7 @@ fn run_analysis(
             "Vídeo recebido e validado · tamanho e SHA-256 conferem",
         )?;
 
-        prepare_environment(&app, &job_id, &session, &absolute_directory)?;
+        if custom_model.is_some(){prepare_custom_environment(&app,&job_id,&session,&absolute_directory)?;}else{prepare_environment(&app, &job_id, &session, &absolute_directory)?;}
 
         update_job(
             &app,
@@ -2016,7 +2127,7 @@ fn run_analysis(
             "running",
             "inference",
             65,
-            if diagnostic.is_some() { "Diagnóstico curto · medindo detector e pose separadamente, sem recuperação ou adaptação" } else if arena
+            if custom_model.is_some(){"Executando modelo personalizado experimental · confiança anatômica não calibrada; revise as posições"} else if diagnostic.is_some() { "Diagnóstico curto · medindo detector e pose separadamente, sem recuperação ou adaptação" } else if arena
                 .as_ref()
                 .is_some_and(|geometry| geometry.rim_corners_px.is_some())
             {
@@ -2025,7 +2136,7 @@ fn run_analysis(
                 "Executando SuperAnimal no vídeo inteiro · projeto sem borda calibrada; não será aplicado recorte só no chão"
             },
         )?;
-        let code = if let Some(range) = &diagnostic {
+        let code = if let Some(model)=&custom_model {custom_code(&absolute_video,model,&remote_output,&remote_csv,arena.as_ref(),diagnostic.as_ref())} else if let Some(range) = &diagnostic {
             diagnostic_code(&absolute_video, &remote_output, &remote_csv, arena.as_ref(), range)
         } else {
             inference_code(&absolute_video, &remote_output, &remote_csv, arena.as_ref())
@@ -2082,7 +2193,8 @@ fn run_analysis(
         }
         download_result(&refreshed_connection, &format!("{remote_directory}/output/analysis_profile.json"), &result_directory.join(format!("{job_id}-profile.json")))?;
         update_job(&app, &job_id, "running", "rendering", 94, "Poses disponíveis para revisão · gerando o vídeo rotulado em tarefa separada")?;
-        run_background_task(&app, &job_id, &session, &absolute_directory, "render", &render_code(&remote_output))?;
+        let render=if custom_model.is_some(){format!("import runpy\nfrom pathlib import Path\nrunpy.run_path(str(Path({remote_output:?})/'custom_model.py'))['render_custom']({remote_output:?})")}else{render_code(&remote_output)};
+        run_background_task(&app, &job_id, &session, &absolute_directory, "render", &render)?;
         let video_token = google_access_token(&app, PROFILE_ID)?;
         let video_runtime = get_runtime(&api_client()?, &video_token, &runtime.name)?;
         let refreshed_connection = video_runtime.connection_info.ok_or("O runtime não renovou a conexão para receber o vídeo")?;
@@ -2100,7 +2212,7 @@ fn run_analysis(
             "succeeded",
             "completed",
             100,
-            if video_error.is_none() { "Rastreamento concluído · vídeo do DeepLabCut disponível" } else { "Poses recebidas · vídeo rotulado indisponível; consulte o aviso no editor" },
+            if video_error.is_none() { "Rastreamento concluído · vídeo do modelo disponível" } else { "Poses recebidas · vídeo rotulado indisponível; consulte o aviso no editor" },
         )?;
         Ok(())
     })();
@@ -2131,6 +2243,8 @@ pub fn start_colab_analysis(
     }
     prepare_tables(&app)?;
     let connection = open_database(&app)?;
+    let training_active:bool=connection.query_row("SELECT EXISTS(SELECT 1 FROM training_runs t JOIN colab_jobs j ON t.job_id=j.job_id WHERE j.status IN ('queued','running'))",[],|r|r.get(0)).map_err(|_|"Não foi possível consultar treinos ativos")?;
+    if training_active{return Err("Aguarde o treinamento ativo antes de iniciar outra análise".into());}
     let staging_experiment: Option<String> = connection
         .query_row(
             "SELECT experiment_id FROM video_staging WHERE upload_id = ?1 AND ready = 1",
@@ -2156,10 +2270,11 @@ pub fn start_colab_analysis(
         .map_err(|_| "Não foi possível verificar jobs ativos.".to_string())?
     {
         let active = get_job(&app, &active.job_id)?;
-        if active.diagnostic != request.diagnostic { return Err("Já existe outra execução ativa neste experimento. Aguarde antes de iniciar este teste.".into()); }
+        if active.training || active.diagnostic != request.diagnostic { return Err("Já existe outra execução ativa neste experimento. Aguarde antes de iniciar este teste.".into()); }
         return Ok(active);
     }
     let job_id = new_uuid_v4();
+    let selected_model=crate::training::active_model(&app)?;
     let transaction = connection
         .unchecked_transaction()
         .map_err(|_| "Não foi possível iniciar o registro do job.".to_string())?;
@@ -2181,7 +2296,7 @@ pub fn start_colab_analysis(
             "INSERT INTO colab_job_geometry(job_id, geometry_json) VALUES (?1, ?2)",
             params![
                 &job_id,
-                serde_json::to_string(&json!({"poseAdapterVersion":"superanimal-canonical-3", "recoveryVersion":"visual-recovery-2", "arena": &request.arena}))
+                serde_json::to_string(&json!({"poseAdapterVersion":if selected_model.is_some(){"custom-keypoint-rcnn-1"}else{"superanimal-canonical-3"}, "recoveryVersion":if selected_model.is_some(){"not_used"}else{"visual-recovery-2"}, "arena": &request.arena}))
                     .map_err(|_| "Não foi possível serializar a geometria.")?
             ],
         )
@@ -2189,6 +2304,7 @@ pub fn start_colab_analysis(
     if let Some(range) = &request.diagnostic {
         transaction.execute("INSERT INTO colab_job_diagnostics(job_id,range_json) VALUES (?1,?2)", params![&job_id, serde_json::to_string(range).map_err(|_| "Intervalo inválido")?]).map_err(|_| "Não foi possível registrar o intervalo diagnóstico")?;
     }
+    if let Some((model_id,_,_))=selected_model {transaction.execute("INSERT INTO custom_analysis_models VALUES (?1,?2)",params![&job_id,model_id]).map_err(|_|"Não foi possível registrar a versão do modelo")?;}
     transaction
         .commit()
         .map_err(|_| "Não foi possível concluir o registro do job.".to_string())?;
@@ -2229,7 +2345,7 @@ pub fn get_colab_job_log(app: AppHandle, job_id: String) -> CommandResult<String
         let body = fs::read_to_string(profile).map_err(|_| "Perfil de tempos indisponível")?;
         sections.push(format!("=== Medições da análise (segundos) ===\n{body}\nrecoverySec inclui recuperação e conversão dos pontos; o vídeo é medido no log render."));
     }
-    for task in ["setup", "inference", "render"] {
+    for task in ["setup", "inference", "render", "training"] {
         let path = job_log_path(&app, &job_id, task)?;
         if !path.is_file() {
             continue;
@@ -2330,6 +2446,7 @@ pub fn get_latest_colab_job(
             "SELECT job_id
                FROM colab_jobs
               WHERE experiment_id = ?1 AND NOT EXISTS (SELECT 1 FROM colab_job_diagnostics d WHERE d.job_id = colab_jobs.job_id)
+                AND NOT EXISTS (SELECT 1 FROM training_runs t WHERE t.job_id = colab_jobs.job_id)
               ORDER BY created_at DESC LIMIT 1",
             params![experiment_id],
             |row| row.get(0),
@@ -2403,6 +2520,17 @@ mod tests {
         net::TcpListener,
         thread,
     };
+
+    #[test]
+    fn custom_checkpoint_is_published_only_after_integrity_validation(){
+        let directory=std::env::temp_dir().join(format!("behavetracker-model-download-{}",new_uuid_v4()));std::fs::create_dir_all(&directory).unwrap();
+        let expected=directory.join("expected.pt");std::fs::write(&expected,b"weights").unwrap();let digest=crate::video::sha256(&expected).unwrap();
+        for valid in [true,false]{let listener=TcpListener::bind("127.0.0.1:0").unwrap();let address=listener.local_addr().unwrap();let server=thread::spawn(move||{let(mut socket,_)=listener.accept().unwrap();let mut buffer=[0;4096];let _=socket.read(&mut buffer);socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 7\r\nConnection: close\r\n\r\nweights").unwrap();});
+            let path=directory.join(if valid{"valid.pt"}else{"invalid.pt"});let manifest=json!({"version":"behavetracker-keypoint-rcnn-v1","filename":"model.pt","sizeBytes":7,"sha256":if valid{digest.clone()}else{"0".repeat(64)}});
+            let result=super::download_model(&ConnectionInfo{url:format!("http://{address}"),token:"fake".into()},"model.pt",&path,&manifest);
+            assert_eq!(result.is_ok(),valid);assert_eq!(path.exists(),valid);assert!(!path.with_extension("partial").exists());server.join().unwrap();}
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn diagnostic_range_must_be_short_finite_and_inside_the_video() {
@@ -3146,6 +3274,8 @@ mod tests {
             background_launch_code("/content/behavetracker/job", "inference", "print('ready')"),
             background_poll_code("/content/behavetracker/job", "inference"),
             super::render_code("/content/output"),
+            super::custom_environment_code(),
+            super::custom_code("/content/video.mp4","/content/model.pt","/content/output","/content/poses.csv",None,None),
             background_launch_code("/content/behavetracker/job", "render", "print('render')"),
             inference_code(
                 "/content/video.mp4",

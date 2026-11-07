@@ -52,6 +52,7 @@ import {
 } from "../colab/analysis";
 import { AnalysisWorkflow } from "../colab/AnalysisWorkflow";
 import { DiagnosticPanel } from "../colab/DiagnosticPanel";
+import { TrainingPanel } from "../training/TrainingPanel";
 import { BehaviorReview } from "./BehaviorReview";
 import {
   COLAB_PROFILE_ID,
@@ -75,6 +76,7 @@ const keypointLabels: Record<string, string> = {
   right_ear: "Orelha direita",
   left_forepaw: "Pata anterior esquerda",
   right_forepaw: "Pata anterior direita",
+  neck: "Nuca", mid_back: "Meio do dorso", hip: "Quadril",
 };
 
 function nearestSample(samples: PoseSample[], time: number) {
@@ -154,6 +156,8 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   const [analysisStarting, setAnalysisStarting] = useState(false);
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
   const [diagnosticBusy, setDiagnosticBusy] = useState(false);
+  const [trainingOpen, setTrainingOpen] = useState(false);
+  const [trainingBusy, setTrainingBusy] = useState(false);
   const [analysisHistory, setAnalysisHistory] = useState<ColabJob[]>([]);
   const [jobClock, setJobClock] = useState(() => Date.now());
   const [localStartedAt, setLocalStartedAt] = useState<number | null>(null);
@@ -208,7 +212,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     const refreshHistory = () => {
       void loadColabJobs(experimentId)
         .then((jobs) => {
-          if (!cancelled) setAnalysisHistory(jobs.filter((job) => !job.diagnostic));
+          if (!cancelled) setAnalysisHistory(jobs.filter((job) => !job.diagnostic && !job.training));
         })
         .catch(() => undefined);
     };
@@ -303,7 +307,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if ((event.target as HTMLElement)?.closest(".diagnostic-panel")) return;
+      if ((event.target as HTMLElement)?.closest(".diagnostic-panel, .training-panel")) return;
       if (videoView === "deeplabcut") return;
       if ((event.target as HTMLElement)?.matches("input, textarea, select")) return;
       if (event.code === "Space") {
@@ -524,24 +528,28 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
         <button className="back-link" onClick={() => navigate({ name: "dashboard" })}><ArrowLeft size={16} /> Experimentos</button>
         <div className="editor-title"><div><h1>{experiment.title}</h1><p>{experiment.subjectId}{experiment.group ? ` · ${experiment.group}` : ""} · Campo aberto</p></div><Badge tone={rawSamples.length ? "warning" : "neutral"} dot>{rawSamples.length ? "Em revisão" : "Sem tracking"}</Badge></div>
         <div className="editor-header-actions">
+          <Button variant="secondary" onClick={() => { setPlaying(false); setDiagnosticOpen(false); setTrainingOpen((value)=>!value); }}>{trainingOpen?"Voltar ao editor":"Ensinar o modelo"}</Button>
           <Button variant="secondary" icon={<ScanSearch size={16} />} onClick={() => setDiagnosticOpen((value) => !value)}>Testar rastreamento</Button>
-          <Button className="analyze-button header-analyze" disabled={analysisBusy || diagnosticBusy} icon={<CloudCog size={16} />} onClick={() => void runColabAnalysis()}>{rawSamples.length ? "Reprocessar no Colab" : "Analisar no Colab"}</Button>
+          <Button className="analyze-button header-analyze" disabled={analysisBusy || diagnosticBusy || trainingBusy} icon={<CloudCog size={16} />} onClick={() => void runColabAnalysis()}>{rawSamples.length ? "Reprocessar no Colab" : "Analisar no Colab"}</Button>
           <Button disabled={!rawSamples.length} icon={<BarChart3 size={16} />} onClick={() => navigate({ name: "results", experimentId })}>Ver resultados</Button>
         </div>
       </header>
-      <DiagnosticPanel key={experiment.id} experiment={experiment} file={asset?.file} open={diagnosticOpen} disabled={analysisBusy} onAttach={() => { analysisRequestedRef.current = false; videoFileRef.current?.click(); }} onBusy={setDiagnosticBusy}
+      <TrainingPanel key={`training-${experiment.id}`} experiment={experiment} file={asset?.file} videoUrl={asset?.objectUrl} currentTime={currentTime} fps={detectedFps} open={trainingOpen} onSeek={(time)=>setCurrentTime(Math.max(0,Math.min(experiment.video.durationSec,time)))}
+        onAttach={()=>{analysisRequestedRef.current=false;videoFileRef.current?.click();}} onBusy={setTrainingBusy} onRestaged={(uploadId)=>{if(asset?.file)updateExperiment(experiment.id,{video:{...experiment.video,preparation:{uploadId,originalBytes:asset.file.size,uploadBytes:asset.file.size,status:"original",policyVersion:"lossless-upload-1",message:"Vídeo original no cache local",pixelVerified:false,frameCount:null}}});}} />
+      <DiagnosticPanel key={experiment.id} experiment={experiment} file={asset?.file} open={diagnosticOpen} disabled={analysisBusy||trainingBusy} onAttach={() => { analysisRequestedRef.current = false; videoFileRef.current?.click(); }} onBusy={setDiagnosticBusy}
         onVideoRestaged={(uploadId) => { if (asset?.file) updateExperiment(experiment.id, { video: { ...experiment.video, preparation: {
           uploadId, originalBytes: asset.file.size, uploadBytes: asset.file.size, status: "original", policyVersion: "lossless-upload-1",
           message: "Vídeo original restaurado no cache local. Compactação será verificada na análise completa.", pixelVerified: false, frameCount: null,
         } } }); }} />
 
       {csvError && csvError !== visibleJob?.error && <div className="editor-error"><AlertCircle size={16} /> {csvError}</div>}
+      {latestResultJob?.customModel&&<div className="editor-error"><AlertCircle size={16}/>Modelo personalizado experimental: confiança anatômica não calibrada. Os pontos exigem revisão humana e não entram automaticamente nas métricas.</div>}
       {inputSamples[0]?.recoveryState === "unavailable" && <div className="editor-error"><AlertCircle size={16} /> A segunda passagem visual não estava disponível neste runtime. As detecções originais foram preservadas; consulte o diário da execução antes de considerar a recuperação concluída.</div>}
       {inputSamples[0]?.recoveryState === "limited" && <div className="editor-error"><AlertCircle size={16} /> A recuperação atingiu seu limite de tentativas ou tempo. Lacunas restantes foram preservadas para revisão, sem inventar posições.</div>}
-      {rawSamples.length > 0 && analysisBusy && <AnalysisWorkflow job={visibleJob} preparing={analysisStarting && !currentJob}
+      {!trainingOpen && rawSamples.length > 0 && analysisBusy && <AnalysisWorkflow job={visibleJob} preparing={analysisStarting && !currentJob}
         message={analysisMessage} localError={null} elapsedSec={elapsedSec} />}
 
-      {!rawSamples.length ? (
+      {!trainingOpen && (!rawSamples.length ? (
         <section className="tracking-empty tracking-processing panel">
           <div className="tracking-empty-visual"><ScanSearch size={40} /><span /></div>
           <h2>Processar o vídeo no Google Colab</h2>
@@ -550,7 +558,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
             message={analysisMessage} localError={!visibleJob ? csvError : null} elapsedSec={elapsedSec} />
           {!analysisBusy && (
             <div className="tracking-empty-actions">
-              <Button className="analyze-button" size="lg" disabled={diagnosticBusy} icon={<CloudCog size={19} />} onClick={() => void runColabAnalysis()}>
+              <Button className="analyze-button" size="lg" disabled={diagnosticBusy||trainingBusy} icon={<CloudCog size={19} />} onClick={() => void runColabAnalysis()}>
                 Analisar no Colab
               </Button>
             </div>
@@ -583,7 +591,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
             <div className="video-toolbar">
               <div className="segmented-control video-source-tabs" aria-label="Fonte do vídeo">
                 <button className={videoView === "editor" ? "active" : ""} onClick={() => { setPlaying(false); setVideoView("editor"); }}>Editor</button>
-                <button className={videoView === "deeplabcut" ? "active" : ""} onClick={() => { setPlaying(false); setVideoView("deeplabcut"); }}>Vídeo do DeepLabCut</button>
+                <button className={videoView === "deeplabcut" ? "active" : ""} onClick={() => { setPlaying(false); setVideoView("deeplabcut"); }}>{latestResultJob?.customModel?"Vídeo do modelo":"Vídeo do DeepLabCut"}</button>
               </div>
               {videoView === "editor" && <>
               <div className="segmented-control">
@@ -597,7 +605,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
             </div>
 
             {videoView === "deeplabcut" ? <section className="dlc-video-panel" aria-label="Vídeo rotulado pelo DeepLabCut">
-              <div className="dlc-video-description"><strong>Saída bruta do DeepLabCut · sem correções do editor</strong><p>Todos os pontos do modelo com score ≥ 0,10. Não inclui a recuperação visual nem suas intervenções manuais. A compressão desta prévia é apenas para reprodução e não altera as poses.</p></div>
+              <div className="dlc-video-description"><strong>{latestResultJob?.customModel?"Saída do modelo personalizado experimental":"Saída bruta do DeepLabCut"} · sem correções do editor</strong><p>{latestResultJob?.customModel?"Pontos experimentais com confiança anatômica não calibrada; não são prova de posição nem visibilidade.":"Todos os pontos do modelo com score ≥ 0,10. Não inclui a recuperação visual nem suas intervenções manuais."} A compressão desta prévia é apenas para reprodução e não altera as poses.</p></div>
               {dlcVideoLoading ? <p role="status">Carregando vídeo salvo no dispositivo…</p> : dlcVideo?.videoUrl ? <>
                 <video key={dlcVideo.jobId} src={dlcVideo.videoUrl} controls playsInline preload="metadata" onError={() => setDlcPlaybackError(true)} />
                 {dlcPlaybackError && <p role="alert">O player não conseguiu reproduzir este MP4. O arquivo continua salvo no dispositivo.</p>}
@@ -722,7 +730,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
               <div className="keypoint-list">
                 {keypoints.map((keypoint) => {
                   const point = currentPoints.find((sample) => sample.keypoint === keypoint);
-                  return <button key={keypoint} title={poseSourceLabel(point)} className={keypoint === selectedKeypoint ? "active" : ""} onClick={() => setSelectedKeypoint(keypoint)}><CircleDot size={16} /><span>{keypointLabels[keypoint] ?? keypoint}{point?.source === "recovered" ? " · recuperado/revisar" : ""}</span><small>{confidenceLabel(point)}</small></button>;
+                  return <button key={keypoint} title={poseSourceLabel(point)} className={keypoint === selectedKeypoint ? "active" : ""} onClick={() => setSelectedKeypoint(keypoint)}><CircleDot size={16} /><span>{keypointLabels[keypoint] ?? keypoint}{point?.source === "recovered" ? " · recuperado/revisar" : ""}</span><small>{latestResultJob?.customModel&&point?.source!=="manual"&&drawablePose(point)?"Não calibrada":confidenceLabel(point)}</small></button>;
                 })}
               </div>
             </section>
@@ -741,7 +749,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
               <div className="inspector-label">Qualidade: {keypointLabels[referenceKeypoint] ?? referenceKeypoint}</div>
               <div className={`quality-card quality-${currentReference?.source === "recovered" ? "low_confidence" : currentStatus}`}>
                 {qualityInfo.tone === "success" ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
-                <div><strong>{qualityInfo.label}</strong><span>Score do modelo: {confidenceLabel(currentReference)}</span></div>
+                <div><strong>{qualityInfo.label}</strong><span>{latestResultJob?.customModel&&currentReference?.source!=="manual"?"Confiança anatômica não calibrada":`Score do modelo: ${confidenceLabel(currentReference)}`}</span></div>
               </div>
               <p>Flags indicam trechos para revisão; não provam que a estimativa esteja errada.</p>
               <p>{poseSourceLabel(selectedPoint)}. Score não é probabilidade calibrada de acerto. Pontos recuperados e de baixa confiança só entram nas métricas depois de confirmados.</p>
@@ -772,7 +780,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
             )}
           </aside>
         </div>
-      )}
+      ))}
     </div>
   );
 }

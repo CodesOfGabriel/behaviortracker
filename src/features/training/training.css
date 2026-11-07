@@ -1,0 +1,27 @@
+.training-panel { margin:18px 24px; padding:24px; background:#151923; color:#dde4f0; border:1px solid #394159; }
+.training-panel[hidden] { display:none; }
+.training-preview { width:100%; max-height:260px; display:block; background:#000; margin:12px 0; }
+.training-heading,.training-actions,.training-contexts,.training-fields { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+.training-heading { justify-content:space-between; }
+.training-panel p,.training-panel small { color:#a9b5c9; line-height:1.6; }
+.training-sections { display:grid; grid-template-columns:minmax(230px,1fr) minmax(0,2fr); gap:24px; margin:20px 0; }
+.training-panel section { min-width:0; }
+.training-panel input[type=number],.training-panel select { background:#0d111b; color:#e0e7f2; border:1px solid #46516d; border-radius:7px; padding:9px; max-width:100%; }
+.training-fields label { display:grid; gap:5px; margin:10px 0; }
+.training-fields input { width:130px; }
+.training-contexts button,.training-frame-list button,.training-parts button,.training-interval>button { border:1px solid #454f68; border-radius:6px; background:#202635; color:#dce4f3; padding:8px; text-align:left; }
+.training-panel button[aria-pressed=true] { border-color:#ac8bff; background:#352c51; }
+.training-actions { margin:12px 0; }
+.training-frame-list { display:flex; flex-wrap:wrap; gap:6px; max-height:150px; overflow:auto; margin:10px 0; }
+.training-image { position:relative; width:100%; background:#000; border-radius:8px; overflow:hidden; }
+.training-image img,.training-image svg { position:absolute; inset:0; width:100%; height:100%; }
+.training-image img { object-fit:contain; }
+.training-image svg { touch-action:none; cursor:crosshair; }
+.training-parts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+.training-parts>div { display:flex; gap:4px; }.training-parts>div>button:first-child { flex:1; }
+.training-consent { display:flex; gap:8px; align-items:flex-start; margin:12px 0; }
+.training-consent input[type=checkbox] { width:17px; height:17px; flex:0 0 17px; margin:2px 0 0; padding:0; accent-color:#ac8bff; }
+.training-dirty { color:#f4cc83 !important; }
+.training-run { border-top:1px solid #384059; padding:12px 0; }.training-run pre { white-space:pre-wrap; overflow-wrap:anywhere; }
+.training-interval { display:flex; justify-content:space-between; gap:8px; margin:8px 0; }
+@media(max-width:1000px) { .training-sections { grid-template-columns:1fr; }.training-panel { margin:12px; padding:16px; }.training-parts { grid-template-columns:1fr; } }

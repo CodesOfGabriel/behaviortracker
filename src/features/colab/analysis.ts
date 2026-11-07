@@ -17,6 +17,8 @@ export type ColabJob = {
   events: ColabJobEvent[];
   diagnostic?: DiagnosticRange | null;
   resultsReady?: boolean;
+  training?: boolean;
+  customModel?: boolean;
 };
 
 export type DiagnosticRange = { startSec: number; endSec: number };
@@ -24,6 +26,7 @@ export type DiagnosticFrame = { frameIndex: number; timestampSec: number; state:
   bbox: { x: number; y: number; width: number; height: number; score: number } | null;
   availablePoints: number; totalPoints: number; strongPoints: number; canonicalCenterAvailable: boolean };
 export type DiagnosticReport = { schemaVersion: number; selection: DiagnosticRange; fps: number; durationSec: number;
+  confidencePolicy?: string;
   geometry: { videoWidth: number; videoHeight: number }; frames: DiagnosticFrame[]; timings: Record<string, number>;
   summary: { frameCount: number; states: Record<string, number>; detectorCoveragePct: number; centerCoveragePct: number; accuracyMeasured: false };
   warning: string };

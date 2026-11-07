@@ -70,6 +70,136 @@ fn probe(program: &Path, input: &Path) -> CommandResult<Value> {
     serde_json::from_slice(&result.stdout).map_err(|_| "Metadados de vídeo ilegíveis.".into())
 }
 
+pub(crate) fn frame_at_time(input: &Path, time: f64) -> CommandResult<u64> {
+    if !time.is_finite() || time < 0. || time > 172800. {
+        return Err("Tempo de anotação inválido".into());
+    }
+    require_local_video(input)?;
+    let ffprobe = binary("ffprobe").ok_or("ffprobe necessário para selecionar um frame por PTS")?;
+    let mut child = Command::new(ffprobe)
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_frames",
+            "-show_entries",
+            "frame=best_effort_timestamp_time",
+            "-of",
+            "compact=p=1:nk=0",
+        ])
+        .arg(input)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| "Não foi possível indexar os timestamps")?;
+    let result = (|| {
+        let reader = BufReader::new(child.stdout.take().ok_or("Índice de frames indisponível")?);
+        let mut previous: Option<(u64, f64)> = None;
+        let mut index = 0;
+        for line in reader.lines() {
+            let line = line.map_err(|_| "Leitura dos timestamps interrompida")?;
+            if !line.starts_with("frame|") {
+                continue;
+            }
+            let pts = line
+                .split('|')
+                .find_map(|field| {
+                    field
+                        .strip_prefix("best_effort_timestamp_time=")
+                        .and_then(|s| s.parse::<f64>().ok())
+                })
+                .filter(|v| v.is_finite())
+                .ok_or("Frame sem timestamp; anotação cancelada para não inventar sincronização")?;
+            if pts >= time {
+                return Ok(if let Some((old, old_pts)) = previous {
+                    if time - old_pts <= pts - time {
+                        old
+                    } else {
+                        index
+                    }
+                } else {
+                    index
+                });
+            }
+            previous = Some((index, pts));
+            index += 1;
+            if index > 2_000_000 {
+                return Err("Vídeo excede limite de frames para anotação".into());
+            }
+        }
+        match previous {
+            Some((index, pts)) if time - pts <= 0.1 => Ok(index),
+            _ => Err("O tempo solicitado está além dos frames do vídeo".into()),
+        }
+    })();
+    let _ = child.kill();
+    let _ = child.wait();
+    result
+}
+
+pub(crate) fn extract_exact_frame(
+    input: &Path,
+    output: &Path,
+    frame_index: u64,
+) -> CommandResult<(u32, u32, f64)> {
+    let ffmpeg = binary("ffmpeg").ok_or("FFmpeg é necessário para extrair o frame exato")?;
+    let ffprobe = binary("ffprobe").ok_or("ffprobe é necessário para conferir a resolução")?;
+    let info = probe(&ffprobe, input)?;
+    let stream = &info["streams"][0];
+    let width = stream["width"].as_u64().ok_or("Largura não informada")? as u32;
+    let height = stream["height"].as_u64().ok_or("Altura não informada")? as u32;
+    if width == 0 || height == 0 || width > 8192 || height > 8192 || frame_index > 2_000_000 {
+        return Err("Frame fora dos limites de anotação".into());
+    }
+    if stream["side_data_list"].as_array().is_some_and(|items| {
+        items
+            .iter()
+            .any(|v| v["rotation"].as_i64().is_some_and(|v| v != 0))
+    }) {
+        return Err(
+            "Normalize a rotação antes de anotar para não alterar as coordenadas de treinamento"
+                .into(),
+        );
+    }
+    let result = Command::new(ffmpeg)
+        .args(["-v", "info", "-nostdin", "-n", "-noautorotate", "-i"])
+        .arg(input)
+        .args([
+            "-vf",
+            &format!("select=eq(n\\,{frame_index}),showinfo"),
+            "-frames:v",
+            "1",
+            "-fps_mode",
+            "passthrough",
+            "-c:v",
+            "png",
+        ])
+        .arg(output)
+        .output()
+        .map_err(|_| "Não foi possível extrair o frame")?;
+    if !result.status.success() || !output.is_file() {
+        return Err("O vídeo não contém o frame solicitado ou a extração falhou".into());
+    }
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    let timestamp = stderr
+        .lines()
+        .filter(|line| line.contains("Parsed_showinfo") && line.contains("pts_time:"))
+        .find_map(|line| {
+            line.split("pts_time:")
+                .nth(1)?
+                .split_whitespace()
+                .next()?
+                .parse::<f64>()
+                .ok()
+        })
+        .ok_or("PTS exato do frame não informado; anotação cancelada")?;
+    if !timestamp.is_finite() || timestamp < 0.0 {
+        return Err("PTS inválido no frame solicitado".into());
+    }
+    Ok((width, height, timestamp))
+}
+
 fn require_local_video(input: &Path) -> CommandResult<()> {
     let metadata = fs::metadata(input).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
@@ -684,6 +814,10 @@ mod tests {
             .unwrap()
             .success());
         let digest = sha256(&input).unwrap();
+        let (w, h, pts) = extract_exact_frame(&input, &root.join("frame-7.png"), 7).unwrap();
+        assert_eq!(frame_at_time(&input, 7. / 24.).unwrap(), 7);
+        assert_eq!((w, h), (160, 120));
+        assert!((pts - 7. / 24.).abs() < 0.00001);
         let output = root.join("clip.mp4");
         assert_eq!(
             cut_diagnostic(&input, &output, 0.5, 1.5, 160, 120).unwrap(),
@@ -794,6 +928,7 @@ mod tests {
             12
         );
         let frames = fingerprints(&ffmpeg, &output).unwrap();
+        assert_eq!(frame_at_time(&input, 0.34).unwrap(), 3); // PTS = n²/24, não frame = t*FPS.
         assert!(frames[3].0 - frames[2].0 > frames[1].0 - frames[0].0);
         fs::remove_dir_all(root).unwrap();
     }

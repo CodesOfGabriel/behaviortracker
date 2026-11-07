@@ -164,6 +164,10 @@ try {
   const encoder = spawn(process.env.BEHAVETRACKER_FFMPEG ?? "/usr/local/bin/ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=size=160x120:rate=24", "-t", "1", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", clipPath], { stdio: "ignore" });
   await new Promise((resolve, reject) => { encoder.once("error", reject); encoder.once("exit", (code) => code === 0 ? resolve() : reject(new Error(`FFmpeg fixture: ${code}`))); });
   const clipBase64 = (await readFile(clipPath)).toString("base64");
+  const pngPath=join(directory,"annotation-fixture.png");
+  const pngEncoder=spawn(process.env.BEHAVETRACKER_FFMPEG??"/usr/local/bin/ffmpeg",["-v","error","-i",clipPath,"-frames:v","1",pngPath],{stdio:"ignore"});
+  await new Promise((resolve,reject)=>{pngEncoder.once("error",reject);pngEncoder.once("exit",code=>code===0?resolve():reject(new Error("PNG fixture failed")));});
+  const pngBase64=(await readFile(pngPath)).toString("base64");
   await command("Page.addScriptToEvaluateOnNewDocument", { source: `(() => {
     const saved = JSON.parse(localStorage.getItem('behavetracker.experiments.v1'))[0];
     saved.video.timingSource = 'browser-estimate'; saved.video.durationSec = 1; saved.corrections = []; saved.video.sizeBytes = ${Buffer.from(clipBase64,"base64").length};
@@ -177,6 +181,9 @@ try {
     const raw = 'frame_index,timestamp_sec,keypoint,x_px,y_px,likelihood,status\\n' + frames.flatMap((f) => ['nose','mid_back','hip'].map((name,n) => [f.frameIndex,f.timestampSec,name,f.frameIndex<2?'':80+n*10,f.frameIndex<2?'':50+n*10,f.frameIndex<2?0:.9,f.frameIndex<2?'missing':'valid'].join(','))).join('\\n');
     window.__MOCK_CALLS = [];
     window.__CACHE_AVAILABLE = true;
+    window.__TRAINING={frames:[],intervals:[],runs:[],activeModelId:null};
+    const landmarks=['nose','left_ear','right_ear','neck','mid_back','hip','tail_base','left_forepaw','right_forepaw'];
+    const annotationImage='data:image/png;base64,'+${JSON.stringify(pngBase64)};
     let mockJobs = [diagnostic,job];
     window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {unregisterListener: () => {}};
     window.__TAURI_INTERNALS__ = {
@@ -185,6 +192,15 @@ try {
         window.__MOCK_CALLS.push({name,args});
         if (name.startsWith('plugin:event|')) return 1;
         if (name === 'get_google_oauth_config') return {connected:false,eligibleGpuCount:0,providerError:null};
+        if (name === 'get_training_state') return JSON.parse(JSON.stringify(window.__TRAINING));
+        if (name === 'save_training_intervals') {window.__TRAINING.intervals=args.intervals;return;}
+        if (name === 'get_training_image') return annotationImage;
+        if (name === 'extract_training_frame') {
+          let frame=window.__TRAINING.frames.find(f=>f.frameIndex===args.frameIndex);
+          if(!frame){frame={id:'annotation-'+args.frameIndex,experimentId:saved.id,subjectId:saved.subjectId,videoSha256:'fake-video-sha',imageSha256:'fake-image-sha',width:160,height:120,frameIndex:args.frameIndex,timestampSec:args.frameIndex/24,bbox:null,keypoints:Object.fromEntries(landmarks.map(n=>[n,{state:'unlabeled',x:null,y:null}])),context:'other',split:'train',reviewed:false,updatedAt:''};window.__TRAINING.frames.push(frame);}
+          return {frame:JSON.parse(JSON.stringify(frame)),imageUrl:annotationImage};
+        }
+        if (name === 'save_training_frame') {window.__TRAINING.frames=window.__TRAINING.frames.map(f=>f.id===args.frame.id?args.frame:f);return;}
         if (name === 'list_colab_jobs') return mockJobs;
         if (name === 'check_video_staging') return window.__CACHE_AVAILABLE;
         if (name === 'get_colab_diagnostic_result') return {report,rawPoseCsv:raw,clipPath:'/fake/results/clip.mp4'};
@@ -249,8 +265,48 @@ try {
   assert.equal(startedRequest.workload.durationSec,1);
   await waitFor(`${button('Reprocessar no Colab')}.disabled`);
   assert.equal(await evaluate(`window.__MOCK_CALLS.filter(c => c.name === 'start_colab_analysis' && !c.args.request.diagnostic).length`),0);
+  await click('Ensinar o modelo');
+  await waitFor(`!document.querySelector('.training-panel').hidden`);
+  await click('Nas duas patas');
+  await setField('[aria-label="Início do trecho de treino"]',0);
+  await setField('[aria-label="Fim do trecho de treino"]',.5);
+  await click('Salvar trecho');
+  await waitFor(`window.__TRAINING.intervals.length===1`);
+  assert.equal(await evaluate(`window.__TRAINING.intervals[0].context`),'rearing');
+  await click('Anotar frame atual');
+  await waitFor(`!!document.querySelector('.training-image svg')`);
+  assert.equal(await evaluate(`document.querySelector('.training-image svg').getAttribute('viewBox')`),'0 0 160 120');
+  await click('Confirmar exemplo revisado');
+  await waitFor(`document.querySelector('.training-panel [role=alert]')?.textContent.includes('caixa')`);
+  const canvasPoint=async(x,y)=>evaluate(`(()=>{const svg=document.querySelector('.training-image svg');svg.scrollIntoView({block:'center'});const p=new DOMPoint(${x},${y}).matrixTransform(svg.getScreenCTM());return {x:p.x,y:p.y};})()`);
+  const boxStart=await canvasPoint(10,10),boxEnd=await canvasPoint(150,110);
+  await command('Input.dispatchMouseEvent',{type:'mousePressed',...boxStart,button:'left',clickCount:1});
+  await command('Input.dispatchMouseEvent',{type:'mouseMoved',...boxEnd,button:'left',buttons:1});
+  await command('Input.dispatchMouseEvent',{type:'mouseReleased',...boxEnd,button:'left'});
+  await click('Posicionar parte selecionada');
+  const nose=await canvasPoint(40,40);
+  await command('Input.dispatchMouseEvent',{type:'mousePressed',...nose,button:'left',clickCount:1});
+  await command('Input.dispatchMouseEvent',{type:'mouseReleased',...nose,button:'left'});
+  await waitFor(`document.querySelectorAll('.training-image circle').length===1`);
+  for(let i=1;i<9;i++){
+    await evaluate(`document.querySelectorAll('.training-parts>div')[${i}].querySelector('button:last-child').click()`);
+    await waitFor(`document.querySelectorAll('.training-parts>div')[${i}].querySelector('button').textContent.includes('Não visível')`);
+  }
+  await click('Confirmar exemplo revisado');
+  await waitFor(`window.__TRAINING.frames.some(f=>f.reviewed)`);
+  const annotated=await evaluate(`window.__TRAINING.frames.find(f=>f.reviewed)`);
+  assert.ok(Math.abs(annotated.keypoints.nose.x-40)<.01);
+  assert.equal(annotated.keypoints.hip.x,null);
+  assert.equal(annotated.keypoints.hip.state,'occluded');
+  assert.ok(await evaluate(`${button('Enviar exemplos e treinar no Colab')}.disabled`),'Treino não pode iniciar com um único frame e sem consentimento');
+  assert.equal(await evaluate(`window.__MOCK_CALLS.filter(c=>c.name==='start_custom_training').length`),0);
+  assert.equal(await evaluate(`JSON.stringify(JSON.parse(localStorage.getItem('behavetracker.experiments.v1'))[0].corrections)`),preserved,'Anotações de treino não podem alterar correções científicas');
+  const trainingScreen=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});
+  await writeFile(join(directory,'custom-training-labels.png'),Buffer.from(trainingScreen.data,'base64'));
+  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false});
+  assert.ok(await evaluate(`document.querySelector('.training-panel').scrollWidth<=document.querySelector('.training-panel').clientWidth+1`),'Overflow interno na anotação mobile');
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ dualSelection: "passed", confirmation: "passed", pointerAndKeyboard: "passed", persistence: "passed", desktopAndMobile: "passed", behaviorIntervalsUndoAndResults: "passed", separateDlcVideoView: "passed", realMp4PlaybackWithMockNativeBridge: "passed", diagnosticRawOverlayAndIsolation: "passed", missingCacheRecovery: "passed", directory }));
+  console.log(JSON.stringify({ dualSelection: "passed", confirmation: "passed", pointerAndKeyboard: "passed", persistence: "passed", desktopAndMobile: "passed", behaviorIntervalsUndoAndResults: "passed", separateDlcVideoView: "passed", realMp4PlaybackWithMockNativeBridge: "passed", diagnosticRawOverlayAndIsolation: "passed", missingCacheRecovery: "passed", trainingIntervalsAndManualParts: "passed",trainingConsentAndScientificIsolation: "passed", directory }));
 } finally {
   if (ws?.readyState === WebSocket.OPEN) {
     await command("Browser.close").catch(() => {});

@@ -6,7 +6,7 @@ export const workflowSteps = [
   { title: "Enviar vídeo", description: "Transferir para a pasta confirmada", stages: ["uploading"] },
   { title: "Validar arquivo", description: "Conferir tamanho e integridade", stages: ["verifying", "video_ready"] },
   { title: "Preparar modelo", description: "Verificar e reutilizar DeepLabCut", stages: ["environment_check", "installing", "environment_ready"] },
-  { title: "Processar vídeo", description: "Rastrear o animal com SuperAnimal", stages: ["inference"] },
+  { title: "Processar vídeo", description: "Rastrear o animal com o modelo selecionado", stages: ["inference", "training"] },
   { title: "Receber resultado", description: "Baixar poses e gerar vídeo de revisão", stages: ["downloading", "rendering", "completed"] },
 ] as const;
 
@@ -33,7 +33,12 @@ export function checkpoints(job: ColabJob | null, preparing = false, localError 
     } else if (events.some((event) => stageIndex(event.stage) > index)) state = "done";
     return { ...step, state, event: lastEvent,
       ...(job?.diagnostic && index === 5 ? { title: "Testar detector e pose", description: "Medir saídas no trecho curto" } : {}),
-      ...(job?.diagnostic && index === 6 ? { title: "Receber diagnóstico", description: "Baixar relatório e pontos brutos" } : {}) };
+      ...(job?.diagnostic && index === 6 ? { title: "Receber diagnóstico", description: "Baixar relatório e pontos brutos" } : {}),
+      ...(job?.training && index === 0 ? { title: "Preparar exemplos", description: "Congelar rótulos e imagens revisados" } : {}),
+      ...(job?.training && index === 2 ? { title: "Enviar exemplos", description: "Transferir somente os frames revisados" } : {}),
+      ...(job?.training && index === 3 ? { title: "Validar dataset", description: "Conferir integridade SHA-256" } : {}),
+      ...(job?.training && index === 5 ? { title: "Treinar nova versão", description: "Ajustar detector e partes do animal" } : {}),
+      ...(job?.training && index === 6 ? { title: "Receber modelo", description: "Salvar pesos e relatório sem ativar" } : {}) };
   });
 }
 
