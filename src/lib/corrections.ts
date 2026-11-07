@@ -14,7 +14,8 @@ export function activeCorrectionEvents(events: CorrectionEvent[]) {
 
 export function applyCorrections(samples: PoseSample[], events: CorrectionEvent[]) {
   const overrides = new Map<string, CorrectionEvent[]>();
-  activeCorrectionEvents(events).forEach((event) => {
+  const active = activeCorrectionEvents(events);
+  active.forEach((event) => {
     if (event.frameIndex == null || !event.keypoint) return;
     if (event.type === "MOVE_POINT" || event.type === "SET_BOX" || event.type === "MARK_MISSING" || event.type === "CONFIRM_POINT") {
       const key = `${event.frameIndex}:${event.keypoint}`;
@@ -58,6 +59,62 @@ export function applyCorrections(samples: PoseSample[], events: CorrectionEvent[
       return { ...current, original, xPx: event.after.x, yPx: event.after.y, status: "valid", source: "manual", spatialRegion: "unknown" };
     }, sample);
   });
-  return additions.length ? result.sort((a, b) => a.timestampSec - b.timestampSec || a.frameIndex - b.frameIndex || a.keypoint.localeCompare(b.keypoint)) : result;
+  // Caixas humanas são quadros-chave. A interpolação é uma prévia geométrica,
+  // nunca uma detecção: mantém a observação original e não entra nas métricas.
+  const lastBoxChange = new Map<number, CorrectionEvent>();
+  for (const event of active) {
+    if (event.frameIndex != null && event.keypoint === "box_center"
+      && (event.type === "SET_BOX" || event.type === "MARK_MISSING" || event.type === "MOVE_POINT" || event.type === "CONFIRM_POINT")) {
+      if (event.type !== "CONFIRM_POINT" || lastBoxChange.get(event.frameIndex)?.type !== "SET_BOX") {
+        lastBoxChange.set(event.frameIndex, event);
+      }
+    }
+  }
+  const anchors = [...lastBoxChange.values()].filter((event) => event.type === "SET_BOX" && validBox(event.afterBox)
+    && event.timestampSec != null && Number.isFinite(event.timestampSec))
+    .sort((a, b) => a.timestampSec! - b.timestampSec! || a.frameIndex! - b.frameIndex!);
+  if (anchors.length < 2) return additions.length ? sortSamples(result) : result;
+
+  for (const sample of result) frameTimes.set(sample.frameIndex, sample.timestampSec);
+  const knownFrames = [...frameTimes].sort(([a], [b]) => a - b);
+  let frameCursor = 0;
+  const centers = new Map(result.filter((sample) => sample.keypoint === "box_center").map((sample) => [sample.frameIndex, sample]));
+  const predicted = new Map<number, PoseSample>();
+  for (let index = 0; index < anchors.length - 1; index += 1) {
+    const start = anchors[index], end = anchors[index + 1];
+    const startTime = start.timestampSec!, endTime = end.timestampSec!;
+    if (endTime <= startTime || end.frameIndex! <= start.frameIndex!) continue;
+    const first = start.afterBox!, last = end.afterBox!;
+    // Só usa frames cujo relógio já veio do vídeo; não inventa timestamps.
+    while (frameCursor < knownFrames.length && knownFrames[frameCursor][0] <= start.frameIndex!) frameCursor += 1;
+    for (let offset = frameCursor; offset < knownFrames.length; offset += 1) {
+      const [frame, time] = knownFrames[offset];
+      if (frame >= end.frameIndex!) break;
+      if (lastBoxChange.has(frame)) continue; // Respeita um frame explicitamente marcado como ausente.
+      if (time <= startTime || time >= endTime) continue;
+      const fraction = (time - startTime) / (endTime - startTime);
+      const bbox = { x: first.x + (last.x - first.x) * fraction, y: first.y + (last.y - first.y) * fraction,
+        width: first.width + (last.width - first.width) * fraction, height: first.height + (last.height - first.height) * fraction };
+      const existing = centers.get(frame);
+      const original = existing?.original ?? (existing ? { xPx: existing.xPx, yPx: existing.yPx, likelihood: existing.likelihood,
+        status: existing.status, spatialRegion: existing.spatialRegion, supportCount: existing.supportCount, supportTotal: existing.supportTotal,
+        source: existing.source ?? "detected", bbox: existing.bbox, contour: existing.contour,
+        metricReference: existing.metricReference, referenceApproved: existing.referenceApproved }
+        : { xPx: null, yPx: null, likelihood: 0, status: "missing" as const, source: "detected" as const,
+          bbox: undefined, contour: undefined, metricReference: undefined, referenceApproved: undefined });
+      predicted.set(frame, { ...existing, frameIndex: frame, timestampSec: time, keypoint: "box_center",
+        xPx: bbox.x + bbox.width / 2, yPx: bbox.y + bbox.height / 2, bbox, contour: undefined,
+        likelihood: 0, status: "low_confidence", source: "predicted", reason: "manual_keyframe_interpolation",
+        metricReference: "box_center", referenceApproved: false, spatialRegion: "unknown", original });
+    }
+  }
+  if (!predicted.size) return additions.length ? sortSamples(result) : result;
+  const revised = result.map((sample) => sample.keypoint === "box_center" ? predicted.get(sample.frameIndex) ?? sample : sample);
+  for (const [frame, sample] of predicted) if (!centers.has(frame)) revised.push(sample);
+  return sortSamples(revised);
+}
+
+function sortSamples(samples: PoseSample[]) {
+  return samples.sort((a, b) => a.timestampSec - b.timestampSec || a.frameIndex - b.frameIndex || a.keypoint.localeCompare(b.keypoint));
 }
 

@@ -488,12 +488,36 @@ try {
   assert.ok(Math.abs(boxEvent.afterBox.width-60)<.1);
   await moveMouse(await editorPoint(450,420),await editorPoint(460,430));
   await waitFor(`JSON.parse(localStorage.getItem('behavetracker.experiments.v1'))[0].corrections.at(-1).afterBox.width>69`);
+  // Dois quadros-chave no resultado local criam prévia no intervalo; outro quadro-chave a refina.
+  for(let i=0;i<3;i++) await evaluate(`document.querySelector('[title="Próximo frame"]').click()`);
+  await waitFor(`document.querySelector('.stage-badges').textContent.includes('Frame 4')`);
+  await click('Marcar caixa neste frame');
+  await moveMouse(await editorPoint(430,380),await editorPoint(500,430));
+  await waitFor(`document.querySelectorAll('.keyframe-marker').length===2`);
+  assert.equal(await evaluate(`document.querySelector('.keyframe-lane-heading').textContent.includes('2 frames previstos')`),true);
+  await evaluate(`document.querySelector('[aria-label="Ir ao quadro-chave do frame 1"]').click()`);
+  await waitFor(`document.querySelector('.stage-badges').textContent.includes('Frame 1')`);
+  await evaluate(`document.querySelector('[title="Próximo frame"]').click()`);
+  await waitFor(`document.querySelector('.stage-badges').textContent.includes('Frame 2')`);
+  const predictedX=await evaluate(`Number(document.querySelector('.tracking-overlay [data-tracking-box="animal"] rect').getAttribute('x'))`);
+  assert.ok(await evaluate(`document.querySelector('.tracking-overlay [data-tracking-box="animal"]').textContent.includes('Previsão')`));
+  assert.ok(await evaluate(`!!document.querySelector('.tracking-overlay polyline[stroke="#bb9aff"]')`),'Trajeto estimado deve ser distinto');
+  await click('Bruto');
+  assert.equal(await evaluate(`Number(document.querySelector('.tracking-overlay [data-tracking-box="animal"] rect').getAttribute('x'))`),382);
+  await click('Revisado');
+  assert.notEqual(predictedX,382);
+  await click('Marcar caixa neste frame');
+  await moveMouse(await editorPoint(400,370),await editorPoint(465,425));
+  await waitFor(`document.querySelectorAll('.keyframe-marker').length===3`);
+  assert.ok(await evaluate(`document.querySelector('.stage-badges').textContent.includes('Caixa observada')`));
+  assert.ok(await evaluate(`document.querySelector('.keyframe-lane-heading').textContent.includes('1 frames previstos')`));
   await setField('[aria-label="Resultado em revisão"]','opencv:broken-local-fixture','select');
   await waitFor(`document.querySelector('.editor-error')?.textContent.includes('resultado atual')`);
   assert.equal(await evaluate(`document.querySelector('[aria-label="Resultado em revisão"]').value`),'opencv:macro-fixture');
   assert.ok(await evaluate(`!!document.querySelector('.tracking-overlay [data-tracking-box="animal"]')`),'Erro de carga não pode limpar o resultado ativo');
   await setField('[aria-label="Resultado em revisão"]','colab:local-video-fixture','select');
   await waitFor(`!!document.querySelector('.tracking-point[data-keypoint="body_center"]')`);
+  assert.equal(await evaluate(`!!document.querySelector('.keyframe-lane')`),false,'Quadros-chave locais não podem aparecer na revisão Colab');
   await evaluate(`document.querySelector('[title="Próximo frame"]').click()`);
   await waitFor(`document.querySelector('.stage-badges').textContent.includes('Frame 1')`);
   assert.ok(await evaluate(`document.querySelector('.tracking-point[data-keypoint="body_center"]')?.getAttribute('aria-label').includes('manualmente')`));
@@ -503,6 +527,7 @@ try {
   assert.ok(Math.abs(await evaluate(`document.querySelector('.tracking-point[data-keypoint="body_center"]').transform.baseVal.consolidate().matrix.e`)-firstMove.after.x)<.01);
   await setField('[aria-label="Resultado em revisão"]','opencv:macro-fixture','select');
   await waitFor(`!!document.querySelector('.tracking-overlay [data-tracking-box="animal"]')`);
+  assert.equal(await evaluate(`document.querySelectorAll('.keyframe-marker').length`),3,'A troca de fonte deve restaurar os quadros-chave locais');
   const macroScreen=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});
   await writeFile(join(directory,'macro-box-and-source-isolation.png'),Buffer.from(macroScreen.data,'base64'));
   await command('Page.reload');
@@ -510,6 +535,7 @@ try {
   await evaluate(`document.querySelector('.experiment-row').click()`);
   await waitFor(`!!document.querySelector('.tracking-overlay [data-tracking-box="animal"]')`);
   assert.equal(await evaluate(`document.querySelector('[aria-label="Resultado em revisão"]').value`),'opencv:macro-fixture');
+  assert.equal(await evaluate(`document.querySelectorAll('.keyframe-marker').length`),3,'A reabertura deve reconstruir os quadros-chave');
   assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem('behavetracker.experiments.v1'))[0].corrections`),preservedEvents);
   await setField('[aria-label="Resultado em revisão"]','colab:local-video-fixture','select');
   await waitFor(`!!document.querySelector('.tracking-point[data-keypoint="body_center"]')`);
@@ -533,7 +559,7 @@ try {
   await writeFile(join(directory,'tabbed-review-mobile.png'),Buffer.from(mobileReview.data,'base64'));
   assert.ok(await evaluate(`document.documentElement.scrollWidth<=innerWidth`),'Abas não podem causar overflow na página');
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ dualSelection: "passed", confirmation: "passed", pointerAndKeyboard: "passed", persistence: "passed", desktopAndMobile: "passed", behaviorIntervalsUndoAndResults: "passed", tabbedWorkspaces: "passed", manualMissingPointDragMetricsAndUndo: "passed", separateDlcVideoView: "passed", realMp4PlaybackWithMockNativeBridge: "passed", diagnosticRawOverlayAndIsolation: "passed", missingCacheRecovery: "passed", trainingIntervalsAndManualParts: "passed", trainingTimelineDragTrimMoveZoomAndTouch: "passed",trainingConsentAndScientificIsolation: "passed",macroBoxDragDrawResizeAndUndo:"passed",sourceIsolationAndReload:"passed",failedSourceLoadPreservesReview:"passed",initialBoxCalibrationAndLegacyRecovery:"passed", directory }));
+  console.log(JSON.stringify({ dualSelection: "passed", confirmation: "passed", pointerAndKeyboard: "passed", persistence: "passed", desktopAndMobile: "passed", behaviorIntervalsUndoAndResults: "passed", tabbedWorkspaces: "passed", manualMissingPointDragMetricsAndUndo: "passed", separateDlcVideoView: "passed", realMp4PlaybackWithMockNativeBridge: "passed", diagnosticRawOverlayAndIsolation: "passed", missingCacheRecovery: "passed", trainingIntervalsAndManualParts: "passed", trainingTimelineDragTrimMoveZoomAndTouch: "passed",trainingConsentAndScientificIsolation: "passed",macroBoxDragDrawResizeAndUndo:"passed",manualBoxKeyframesAndPredictedTrajectory:"passed",sourceIsolationAndReload:"passed",failedSourceLoadPreservesReview:"passed",initialBoxCalibrationAndLegacyRecovery:"passed", directory }));
 } catch (error) {
   if(ws?.readyState===WebSocket.OPEN){
     const failure=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true}).catch(()=>null);

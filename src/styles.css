@@ -496,3 +496,11 @@ input::placeholder, textarea::placeholder { color: #717b8f; }
 .tracking-source-bar > span { font-size:11px; color:#a5aabc; }
 .tracking-box-layer { touch-action:none; }
 .tracking-box-layer text { pointer-events:none; paint-order:stroke; stroke:#14151e; stroke-width:3px; stroke-linejoin:round; }
+.keyframe-lane { border-top: 1px solid #303647; margin-top: 12px; padding-top: 10px; }
+.keyframe-lane-heading { display: flex; justify-content: space-between; gap: 12px; align-items: center; color: #d9dded; font-size: 11px; }
+.keyframe-lane-heading span { color: #aa9cbf; }
+.keyframe-lane-track { position: relative; height: 22px; margin: 8px 8px 0; border-radius: 4px; background: #292837; }
+.keyframe-span { position: absolute; top: 8px; height: 6px; border-radius: 4px; background: #795da8; pointer-events: none; }
+.keyframe-marker { position: absolute; z-index: 1; top: 3px; width: 15px; height: 15px; padding: 0; border: 2px solid #dbcbff; border-radius: 3px; background: #8c61d8; transform: translateX(-50%) rotate(45deg); cursor: pointer; }
+.keyframe-marker:hover, .keyframe-marker:focus-visible { background: #c6a1ff; outline: 2px solid #fff; outline-offset: 2px; }
+.keyframe-lane p { margin: 7px 0 0; color: #a8a8bd; font-size: 10px; line-height: 1.4; }

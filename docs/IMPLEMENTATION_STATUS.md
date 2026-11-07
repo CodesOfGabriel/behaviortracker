@@ -6,6 +6,7 @@
 - [x] Ambiente OpenCV isolado, preparação explícita reutilizada, jobs/configuração/hash no SQLite, leitura incremental, cancelamento e recuperação de estado terminal após reinício. Análise interrompida não é retomada automaticamente.
 - [x] Caixa observada/prevista diferenciada no vídeo; previsão expira em até 0,25 s na configuração da interface e fica fora das métricas. Caixa parcial continua visível com aviso de revisão; nenhum ponto anatômico é fabricado.
 - [x] Editor macro com desenho, translação, redimensionamento e undo por frame, preservando caixa/coordenadas/origem brutas. Trajeto usa centro geométrico da caixa, não centro corporal inventado.
+- [x] Caixas manuais como quadros-chave na timeline: duas marcações preveem geometricamente as caixas intermediárias pelos timestamps do vídeo; uma marcação adicional refina o caminho, e o undo recalcula o intervalo. A prévia roxa e as caixas amarelas são estimativas visuais, não observações nem métricas científicas. Não exige nova execução OpenCV/Colab.
 - [x] Seletor de resultados Colab/OpenCV por execução, referências e correções isoladas. Reprocessar/trocar fonte não apaga nem reaplica a revisão anterior. Falha ao carregar mantém o resultado ativo; carregamentos atrasados não vencem uma seleção posterior.
 - [x] Compatibilidade com eventos antigos: vínculo conservador quando a origem é conhecida e associação explícita ao Colab quando o projeto já estava no modo local. Nenhum evento é descartado. Episódios comportamentais permanecem ligados ao vídeo, não ao motor.
 - [x] Exportações preservam caixas bruta/revisada, procedência, consentimento e fonte/execução no manifesto. Testes numéricos, vídeo sintético com FFmpeg real e interface com ponte nativa simulada verificam edição, alternância, falha de carga e reabertura.
@@ -65,6 +66,7 @@
 ## Implementado como protótipo, ainda não validado para uso científico
 
 - O OpenCV local depende do contraste e de uma câmera fixa; reflexos, grades, sombras, oclusões e mudanças de iluminação podem causar erros. A referência de cor e o gate temporal são heurísticos, não um detector de ratos treinado. Não há benchmark nem acurácia medida nos vídeos reais do usuário.
+- A interpolação entre quadros-chave é linear para posição e tamanho da caixa. Curvas, paradas e mudanças bruscas exigem quadros-chave adicionais; ela não usa pixels do vídeo para identificar o animal e não corrige automaticamente desvios do detector. O vídeo original deve estar disponível para revisão.
 - Caixa/centroide 2D não medem centro anatômico, altura ou contato com o piso. Métricas automáticas locais exigem consentimento e observação estável no chão; parciais/previsões continuam excluídas. A caixa prevista é somente auxílio visual, nunca evidência observada. O pipeline Colab não foi substituído por detector-only neste corte.
 
 - Experimentos ainda usam `localStorage`; a configuração e a sessão Google OAuth usam SQLite. O produto final deve migrar os projetos para SQLite e arquivos versionados.
@@ -91,7 +93,7 @@
 
 - [ ] Persistência SQLite dos experimentos, migrations versionadas e recuperação após crash.
 - [ ] Indexação completa de PTS e uso de timestamps reais/VFR na análise e no player científico.
-- [ ] Interpolação assistida com prévia e confirmação.
+- [ ] Rastreamento assistido por evidência visual/fluxo óptico entre quadros-chave, com validação humana do intervalo antes de liberar métricas.
 - [ ] Importador HDF5/CSV nativo do DeepLabCut e adapters versionados.
 - [ ] Heatmap ponderado por duração e pacote ZIP completo com proveniência/checksums.
 - [ ] Transporte alternativo por Drive/object storage para retomada entre runtimes; o transporte atual usa a API de conteúdo Jupyter em blocos.

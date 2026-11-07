@@ -54,4 +54,54 @@ describe("caixa macro e correções auditáveis",()=>{
     expect(applyCorrections([raw],[{...edit,afterBox:{x:10,y:20,width:-3,height:10}}])).toEqual([raw]);
     expect(()=>parseCanonicalPoseCsv(poseToCsv([{...raw,bbox:{x:10,y:20,width:0,height:10}}]))).toThrow();
   });
+  it("interpola caixas entre dois quadros-chave pelo tempo real, sem validar as previsões",()=>{
+    const frames:PoseSample[]=[
+      {...raw,frameIndex:0,timestampSec:0},
+      {...raw,frameIndex:1,timestampSec:.1,xPx:null,yPx:null,bbox:undefined,status:"missing"},
+      {...raw,frameIndex:2,timestampSec:.4},
+      {...raw,frameIndex:3,timestampSec:.5},
+    ];
+    const first={...edit,frameIndex:0,timestampSec:0,afterBox:{x:0,y:20,width:20,height:20}};
+    const last={...edit,id:"last",frameIndex:3,timestampSec:.5,afterBox:{x:50,y:30,width:40,height:30}};
+    const revised=applyCorrections(frames,[first,last]);
+    expect(revised.map((sample)=>sample.source)).toEqual(["manual","predicted","predicted","manual"]);
+    expect(revised[1].bbox).toEqual({x:10,y:22,width:24,height:22});
+    expect(revised[2].bbox).toEqual({x:40,y:28,width:36,height:28});
+    expect(revised[1]).toMatchObject({reason:"manual_keyframe_interpolation",status:"low_confidence",referenceApproved:false});
+    expect(metricEligible(revised[1])).toBe(false);
+    expect(originalPose(revised[1])).toMatchObject({xPx:null,yPx:null,status:"missing"});
+    expect(frames[2].bbox?.x).toBe(30);
+    expect(originalPose(revised[2]).bbox?.x).toBe(30);
+  });
+  it("cria previsão onde o detector omitiu a linha, mas preserva ausência manual e o bruto",()=>{
+    const frames=[{...raw,frameIndex:0,timestampSec:0},
+      {...raw,frameIndex:1,timestampSec:.1,keypoint:"nose"},
+      {...raw,frameIndex:2,timestampSec:.2,keypoint:"nose"},
+      {...raw,frameIndex:3,timestampSec:.3,keypoint:"nose"},
+      {...raw,frameIndex:4,timestampSec:.4}];
+    const first={...edit,frameIndex:0,timestampSec:0,afterBox:{x:0,y:0,width:20,height:20}};
+    const last={...edit,id:"last",frameIndex:4,timestampSec:.4,afterBox:{x:40,y:0,width:20,height:20}};
+    const missing:CorrectionEvent={id:"missing",type:"MARK_MISSING",frameIndex:2,timestampSec:.2,keypoint:"box_center",source:"manual",createdAt:"now"};
+    const revised=applyCorrections(frames,[first,last,missing]);
+    const boxes=revised.filter((sample)=>sample.keypoint==="box_center");
+    expect(boxes.map((sample)=>sample.frameIndex)).toEqual([0,1,3,4]);
+    expect(boxes[1].bbox?.x).toBe(10);
+    expect(originalPose(boxes[1])).toMatchObject({xPx:null,yPx:null,status:"missing",source:"detected"});
+    const [exported]=parseCanonicalPoseCsv(poseToCsv([boxes[1]]));
+    expect(exported.source).toBe("predicted");
+    expect(exported.reason).toBe("manual_keyframe_interpolation");
+    expect(originalPose(exported)).toMatchObject({xPx:null,yPx:null,status:"missing",source:"detected"});
+    expect(boxes[2].bbox?.x).toBeCloseTo(30);
+    expect(frames).toHaveLength(5);
+  });
+  it("novo quadro-chave divide o intervalo; desfazer recalcula a previsão original",()=>{
+    const frames=Array.from({length:5},(_,index)=>({...raw,frameIndex:index,timestampSec:index*.1}));
+    const first={...edit,frameIndex:0,timestampSec:0,afterBox:{x:0,y:0,width:20,height:20}};
+    const last={...edit,id:"last",frameIndex:4,timestampSec:.4,afterBox:{x:40,y:0,width:20,height:20}};
+    const middle={...edit,id:"middle",frameIndex:2,timestampSec:.2,afterBox:{x:20,y:40,width:30,height:30}};
+    expect(applyCorrections(frames,[first,last,middle])[1].bbox).toEqual({x:10,y:20,width:25,height:25});
+    const reverted=applyCorrections(frames,[first,last,middle,{id:"undo",type:"REVERT_EVENT",targetEventId:"middle",source:"manual",createdAt:"now"}]);
+    expect(reverted[1].bbox).toEqual({x:10,y:0,width:20,height:20});
+    expect(reverted[2].source).toBe("predicted");
+  });
 });

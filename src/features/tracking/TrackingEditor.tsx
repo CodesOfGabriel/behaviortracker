@@ -287,6 +287,16 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     () => activeCorrectionEvents(sourceEvents),
     [sourceEvents],
   );
+  const boxKeyframes = useMemo(() => {
+    if (!macroMode) return [];
+    const frames = new Set(activeEvents.filter((event) => event.type === "SET_BOX" && event.keypoint === "box_center").map((event) => event.frameIndex));
+    return reviewedReference.filter((sample) => frames.has(sample.frameIndex) && sample.source === "manual" && sample.bbox);
+  }, [activeEvents, macroMode, reviewedReference]);
+  const keyframePreview = useMemo(() => macroMode && viewMode === "reviewed"
+    ? trajectorySegments(reviewedReference.filter((sample) => sample.bbox && (boxKeyframes.some((keyframe) => keyframe.frameIndex === sample.frameIndex) || sample.reason === "manual_keyframe_interpolation"))
+      .map((sample) => ({ ...sample, source: "manual" as const, status: "valid" as const }))) : [],
+  [macroMode, viewMode, reviewedReference, boxKeyframes]);
+  const predictedFrameCount = useMemo(() => reviewedReference.filter((sample) => sample.reason === "manual_keyframe_interpolation").length, [reviewedReference]);
 
   const trajectory = useMemo(() => {
     const currentIndex = referenceSamples.findIndex((sample) => sample.frameIndex === currentFrame);
@@ -300,6 +310,11 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     const clamped = Math.max(0, Math.min(duration, next));
     setCurrentTime(clamped);
     if (videoRef.current) videoRef.current.currentTime = clamped;
+  };
+  const stepFrame = (direction: -1 | 1) => {
+    const index = frameTimeline.findIndex((sample) => sample.frameIndex === currentFrame);
+    const target = frameTimeline[Math.max(0, Math.min(frameTimeline.length - 1, index + direction))];
+    setTime(target?.timestampSec ?? currentTime + direction / detectedFps);
   };
 
   useEffect(() => {
@@ -330,6 +345,26 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     return () => cancelAnimationFrame(frame);
   }, [playing, speed, duration, asset?.objectUrl, workspaceTab, videoView]);
 
+  // Atualiza a sobreposição quando o frame é apresentado, não só no timeupdate
+  // (que pode disparar várias centenas de milissegundos depois).
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !video.requestVideoFrameCallback || (workspaceTab !== "review" && workspaceTab !== "behaviors") || videoView !== "editor") return;
+    let active = true;
+    let callbackId = 0;
+    const onFrame: VideoFrameRequestCallback = (_now, metadata) => {
+      if (!active) return;
+      // Durante uma busca pausada, callbacks atrasados ainda podem se referir
+      // ao frame anterior. O seek já posicionou o cursor em setTime().
+      if (!video.paused && !video.seeking) {
+        setCurrentTime((previous) => Math.abs(previous - metadata.mediaTime) < .0001 ? previous : metadata.mediaTime);
+      }
+      callbackId = video.requestVideoFrameCallback(onFrame);
+    };
+    callbackId = video.requestVideoFrameCallback(onFrame);
+    return () => { active = false; video.cancelVideoFrameCallback(callbackId); };
+  }, [asset?.objectUrl, workspaceTab, videoView, rawSamples.length]);
+
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (workspaceTab !== "review" && workspaceTab !== "behaviors") return;
@@ -340,8 +375,8 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
       if (event.code === "Space") {
         event.preventDefault();
         setPlaying((current) => !current);
-      } else if (event.key === "ArrowRight") setTime(currentTime + 1 / detectedFps);
-      else if (event.key === "ArrowLeft") setTime(currentTime - 1 / detectedFps);
+      } else if (event.key === "ArrowRight") stepFrame(1);
+      else if (event.key === "ArrowLeft") stepFrame(-1);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -375,7 +410,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     if(!currentFrameSample)return;
     appendEvent({id:crypto.randomUUID(),type:"SET_BOX",createdAt:new Date().toISOString(),source:"manual",keypoint:"box_center",
       frameIndex:currentFrame,timestampSec:currentFrameSample.timestampSec,beforeBox:currentReference?.bbox??null,afterBox:box});
-    setCorrectionMessage(`Caixa corrigida no frame ${currentFrame}. Trajeto recalculado pelo centro geométrico da caixa; não representa altura nem centro anatômico.`);
+    setCorrectionMessage(`Quadro-chave no frame ${currentFrame} salvo. Entre dois quadros-chave, o trajeto é apenas uma previsão para revisão; não entra nas métricas.`);
   };
 
   const pointFromPointer = (event: ReactPointerEvent<SVGSVGElement | SVGGElement>): Point => {
@@ -578,7 +613,6 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   const qualityInfo = macroMode ? currentReference?.source === "predicted" ? {label:"Previsão · não observada",tone:"warning" as const}
     : currentStatus === "valid" ? {label:"Caixa observada",tone:"success" as const} : currentStatus === "low_confidence" ? {label:"Caixa parcial · revisar",tone:"warning" as const} : statusInfo[currentStatus]
     : currentReference?.source === "recovered" ? { label: "Recuperado · revisar", tone: "warning" as const } : statusInfo[currentStatus];
-  const fps = detectedFps;
   const currentJob = analysisJob
     ? analysisHistory.find((job) => job.jobId === analysisJob.jobId) ?? analysisJob
     : localStartedAt !== null ? null : analysisHistory[0] ?? null;
@@ -690,6 +724,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
               </div>
               <div className="toolbar-spacer" />
               {!asset?.objectUrl&&<Button variant="secondary" size="sm" onClick={()=>{analysisRequestedRef.current=false;videoFileRef.current?.click();}}>Abrir vídeo original</Button>}
+              {macroMode&&<Button variant="secondary" size="sm" disabled={positionLocked} icon={<ScanSearch size={15}/>} onClick={()=>{videoRef.current?.pause();setPlaying(false);setDrawingBox(current=>!current);}}>{drawingBox?"Cancelar caixa":"Marcar caixa neste frame"}</Button>}
               <button className={cn("tool-toggle", showTrajectory && "active")} onClick={() => setShowTrajectory((current) => !current)}>{showTrajectory ? <Eye size={16} /> : <EyeOff size={16} />} Trajetória</button>
               <Button variant="secondary" size="sm" icon={<SkipForward size={15} />} onClick={nextIssue}>Próximo problema</Button>
               </>}
@@ -710,7 +745,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
                   muted
                   playsInline
                   onLoadedMetadata={(event) => { event.currentTarget.currentTime = currentTime; }}
-                  onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+                  onTimeUpdate={(event) => {if (!event.currentTarget.requestVideoFrameCallback) setCurrentTime(event.currentTarget.currentTime);}}
                   onPlay={() => setPlaying(true)}
                   onPause={() => setPlaying(false)}
                   onEnded={() => setPlaying(false)}
@@ -744,6 +779,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
                 {experiment.arena.rimCornersPx && <polygon points={pointsToSvg(experiment.arena.rimCornersPx)} fill="none" stroke="#bb9aff" strokeOpacity=".65" strokeWidth="3" strokeDasharray="12 8" />}
                 <polygon points={pointsToSvg(centerPolygon)} fill="#70d6ad" fillOpacity=".07" stroke="#70d6ad" strokeOpacity=".55" strokeWidth="2" strokeDasharray="10 8" />
                 {showTrajectory && trajectory.map((segment, index) => <polyline key={index} points={pointsToSvg(segment)} fill="none" stroke="#d7f169" strokeWidth="4" strokeOpacity=".75" strokeLinecap="round" strokeLinejoin="round" />)}
+                {showTrajectory && keyframePreview.map((segment, index) => <polyline key={`keyframe-${index}`} points={pointsToSvg(segment)} fill="none" stroke="#bb9aff" strokeWidth="4" strokeDasharray="11 8" strokeOpacity=".9" strokeLinecap="round" strokeLinejoin="round" />)}
                 {[["nose", "body_center"], ["body_center", "tail_base"], ["left_ear", "nose"], ["right_ear", "nose"]].map(([a, b]) => {
                   const first = currentPoints.find((sample) => sample.keypoint === a);
                   const second = currentPoints.find((sample) => sample.keypoint === b);
@@ -788,9 +824,9 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
             </div>
 
             <div className="playback-bar">
-              <button className="transport-button" onClick={() => setTime(currentTime - 1 / fps)} title="Frame anterior"><ChevronLeft size={19} /></button>
+              <button className="transport-button" onClick={() => stepFrame(-1)} title="Frame anterior"><ChevronLeft size={19} /></button>
               <button className="play-button" onClick={() => setPlaying((current) => !current)}>{playing ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />}</button>
-              <button className="transport-button" onClick={() => setTime(currentTime + 1 / fps)} title="Próximo frame"><ChevronRight size={19} /></button>
+              <button className="transport-button" onClick={() => stepFrame(1)} title="Próximo frame"><ChevronRight size={19} /></button>
               <div className="timecode"><strong>{formatDuration(currentTime)}</strong><span>/ {formatDuration(duration)}</span></div>
               <div className="playback-spacer" />
               <label className="speed-control"><Gauge size={15} /><select value={speed} onChange={(event) => setSpeed(Number(event.target.value))}><option value={0.25}>0,25×</option><option value={0.5}>0,5×</option><option value={1}>1×</option><option value={2}>2×</option></select></label>
@@ -809,6 +845,19 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
                 <b style={{ left: `${duration ? (currentTime / duration) * 100 : 0}%` }} />
               </div>
               <div className="timeline-times"><span>0:00</span><span>{formatDuration(duration * 0.25)}</span><span>{formatDuration(duration * 0.5)}</span><span>{formatDuration(duration * 0.75)}</span><span>{formatDuration(duration)}</span></div>
+              {macroMode&&<div className="keyframe-lane">
+                <div className="keyframe-lane-heading"><strong>Caixas manuais</strong><span>{boxKeyframes.length} quadros-chave · {predictedFrameCount} frames previstos</span></div>
+                <div className="keyframe-lane-track" aria-label="Quadros-chave das caixas do animal">
+                  {viewMode==="reviewed"&&boxKeyframes.slice(0,-1).map((start,index)=>{
+                    const end=boxKeyframes[index+1];
+                    return <span key={`span-${start.frameIndex}`} className="keyframe-span" style={{left:`${duration?start.timestampSec/duration*100:0}%`,width:`${duration?(end.timestampSec-start.timestampSec)/duration*100:0}%`}} title={`Previsão entre frames ${start.frameIndex} e ${end.frameIndex}`}/>;
+                  })}
+                  {boxKeyframes.map((sample)=><button key={sample.frameIndex} type="button" className="keyframe-marker" style={{left:`${duration?sample.timestampSec/duration*100:0}%`}}
+                    title={`Quadro-chave manual · frame ${sample.frameIndex}`} aria-label={`Ir ao quadro-chave do frame ${sample.frameIndex}`}
+                    onClick={()=>{setPlaying(false);setTime(sample.timestampSec);setViewMode("reviewed");}}/>)}
+                </div>
+                <p>{boxKeyframes.length<2?"Marque a caixa no animal em dois frames diferentes. Os frames entre eles serão preenchidos automaticamente.":"Arraste uma caixa prevista para corrigir o caminho e criar outro quadro-chave. A linha roxa tracejada é estimada, não observada."}</p>
+              </div>}
             </div>
             <div className="review-feedback">
               <div><span>Trajeto: <strong>{keypointLabels[referenceKeypoint]??referenceKeypoint}</strong></span><span>Distância revisada <strong>{reviewedMetrics?.distanceCm==null?"Não mensurável":`${reviewedMetrics.distanceCm.toFixed(1)} cm`}</strong></span><span>Cobertura válida <strong>{(reviewedMetrics?.coveragePct??0).toFixed(1)}%</strong></span></div>
@@ -829,7 +878,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
             <div hidden={inspectorTab!=="points"} role="tabpanel" id="inspector-points-panel" aria-labelledby="inspector-points-tab">
             <section className="inspector-section">
               <div className="inspector-label">{macroMode?"Animal inteiro · caixa":"Partes do animal"} · frame {currentFrame}</div>
-              <p className="correction-help">{macroMode?"Arraste a caixa para mover; use os cantos para redimensionar. Se não houver detecção, desenhe uma caixa ao redor da parte visível do animal. Não estima partes escondidas.":"Arraste os pontos no vídeo. Para uma parte ausente, selecione abaixo e clique e arraste na posição correta."}</p>
+              <p className="correction-help">{macroMode?"Marque a caixa em dois frames pela timeline. O intervalo é previsto por interpolação; arraste uma caixa intermediária para criar outro quadro-chave e ajustar o caminho. A previsão não detecta partes ocultas nem entra nas métricas.":"Arraste os pontos no vídeo. Para uma parte ausente, selecione abaixo e clique e arraste na posição correta."}</p>
               <div className="keypoint-list">
                 {keypoints.map((keypoint) => {
                   const point = currentPoints.find((sample) => sample.keypoint === keypoint);
@@ -844,7 +893,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
               <Button variant="ghost" icon={<Flag size={16} />} onClick={markMissing} disabled={!drawablePose(selectedPoint) || editorLocked}>Marcar como ausente</Button>
               <Button variant="secondary" onClick={confirmPoint} disabled={editorLocked || !drawablePose(selectedPoint) || selectedPoint?.source === "predicted"}>{macroMode?"Confirmar caixa após revisar":"Confirmar ponto após revisar"}</Button>
               <div className="undo-row"><Button variant="ghost" size="sm" icon={<Undo2 size={15} />} onClick={undo} disabled={!activeEvents.length || editorLocked}>Desfazer</Button></div>
-              <small>Salvo automaticamente neste dispositivo. A correção vale somente para este frame, sem preencher outros trechos.</small>
+              <small>{macroMode?"Caixas manuais salvas neste dispositivo. Entre dois quadros-chave, as caixas previstas aparecem apenas para revisão; os dados brutos e as métricas científicas não são preenchidos automaticamente.":"Salvo automaticamente neste dispositivo. A correção vale somente para este frame, sem preencher outros trechos."}</small>
             </section>
             <details className="correction-details"><summary>Qualidade e visibilidade</summary>
             <section className="inspector-section frame-quality">
