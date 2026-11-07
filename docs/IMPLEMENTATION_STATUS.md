@@ -2,7 +2,8 @@
 
 ## Entregue neste corte
 
-- [x] Rastreamento macro local `opencv-box-2`: segmentação clara/escura ou fundo vazio fixo, caixa inicial visual no primeiro frame por clique (posição provisória ajustável) ou arraste (tamanho exato), associação temporal/aparência e caixas em coordenadas do vídeo original. Sem DeepLabCut/GPU nem envio do vídeo para fora do dispositivo.
+- [x] Rastreamento macro local: segmentação clara/escura ou fundo vazio fixo, caixa inicial visual no primeiro frame por clique (posição provisória ajustável) ou arraste (tamanho exato), associação temporal/aparência e caixas em coordenadas do vídeo original. Sem DeepLabCut/GPU nem envio do vídeo para fora do dispositivo.
+- [x] Aba separada **Teste híbrido**: fundo vazio fixo + OpenCV + filtro de Kalman para lacunas de até 0,35 s, com execução e histórico separados da análise local clássica. Exibe FPS medidos, frames observados, previstos e ausentes; exige caixa inicial e frame de fundo vazio. Não seleciona automaticamente o resultado para métricas nem incorpora detector neural/ONNX.
 - [x] Ambiente OpenCV isolado, preparação explícita reutilizada, jobs/configuração/hash no SQLite, leitura incremental, cancelamento e recuperação de estado terminal após reinício. Análise interrompida não é retomada automaticamente.
 - [x] Caixa observada/prevista diferenciada no vídeo; previsão expira em até 0,25 s na configuração da interface e fica fora das métricas. Caixa parcial continua visível com aviso de revisão; nenhum ponto anatômico é fabricado.
 - [x] Editor macro com desenho, translação, redimensionamento e undo por frame, preservando caixa/coordenadas/origem brutas. Trajeto usa centro geométrico da caixa, não centro corporal inventado.
@@ -68,6 +69,7 @@
 
 - O OpenCV local depende do contraste e de uma câmera fixa; reflexos, grades, sombras, oclusões e mudanças de iluminação podem causar erros. A referência de cor e o gate temporal são heurísticos, não um detector de ratos treinado. Não há benchmark nem acurácia medida nos vídeos reais do usuário.
 - A continuação guiada usa até oito recortes das caixas humanas e busca correspondência visual próximo da última posição. Ela pode falhar ou derivar para um objeto parecido; interrompe após perdas sucessivas, preserva lacunas e nunca prova identidade ou comportamento. Não atualiza pesos de um modelo nem elimina a necessidade de mais exemplos e validação em vídeos reais.
+- A aba híbrida processa vídeo gravado, não captura uma câmera em tempo real. Seu desempenho medido é o FPS de processamento local, não latência ponta a ponta. O filtro de Kalman só estima posição por curto período; não detecta o animal nem valida a silhueta. A etapa neural proposta no texto de referência continua pendente de dados de treino, modelo e revisão de licença.
 - A interpolação entre quadros-chave é linear para posição e tamanho da caixa. Curvas, paradas e mudanças bruscas exigem quadros-chave adicionais; ela não usa pixels do vídeo para identificar o animal e não corrige automaticamente desvios do detector. O vídeo original deve estar disponível para revisão.
 - Caixa/centroide 2D não medem centro anatômico, altura ou contato com o piso. Métricas automáticas locais exigem consentimento e observação estável no chão; parciais/previsões continuam excluídas. A caixa prevista é somente auxílio visual, nunca evidência observada. O pipeline Colab não foi substituído por detector-only neste corte.
 

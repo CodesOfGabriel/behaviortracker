@@ -212,6 +212,8 @@ try {
         if (name === 'get_local_tracking_environment') return {ready:true,version:'test'};
         if (name === 'get_local_tracking_updates') return args.offset ? {offset:24,samples:[]} : {offset:24,samples:localSamples};
         if (name === 'get_local_tracking_result') {if(args.jobId==='broken-local-fixture')throw new Error('Fixture unavailable');return localSamples;}
+        if (name === 'local_frame_index') return 0;
+        if (name === 'start_local_tracking') return {...localJob,jobId:'hybrid-test-fixture',state:'queued',config:args.config,report:{framesProcessed:0,totalFrames:24}};
         if (name === 'check_video_staging') return window.__CACHE_AVAILABLE;
         if (name === 'get_colab_diagnostic_result') return {report,rawPoseCsv:raw,clipPath:'/fake/results/clip.mp4'};
         if (name === 'begin_video_staging') return {uploadId:'local-staged-fixture'};
@@ -226,6 +228,14 @@ try {
   await command("Page.reload");
   await waitFor(`!!document.querySelector('.experiment-row')`);
   await evaluate(`document.querySelector('.experiment-row').click()`);
+  await waitFor(`!!document.querySelector('.tracking-overlay')`);
+  await click('Teste híbrido');
+  await waitFor(`!!document.querySelector('.local-hybrid-notice')`);
+  assert.ok(await evaluate(`document.querySelector('.local-hybrid-notice').textContent.includes('Kalman')`));
+  assert.ok(await evaluate(`document.querySelector('.local-hybrid-notice').textContent.includes('ainda não está disponível')`));
+  assert.ok(await evaluate(`${button('Executar teste híbrido')}.disabled`),'Teste híbrido exige caixa inicial e fundo vazio');
+  assert.equal(await evaluate(`document.querySelectorAll('[aria-label="Teste híbrido salvo"] option').length`),0,'Teste híbrido não deve misturar execuções OpenCV existentes');
+  await click('Revisar vídeo');
   await waitFor(`!!document.querySelector('.tracking-overlay')`);
   // Linha do centro omitida no frame 1: o usuário pode posicionar sem CSV nem treino.
   await evaluate(`document.querySelector('[title="Próximo frame"]').click()`);
@@ -565,8 +575,28 @@ try {
   const mobileReview=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});
   await writeFile(join(directory,'tabbed-review-mobile.png'),Buffer.from(mobileReview.data,'base64'));
   assert.ok(await evaluate(`document.documentElement.scrollWidth<=innerWidth`),'Abas não podem causar overflow na página');
+  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1080,deviceScaleFactor:1,mobile:false});
+  const finalDom=await command('DOM.getDocument');
+  const finalFileInput=await command('DOM.querySelector',{nodeId:finalDom.root.nodeId,selector:'.tracking-page input[type=file]'});
+  await command('DOM.setFileInputFiles',{nodeId:finalFileInput.nodeId,files:[clipPath]});
+  await click('Teste híbrido');
+  await waitFor(`!!document.querySelector('[aria-label="Teste híbrido OpenCV e Kalman"] .local-video-stage svg')`);
+  const hybridPoint=async(x,y)=>evaluate(`(()=>{const svg=document.querySelector('[aria-label="Teste híbrido OpenCV e Kalman"] .local-video-stage svg');svg.scrollIntoView({block:'center'});const p=new DOMPoint(${x},${y}).matrixTransform(svg.getScreenCTM());return {x:p.x,y:p.y};})()`);
+  await click('Selecionar caixa inicial do animal');
+  await moveMouse(await hybridPoint(380,380),await hybridPoint(440,420));
+  await waitFor(`!!document.querySelector('[aria-label="Teste híbrido OpenCV e Kalman"] [data-tracking-box="animal"]')`);
+  await click('Usar frame atual como fundo vazio');
+  await waitFor(`!${button('Executar teste híbrido')}.disabled`);
+  await click('Executar teste híbrido');
+  await waitFor(`window.__MOCK_CALLS.some(c=>c.name==='start_local_tracking')`);
+  const hybridRequest=await evaluate(`window.__MOCK_CALLS.find(c=>c.name==='start_local_tracking').args.config`);
+  assert.equal(hybridRequest.strategy,'hybrid_kalman_v1');
+  assert.equal(hybridRequest.mode,'background');
+  assert.equal(hybridRequest.referenceApproved,false);
+  assert.equal(hybridRequest.backgroundFrameIndex,0);
+  assert.ok(hybridRequest.initialBox.width>3);
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ dualSelection: "passed", confirmation: "passed", pointerAndKeyboard: "passed", persistence: "passed", desktopAndMobile: "passed", behaviorIntervalsUndoAndResults: "passed", tabbedWorkspaces: "passed", manualMissingPointDragMetricsAndUndo: "passed", separateDlcVideoView: "passed", realMp4PlaybackWithMockNativeBridge: "passed", diagnosticRawOverlayAndIsolation: "passed", missingCacheRecovery: "passed", trainingIntervalsAndManualParts: "passed", trainingTimelineDragTrimMoveZoomAndTouch: "passed",trainingConsentAndScientificIsolation: "passed",macroBoxDragDrawResizeAndUndo:"passed",manualBoxKeyframesAndPredictedTrajectory:"passed",sourceIsolationAndReload:"passed",failedSourceLoadPreservesReview:"passed",initialBoxCalibrationAndLegacyRecovery:"passed", directory }));
+  console.log(JSON.stringify({ dualSelection: "passed", confirmation: "passed", pointerAndKeyboard: "passed", persistence: "passed", desktopAndMobile: "passed", behaviorIntervalsUndoAndResults: "passed", tabbedWorkspaces: "passed", manualMissingPointDragMetricsAndUndo: "passed", separateDlcVideoView: "passed", realMp4PlaybackWithMockNativeBridge: "passed", diagnosticRawOverlayAndIsolation: "passed", missingCacheRecovery: "passed", trainingIntervalsAndManualParts: "passed", trainingTimelineDragTrimMoveZoomAndTouch: "passed",trainingConsentAndScientificIsolation: "passed",macroBoxDragDrawResizeAndUndo:"passed",manualBoxKeyframesAndPredictedTrajectory:"passed",sourceIsolationAndReload:"passed",failedSourceLoadPreservesReview:"passed",initialBoxCalibrationAndLegacyRecovery:"passed",hybridTabAndConfig:"passed", directory }));
 } catch (error) {
   if(ws?.readyState===WebSocket.OPEN){
     const failure=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true}).catch(()=>null);

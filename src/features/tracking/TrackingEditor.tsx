@@ -87,7 +87,7 @@ const keypointLabels: Record<string, string> = {
   neck: "Nuca", mid_back: "Meio do dorso", hip: "Quadril",
 };
 
-type WorkspaceTab = "review" | "behaviors" | "training" | "diagnostic" | "runs" | "local";
+type WorkspaceTab = "review" | "behaviors" | "training" | "diagnostic" | "runs" | "local" | "hybrid";
 type PointDrag = { keypoint: string; frameIndex: number; timestampSec: number; before: Point | null; current: Point; offset: Point; pointerId: number };
 
 function nearestSample(samples: PoseSample[], time: number) {
@@ -156,6 +156,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   const [diagnosticBusy, setDiagnosticBusy] = useState(false);
   const [trainingBusy, setTrainingBusy] = useState(false);
   const [localBusy,setLocalBusy]=useState(false);
+  const [hybridBusy,setHybridBusy]=useState(false);
   const [localHistory,setLocalHistory]=useState<LocalJob[]>([]);
   const [sourceLoading,setSourceLoading]=useState(false);
   const [drawingBox,setDrawingBox]=useState(false);
@@ -633,7 +634,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
         <button className="back-link" onClick={() => navigate({ name: "dashboard" })}><ArrowLeft size={16} /> Experimentos</button>
         <div className="editor-title"><div><h1>{experiment.title}</h1><p>{experiment.subjectId}{experiment.group ? ` · ${experiment.group}` : ""} · Campo aberto</p></div><Badge tone={rawSamples.length ? "warning" : "neutral"} dot>{rawSamples.length ? "Em revisão" : "Sem tracking"}</Badge></div>
         <div className="editor-header-actions">
-          <Button className="analyze-button header-analyze" disabled={analysisBusy || diagnosticBusy || trainingBusy || localBusy} icon={<CloudCog size={16} />} onClick={() => void runColabAnalysis()}>{rawSamples.length ? "Reprocessar no Colab" : "Analisar no Colab"}</Button>
+          <Button className="analyze-button header-analyze" disabled={analysisBusy || diagnosticBusy || trainingBusy || localBusy || hybridBusy} icon={<CloudCog size={16} />} onClick={() => void runColabAnalysis()}>{rawSamples.length ? "Reprocessar no Colab" : "Analisar no Colab"}</Button>
           <Button disabled={!rawSamples.length||sourceLoading} icon={<BarChart3 size={16} />} onClick={() => navigate({ name: "results", experimentId })}>Ver resultados</Button>
         </div>
       </header>
@@ -653,11 +654,15 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
         {experiment.trackingSelection?.engine==="colab"&&<Button size="sm" variant="secondary" disabled={sourceLoading} onClick={()=>updateExperiment(experiment.id,{legacyReviewSource:trackingSourceKey(experiment.trackingSelection)})}>Associar correções antigas a este Colab</Button>}
       </div>}
       <EditorTabs id="workspace" label="Áreas do experimento" value={workspaceTab} onChange={changeWorkspace} items={[
-        {id:"review",label:"Revisar vídeo"},{id:"local",label:"Análise local"},{id:"behaviors",label:"Comportamentos"},{id:"training",label:"Ensinar o modelo"},
+        {id:"review",label:"Revisar vídeo"},{id:"local",label:"Análise local"},{id:"hybrid",label:"Teste híbrido"},{id:"behaviors",label:"Comportamentos"},{id:"training",label:"Ensinar o modelo"},
         {id:"diagnostic",label:"Testar rastreamento"},{id:"runs",label:"Execuções"},
       ]}/>
       <div role="tabpanel" id="workspace-local-panel" aria-labelledby="workspace-local-tab" hidden={workspaceTab!=="local"}>
         <LocalTrackingPanel experiment={experiment} file={asset?.file} videoUrl={asset?.objectUrl} open={workspaceTab==="local"} onAttach={()=>{analysisRequestedRef.current=false;videoFileRef.current?.click();}} onBusy={setLocalBusy}
+          onUse={(job,samples)=>{++sourceRequestRef.current;setSourceLoading(false);applySource({engine:"opencv",jobId:job.jobId},samples);changeWorkspace("review");}}/>
+      </div>
+      <div role="tabpanel" id="workspace-hybrid-panel" aria-labelledby="workspace-hybrid-tab" hidden={workspaceTab!=="hybrid"}>
+        <LocalTrackingPanel variant="hybrid" experiment={experiment} file={asset?.file} videoUrl={asset?.objectUrl} open={workspaceTab==="hybrid"} onAttach={()=>{analysisRequestedRef.current=false;videoFileRef.current?.click();}} onBusy={setHybridBusy}
           onUse={(job,samples)=>{++sourceRequestRef.current;setSourceLoading(false);applySource({engine:"opencv",jobId:job.jobId},samples);changeWorkspace("review");}}/>
       </div>
       <div role="tabpanel" id="workspace-training-panel" aria-labelledby="workspace-training-tab" hidden={!trainingOpen}>

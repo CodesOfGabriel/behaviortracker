@@ -11,7 +11,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "opencv-box-3"
+VERSION = "opencv-box-4"
 
 
 def write_json(path, value):
@@ -84,6 +84,91 @@ class TemporalTracker:
             elapsed = timestamp - previous
             self.velocity = ((point[0]-x)/elapsed, (point[1]-y)/elapsed) if 0 < elapsed <= self.max_gap else (0., 0.)
         self.last = (*point, timestamp)
+
+
+class HybridKalman:
+    """Centro e velocidade em pixels/segundo; previsões nunca são observações."""
+    def __init__(self, width, height, max_gap=.35):
+        import cv2
+        import numpy as np
+        self.cv, self.np = cv2, np
+        self.width, self.height, self.max_gap = width, height, max_gap
+        self.filter = cv2.KalmanFilter(4, 2, 0, cv2.CV_32F)
+        self.filter.measurementMatrix = np.array([[1,0,0,0],[0,1,0,0]], np.float32)
+        self.filter.transitionMatrix = np.eye(4, dtype=np.float32)
+        self.filter.processNoiseCov = np.diag([4,4,100,100]).astype(np.float32)
+        self.filter.measurementNoiseCov = np.eye(2, dtype=np.float32)*16
+        self.filter.errorCovPost = np.eye(4, dtype=np.float32)*25
+        self.last_time = None
+        self.last_observed = None
+        self.last_point = None
+        self.box = None
+
+    def predict(self, timestamp):
+        if self.last_time is None:
+            return None
+        dt = timestamp - self.last_time
+        if dt <= 0:
+            return None
+        self.filter.transitionMatrix[0, 2] = dt
+        self.filter.transitionMatrix[1, 3] = dt
+        state = self.filter.predict()
+        self.last_time = timestamp
+        x, y = float(state[0, 0]), float(state[1, 0])
+        uncertainty = math.sqrt(max(0., float(self.filter.errorCovPre[0, 0] + self.filter.errorCovPre[1, 1])))
+        return (x, y, uncertainty)
+
+    def observe(self, point, box, timestamp, predicted=False):
+        np = self.np
+        gap = timestamp-self.last_observed if self.last_observed is not None else None
+        if self.last_time is None or (gap is not None and gap > self.max_gap):
+            self.filter.statePost = np.array([[point[0]], [point[1]], [0], [0]], np.float32)
+            self.filter.errorCovPost = np.eye(4, dtype=np.float32)*25
+        else:
+            if not predicted:
+                self.predict(timestamp)
+            self.filter.correct(np.array([[point[0]], [point[1]]], np.float32))
+            if gap and self.last_point:
+                velocity = ((point[0]-self.last_point[0])/gap, (point[1]-self.last_point[1])/gap)
+                self.filter.statePost[2, 0] = .5*self.filter.statePost[2, 0]+.5*velocity[0]
+                self.filter.statePost[3, 0] = .5*self.filter.statePost[3, 0]+.5*velocity[1]
+        self.last_time = timestamp
+        self.last_observed = timestamp
+        self.last_point = point
+        self.box = dict(box)
+
+    def provisional_box(self, center):
+        if not self.box:
+            return None
+        w, h = self.box["width"], self.box["height"]
+        return {"x": max(0., min(self.width-w, center[0]-w/2)),
+                "y": max(0., min(self.height-h, center[1]-h/2)), "width": w, "height": h}
+
+
+class HybridSegmenter:
+    """Fundo fixo + segmentação existente + Kalman curto; sem rede neural."""
+    def __init__(self, config, segmenter):
+        self.segmenter = segmenter
+        self.kalman = HybridKalman(config["width"], config["height"], config.get("maxPredictionSec", .35))
+
+    def process(self, frame, timestamp):
+        kalman, segmenter = self.kalman, self.segmenter
+        predicted = kalman.predict(timestamp)
+        age = timestamp-kalman.last_observed if kalman.last_observed is not None else float("inf")
+        guide = kalman.provisional_box(predicted) if predicted and age <= kalman.max_gap else None
+        result = segmenter.process(frame, timestamp, guide_box=guide)
+        if result["source"] == "segmented" and result["status"] != "missing" and result.get("bbox"):
+            kalman.observe((result["xPx"], result["yPx"]), result["bbox"], timestamp, predicted is not None)
+            return {**result, "reason": "hybrid_"+result["reason"]}
+        if predicted and age <= kalman.max_gap:
+            x, y, uncertainty = predicted
+            if 0 <= x < kalman.width and 0 <= y < kalman.height and segmenter.cv.pointPolygonTest(segmenter.enclosure, (x, y), False) >= 0:
+                box = kalman.provisional_box(predicted)
+                if box:
+                    return {"xPx": box["x"]+box["width"]/2, "yPx": box["y"]+box["height"]/2,
+                            "bbox": box, "source": "predicted", "status": "low_confidence",
+                            "reason": "kalman_prediction", "uncertaintyPx": uncertainty}
+        return {"xPx": None, "yPx": None, "source": "predicted", "status": "missing", "reason": "hybrid_no_observation"}
 
 
 class ManualVisualTracker:
@@ -332,6 +417,7 @@ def run(request_path):
         capture.close()
         capture=read_frames(video,request["ffmpeg"],config["width"],config["height"])
     segmenter = Segmenter(config, background)
+    hybrid = HybridSegmenter(config, segmenter) if config.get("strategy") == "hybrid_kalman_v1" else None
     guidance = config.get("guidance") or {}
     anchors = guidance.get("anchors") or []
     by_frame = {anchor["frameIndex"]: anchor for anchor in anchors}
@@ -346,7 +432,8 @@ def run(request_path):
               "reference": "box_center", "scientificallyValidated": False, "accuracyMeasured": False,
               "referenceApproved": config.get("referenceApproved", False), "timing": "ffprobe_pts", "elapsedSec": 0., "processingFps": 0.,
               "guidanceSourceJobId": guidance.get("sourceJobId"), "manualAnchorCount": len(anchors),
-              "assistedMethod": "manual_templates_lk_1" if anchors else None}
+              "assistedMethod": "manual_templates_lk_1" if anchors else None,
+              "strategy": config.get("strategy", "classic"), "neuralFallback": "unavailable" if hybrid else None}
     write_json(status_path, report)
     try:
         with samples_path.open("w", encoding="utf-8", buffering=1) as output:
@@ -397,6 +484,8 @@ def run(request_path):
                     else:
                         result = {"xPx": None, "yPx": None, "source": "recovered", "status": "missing",
                                   "reason": "assisted_visual_lost"}
+                elif hybrid:
+                    result = hybrid.process(frame, timestamp)
                 else:
                     result = segmenter.process(frame, timestamp)
                 sample = {"frameIndex": index, "timestampSec": timestamp, "keypoint": "box_center", "likelihood": 0,

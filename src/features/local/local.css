@@ -3,3 +3,5 @@
 .local-guidance {display:grid;gap:8px;padding:14px;border:1px solid #62528d;border-radius:10px;background:#211b32;}
 .local-guidance strong {font-size:13px;color:#e7dcff;}
 .local-guidance p,.local-guidance small {margin:0;}
+.local-hybrid-notice {display:grid;gap:6px;margin-bottom:16px;padding:14px;border:1px solid #62528d;border-radius:10px;background:#211b32;color:#cfc6e5;font-size:12px;line-height:1.5;}
+.local-hybrid-notice strong {color:#e7dcff;font-size:13px;}

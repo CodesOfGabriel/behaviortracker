@@ -9,7 +9,7 @@ try:
     import numpy as np
 except ImportError:
     cv2 = np = None
-from opencv_engine import ManualVisualTracker, Segmenter, TemporalTracker, run
+from opencv_engine import HybridSegmenter, ManualVisualTracker, Segmenter, TemporalTracker, run
 
 
 def config(**overrides):
@@ -110,6 +110,47 @@ class OpenCVTests(unittest.TestCase):
         result=Segmenter(cfg).process(self.frame(),0)
         self.assertAlmostEqual(result["xPx"],100,delta=2)
         self.assertGreater(result["bbox"]["width"],20)
+
+    def test_hybrid_background_kalman_expires_and_reacquires(self):
+        cfg=config();cfg.update(mode="background",threshold=25,maxPredictionSec=.2,
+                   initialBox={"x":84,"y":88,"width":32,"height":24},strategy="hybrid_kalman_v1")
+        detector=HybridSegmenter(cfg,Segmenter(cfg,self.frame(None)))
+        self.assertEqual(detector.process(self.frame(100),0)["source"],"segmented")
+        self.assertEqual(detector.process(self.frame(102),.05)["source"],"segmented")
+        predicted=detector.process(self.frame(None),.1)
+        self.assertEqual(predicted["source"],"predicted")
+        self.assertEqual(predicted["status"],"low_confidence")
+        self.assertEqual(predicted["reason"],"kalman_prediction")
+        self.assertIsNotNone(predicted["uncertaintyPx"])
+        self.assertGreater(predicted["xPx"],102)
+        self.assertEqual(detector.process(self.frame(None),.4)["status"],"missing")
+        reacquired=detector.process(self.frame(112),.45)
+        self.assertEqual(reacquired["source"],"segmented")
+        self.assertEqual(reacquired["status"],"low_confidence")
+        self.assertAlmostEqual(reacquired["xPx"],112,delta=2)
+
+    @unittest.skipUnless(shutil.which("ffprobe") and shutil.which("ffmpeg"),"FFmpeg necessário")
+    def test_hybrid_video_is_separate_unapproved_execution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);video=root/"input.mp4"
+            for index in range(16):
+                image=self.frame(None if 7<=index<=12 else 100+index)
+                (root/f"frame{index:02d}.png").write_bytes(cv2.imencode(".png",image)[1].tobytes())
+            subprocess.run([shutil.which("ffmpeg"),"-v","error","-framerate","20","-i",str(root/"frame%02d.png"),"-c:v","libx264","-pix_fmt","yuv420p",str(video)],check=True)
+            cfg=config();cfg.update(mode="background",threshold=25,maxPredictionSec=.2,
+                       initialBox={"x":84,"y":88,"width":32,"height":24},backgroundFrameIndex=7,
+                       strategy="hybrid_kalman_v1",referenceApproved=False)
+            (root/"request.json").write_text(json.dumps({"video":str(video),"config":cfg,"ffprobe":shutil.which("ffprobe"),"ffmpeg":shutil.which("ffmpeg")}))
+            run(root/"request.json")
+            report=json.loads((root/"status.json").read_text())
+            records=[json.loads(line) for line in (root/"samples.jsonl").read_text().splitlines()]
+            self.assertEqual(report["state"],"succeeded")
+            self.assertEqual(report["strategy"],"hybrid_kalman_v1")
+            self.assertEqual(report["neuralFallback"],"unavailable")
+            self.assertEqual(len(records),16)
+            self.assertTrue(all(not item["referenceApproved"] for item in records))
+            self.assertEqual(records[7]["reason"],"kalman_prediction")
+            self.assertEqual(records[12]["status"],"missing")
 
     def textured_frame(self, x=None):
         image=np.zeros((240,320,3),np.uint8)

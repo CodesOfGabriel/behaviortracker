@@ -114,6 +114,17 @@ fn validate_config(config: &Value) -> CommandResult<()> {
     if !["light", "dark", "background"].contains(&config["mode"].as_str().unwrap_or("")) {
         return Err("Modo de segmentação inválido".into());
     }
+    let strategy = match config.get("strategy") {
+        None => "classic",
+        Some(value) => value.as_str().ok_or("Estratégia local inválida")?,
+    };
+    if !["classic", "hybrid_kalman_v1"].contains(&strategy) {
+        return Err("Estratégia local inválida".into());
+    }
+    if strategy == "hybrid_kalman_v1" && (config["mode"] != "background" || config["referenceApproved"] != false
+        || config.get("guidance").is_some_and(|value| !value.is_null())) {
+        return Err("O teste híbrido exige fundo fixo, revisão obrigatória e não aceita guias de outra execução".into());
+    }
     for (key, min, max) in [
         ("threshold", 1., 254.),
         ("minAreaFraction", 0.00001, 0.2),
@@ -197,6 +208,9 @@ fn validate_config(config: &Value) -> CommandResult<()> {
         if x + w > width as f64 || y + h > height as f64 {
             return Err("Caixa inicial fora da imagem".into());
         }
+    }
+    if strategy == "hybrid_kalman_v1" && config.get("initialBox").is_none_or(|value| value.is_null()) {
+        return Err("Marque a caixa do animal no primeiro frame do teste híbrido".into());
     }
     if let Some(guidance) = config.get("guidance").filter(|value| !value.is_null()) {
         let source = guidance["sourceJobId"].as_str().ok_or("Execução de origem ausente")?;
@@ -470,6 +484,23 @@ mod tests {
         assert!(validate_config(&config).is_err());
         let mut config = valid_config();
         config["mode"] = json!("background");
+        assert!(validate_config(&config).is_err());
+    }
+    #[test]
+    fn hybrid_requires_empty_background_human_seed_and_unapproved_metrics() {
+        let mut config=valid_config();
+        config["strategy"]=json!("hybrid_kalman_v1");
+        assert!(validate_config(&config).is_err());
+        config["mode"]=json!("background");
+        config["backgroundFrameIndex"]=json!(7);
+        assert!(validate_config(&config).is_ok());
+        config["referenceApproved"]=json!(true);
+        assert!(validate_config(&config).is_err());
+        config["referenceApproved"]=json!(false);
+        config["initialBox"]=Value::Null;
+        assert!(validate_config(&config).is_err());
+        config["initialBox"]=json!({"x":80,"y":80,"width":40,"height":40});
+        config["strategy"]=json!("unknown");
         assert!(validate_config(&config).is_err());
     }
     #[test]
