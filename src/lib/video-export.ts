@@ -10,6 +10,55 @@ function drawPolygon(context: CanvasRenderingContext2D, points: Point[], color: 
   context.stroke();
 }
 
+const skeletonEdges: Array<[string, string]> = [
+  ["nose", "head_midpoint"], ["head_midpoint", "left_ear"], ["head_midpoint", "right_ear"],
+  ["head_midpoint", "neck"], ["neck", "mid_back"], ["mid_back", "mid_backend"],
+  ["mid_backend", "tail_base"], ["tail_base", "tail_end"],
+  ["neck", "left_forepaw"], ["neck", "right_forepaw"],
+  ["mid_backend", "left_hindpaw"], ["mid_backend", "right_hindpaw"],
+];
+
+function frameSamples(samples: PoseSample[]) {
+  const grouped = new Map<number, PoseSample[]>();
+  for (const sample of samples) {
+    const group = grouped.get(sample.frameIndex) ?? [];
+    group.push(sample);
+    grouped.set(sample.frameIndex, group);
+  }
+  return grouped;
+}
+
+function drawPose(context: CanvasRenderingContext2D, samples: PoseSample[]) {
+  const points = new Map(samples
+    .filter(sample => sample.xPx != null && sample.yPx != null && sample.status !== "missing")
+    .map(sample => [sample.keypoint, sample] as const));
+  const bbox = samples.find(sample => sample.bbox)?.bbox;
+  if (bbox) {
+    context.strokeStyle = "#5ba7ff";
+    context.lineWidth = 2;
+    context.strokeRect(bbox.x, bbox.y, bbox.width, bbox.height);
+  }
+  context.lineCap = "round";
+  for (const [from, to] of skeletonEdges) {
+    const start = points.get(from);
+    const end = points.get(to);
+    if (!start || !end || start.likelihood != null && start.likelihood < .6 || end.likelihood != null && end.likelihood < .6) continue;
+    context.strokeStyle = "#76d6b1";
+    context.lineWidth = 3;
+    context.beginPath();
+    context.moveTo(start.xPx!, start.yPx!);
+    context.lineTo(end.xPx!, end.yPx!);
+    context.stroke();
+  }
+  for (const sample of points.values()) {
+    const weak = sample.likelihood != null && sample.likelihood < .6;
+    context.fillStyle = weak ? "#f3bd62" : "#65a9ff";
+    context.beginPath();
+    context.arc(sample.xPx!, sample.yPx!, weak ? 3 : 4, 0, Math.PI * 2);
+    context.fill();
+  }
+}
+
 export async function exportAnnotatedVideo(
   video: HTMLVideoElement,
   samples: PoseSample[],
@@ -30,6 +79,7 @@ export async function exportAnnotatedVideo(
     recorder.onerror = () => reject(new Error("A gravação do vídeo falhou."));
     recorder.onstop = () => resolve(new Blob(chunks, { type: "video/webm" }));
   });
+  const byFrame = frameSamples(samples);
   const source = [...samples].sort((a, b) => a.timestampSec - b.timestampSec);
   const draw = () => {
     context.drawImage(video, 0, 0);
@@ -38,12 +88,7 @@ export async function exportAnnotatedVideo(
     arena.occlusionPolygonsPx?.forEach(points => drawPolygon(context, points, "#ef5da8"));
     const frame = source.reduce<PoseSample | undefined>((best, sample) =>
       !best || Math.abs(sample.timestampSec - video.currentTime) < Math.abs(best.timestampSec - video.currentTime) ? sample : best, undefined);
-    if (frame?.xPx != null && frame.yPx != null && frame.status !== "missing") {
-      context.fillStyle = "#5ba7ff";
-      context.beginPath();
-      context.arc(frame.xPx, frame.yPx, 6, 0, Math.PI * 2);
-      context.fill();
-    }
+    if (frame) drawPose(context, byFrame.get(frame.frameIndex) ?? []);
     if (!video.paused && !video.ended) requestAnimationFrame(draw);
   };
   video.currentTime = 0;

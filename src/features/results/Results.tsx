@@ -155,7 +155,7 @@ export function Results({ experimentId }: { experimentId: string }) {
         video.onloadedmetadata = () => resolve();
         video.onerror = () => reject(new Error("Não foi possível abrir o vídeo original."));
       });
-      await exportAnnotatedVideo(video, reviewedReference, experiment.arena, `${experiment.id}-revisado.webm`);
+      await exportAnnotatedVideo(video, reviewedSamples, experiment.arena, `${experiment.id}-revisado.webm`);
     } catch (error) {
       setVideoExportError(error instanceof Error ? error.message : "Não foi possível gerar o vídeo revisado.");
     } finally {

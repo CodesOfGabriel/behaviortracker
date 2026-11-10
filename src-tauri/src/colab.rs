@@ -24,6 +24,9 @@ const LOCAL_CHUNK_LIMIT: usize = 8 * 1024 * 1024;
 const REMOTE_CHUNK_SIZE: usize = 1024 * 1024;
 const MAX_VIDEO_SIZE: i64 = 20 * 1024 * 1024 * 1024;
 const MAX_EXECUTION_ATTEMPTS: usize = 5;
+const BACKGROUND_POLL_INTERVAL_SECS: u64 = 12;
+const MCP_RETRY_BASE_SECS: u64 = 10;
+const MCP_RETRY_MAX_SECS: u64 = 60;
 const HYBRID_BUNDLE_ID: &str = "wistar_df_v1";
 const HYBRID_BUNDLE_FILES: [(&str, &str); 3] = [
     ("best_detector.pth", "efc08b431067384e46acee488a4d9173d3cf9c1b5c9158dc0606e7371a51dbc2"),
@@ -207,20 +210,16 @@ impl AnalysisWorkload {
 
     fn description(&self) -> &'static str {
         if self.demanding() {
-            "vídeo 4K ou longo: preferência por L4/A100"
+            "vídeo 4K ou longo: melhor GPU disponível"
         } else {
-            "inferência de um animal: preferência por T4/L4"
+            "inferência de um animal: melhor GPU disponível"
         }
     }
 }
 
-fn accelerator_rank(accelerator: &str, workload: &AnalysisWorkload) -> u8 {
+fn accelerator_rank(accelerator: &str, _workload: &AnalysisWorkload) -> u8 {
     let accelerator = accelerator.to_ascii_uppercase();
-    let order = if workload.demanding() {
-        ["L4", "A100", "H100", "T4"]
-    } else {
-        ["T4", "L4", "A100", "H100"]
-    };
+    let order = ["H100", "A100", "L4", "T4"];
     order
         .iter()
         .position(|name| accelerator.contains(name))
@@ -886,6 +885,22 @@ fn put_jupyter_model(
     Ok(())
 }
 
+fn remote_file_size(client: &Client, connection: &ConnectionInfo, remote_path: &str) -> CommandResult<Option<i64>> {
+    let response = client
+        .get(jupyter_url(
+            connection,
+            &format!("api/contents/{remote_path}?content=0"),
+        ))
+        .header("X-Colab-Runtime-Proxy-Token", &connection.token)
+        .send()
+        .map_err(|_| "Falha de rede ao consultar o arquivo remoto.".to_string())?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
+    let model = response_json(response, "Não foi possível consultar o arquivo remoto")?;
+    Ok(model.get("size").and_then(Value::as_i64))
+}
+
 fn workspace_candidates(absolute_directory: &str) -> Vec<String> {
     let parts: Vec<_> = absolute_directory.trim_matches('/').split('/').collect();
     (0..parts.len())
@@ -961,6 +976,17 @@ fn upload_video(
     size: i64,
 ) -> CommandResult<()> {
     let client = api_client()?;
+    if remote_file_size(&client, connection, remote_file)? == Some(size) {
+        update_job(
+            app,
+            job_id,
+            "running",
+            "uploading",
+            45,
+            "Arquivo já está completo no Colab · reutilizando o upload confirmado",
+        )?;
+        return Ok(());
+    }
     let mut file = File::open(local_path)
         .map_err(|_| "O vídeo temporário não está mais disponível.".to_string())?;
     let mut buffer = vec![0_u8; REMOTE_CHUNK_SIZE];
@@ -1297,7 +1323,14 @@ fn execute_job_code(
             update_job(app, job_id, "running", &job.stage, job.progress,
             &format!("{reason} Reconectando à mesma execução · tentativa {attempt}/{MAX_EXECUTION_ATTEMPTS}; o processamento não será reiniciado."))
         },
-        |attempt| thread::sleep(Duration::from_secs((1_u64 << (attempt - 1)).min(8))),
+        |attempt| {
+            let multiplier = 1_u64 << attempt.saturating_sub(1);
+            thread::sleep(Duration::from_secs(
+                MCP_RETRY_BASE_SECS
+                    .saturating_mul(multiplier)
+                    .min(MCP_RETRY_MAX_SECS),
+            ));
+        },
     )
 }
 
@@ -1476,7 +1509,7 @@ fn run_background_task(
             .and_then(|_| fs::rename(temporary, &log_path))
             .map_err(|_| "Não foi possível salvar o log técnico da execução.".into())
         },
-        || thread::sleep(Duration::from_secs(5)),
+        || thread::sleep(Duration::from_secs(BACKGROUND_POLL_INTERVAL_SECS)),
     )
 }
 
@@ -2164,7 +2197,7 @@ fn hybrid_code(video: &str, output: &str, csv: &str, arena: Option<&AnalysisAren
         .replace("__CSV__", &serde_json::to_string(csv).unwrap())
         .replace("__MODELS__", &serde_json::to_string(models).unwrap())
         .replace("__ARENA__", &arena_literal);
-    format!("from pathlib import Path\np=Path({output:?})/'hybrid_pipeline.py'\np.parent.mkdir(parents=True, exist_ok=True)\np.write_text({source:?},encoding='utf-8')\nexec(compile(p.read_text(),str(p),'exec'),{{}})\n")
+    format!("import runpy\nfrom pathlib import Path\np=Path({output:?})/'hybrid_pipeline.py'\np.parent.mkdir(parents=True, exist_ok=True)\np.write_text({source:?},encoding='utf-8')\nrunpy.run_path(str(p), run_name='__main__')\n")
 }
 fn custom_environment_code()->String {"import torch,torchvision,cv2\nfrom PIL import Image\nif not torch.cuda.is_available(): raise RuntimeError('CUDA não está disponível no runtime. Selecione uma sessão GPU.')\ntorchvision.ops.nms(torch.zeros((0,4),device='cuda'),torch.zeros(0,device='cuda'),0.5)\nprint('BEHAVETRACKER_CUSTOM_ENV_OK '+torch.__version__+' '+torchvision.__version__)".into()}
 fn prepare_custom_environment(app:&AppHandle,job:&str,session:&str,directory:&str)->Result<(),AnalysisFailure>{
@@ -2550,6 +2583,17 @@ fn run_analysis(
                 params![&job_id, result_path.to_string_lossy().as_ref()],
             )
             .map_err(|_| "Não foi possível registrar o resultado do job.".to_string())?;
+        if engine_id == "wistar_superanimal_hybrid_v1" {
+            update_job(
+                &app,
+                &job_id,
+                "succeeded",
+                "completed",
+                100,
+                "Rastreamento D+F concluído · poses, detecções, QC e manifesto disponíveis",
+            )?;
+            return Ok(());
+        }
         if diagnostic.is_some() {
             let report_path = result_directory.join(format!("{job_id}-diagnostic.json"));
             download_result(&refreshed_connection, &format!("{remote_directory}/output/diagnostic_report.json"), &report_path)?;
@@ -3233,7 +3277,7 @@ mod tests {
         };
         assert_eq!(
             preferred_spec(specs(), &small).unwrap().key.accelerator,
-            "NVIDIA_T4"
+            "NVIDIA_A100"
         );
         let large = AnalysisWorkload {
             width: 3840,
@@ -3242,7 +3286,7 @@ mod tests {
         };
         assert_eq!(
             preferred_spec(specs(), &large).unwrap().key.accelerator,
-            "NVIDIA_L4"
+            "NVIDIA_A100"
         );
         assert_eq!(
             preferred_spec(
@@ -3268,7 +3312,7 @@ mod tests {
         ];
         assert_eq!(
             preferred_runtime(existing, &small).unwrap().name,
-            "runtimes/t4"
+            "runtimes/a100"
         );
     }
 

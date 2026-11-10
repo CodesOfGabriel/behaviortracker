@@ -16,6 +16,10 @@ export function AnalysisWorkflow({ job, preparing, message, localError, elapsedS
 }) {
   const steps = checkpoints(job, preparing, Boolean(!job && localError));
   const events = job?.events ?? [];
+  const uploadProgress = job?.stage === "uploading"
+    ? Number(job.message.match(/(\d+)%/)?.[1] ?? NaN)
+    : NaN;
+  const compactEvents = events.filter((event) => !/^Enviando vídeo ao Colab · \d+%$/.test(event.message));
   const failed = job?.status === "failed" || (!job && localError);
   const active = preparing || job?.status === "running" || job?.status === "queued";
   const gpu = gpuMessage(events);
@@ -86,11 +90,15 @@ export function AnalysisWorkflow({ job, preparing, message, localError, elapsedS
         {failed ? <CircleAlert size={17} /> : active ? <LoaderCircle size={17} className="animate-spin" /> : <ScanSearch size={17} />}
         <span>{job?.error || localError || job?.message || message || "Ao iniciar, cada checkpoint será atualizado com as confirmações do Colab."}</span>
       </div>
+      {Number.isFinite(uploadProgress) && <div className="workflow-upload-progress" aria-label={`Upload do vídeo: ${uploadProgress}%`}>
+        <div className="workflow-upload-header"><span>Upload do vídeo</span><strong>{uploadProgress}%</strong></div>
+        <div className="workflow-upload-track"><span style={{ width: `${Math.min(100, Math.max(0, uploadProgress))}%` }} /></div>
+      </div>}
       {events.length > 0 ? (
         <details className="workflow-log" open>
-          <summary>Diário da execução <span>{events.length} eventos registrados</span></summary>
+          <summary>Diário da execução <span>{compactEvents.length} eventos importantes · progresso exibido acima</span></summary>
           <ol aria-label="Eventos reais da análise">
-            {[...events].reverse().map((event) => (
+            {[...compactEvents].reverse().map((event) => (
               <li key={event.id} className={event.status === "failed" ? "log-failed" : ""}>
                 <time>{new Date(event.createdAt).toLocaleTimeString("pt-BR")}</time>
                 <span className="log-dot" />

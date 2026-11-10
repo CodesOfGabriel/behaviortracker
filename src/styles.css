@@ -381,6 +381,11 @@ body { background: radial-gradient(circle at 70% -10%, #242143 0, transparent 35
 .workflow-current > span { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .workflow-current-error { background: #35212b; border-color: #794052; color: #ffbcc7; }
 .workflow-current-error svg { color: #ffa4b6; }
+.workflow-upload-progress { margin-top: 15px; padding: 13px 15px; border: 1px solid #3b4260; border-radius: 9px; background: #20283b; }
+.workflow-upload-header { display: flex; justify-content: space-between; gap: 12px; color: #d6dff1; font-size: 10px; font-weight: 650; }
+.workflow-upload-header strong { color: #c9ef81; font-variant-numeric: tabular-nums; }
+.workflow-upload-track { height: 7px; margin-top: 9px; overflow: hidden; border-radius: 999px; background: #111827; }
+.workflow-upload-track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #8cae65, #d7f169); transition: width .25s ease; }
 .workflow-log { margin-top: 15px; padding-top: 13px; border-top: 1px solid #2f384b; }
 .workflow-log summary { color: #d6dff1; cursor: pointer; font-size: 10px; font-weight: 650; }
 .workflow-log summary > span { margin-left: 8px; color: #8795ae; font-size: 8px; font-weight: 450; }

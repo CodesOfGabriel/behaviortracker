@@ -86,8 +86,15 @@ def snapshot(directory, task):
     if recovery and (not matches or recovery[-1].start() > matches[-1].start()):
         current, total = recovery[-1].groups()
         report["progressText"] = f"Recuperação visual: {current}/{total} frames verificados"
+    detector = list(re.finditer(r"BEHAVETRACKER_DETECTOR_PROGRESS=([^\r\n]+)", clean))
+    if detector and (not recovery or detector[-1].start() > recovery[-1].start()):
+        report["progressText"] = "D+F: Detector Wistar · " + detector[-1].group(1)
     video_phase = list(re.finditer(r"BEHAVETRACKER_VIDEO_PHASE=([^\r\n]+)", clean))
     last_progress = max(matches[-1].start() if matches else -1, recovery[-1].start() if recovery else -1)
+    hybrid = list(re.finditer(r"BEHAVETRACKER_HYBRID_PHASE=([^\r\n]+)", clean))
+    if hybrid and hybrid[-1].start() > last_progress:
+        report["progressText"] = "D+F: " + hybrid[-1].group(1)
+        last_progress = hybrid[-1].start()
     diagnostic = list(re.finditer(r"BEHAVETRACKER_DIAGNOSTIC_PROGRESS=([^\r\n]+)", clean))
     if diagnostic and diagnostic[-1].start() > last_progress:
         report["progressText"] = "Diagnóstico: " + diagnostic[-1].group(1)

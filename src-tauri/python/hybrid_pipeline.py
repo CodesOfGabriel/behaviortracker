@@ -1,9 +1,11 @@
 """Pipeline D+F portado do notebook M, com artefatos compatíveis com o app."""
 
 import csv
+import copy
 import hashlib
 import json
 import math
+import time
 from pathlib import Path
 
 import cv2
@@ -29,6 +31,30 @@ KEYPOINTS = []
 DETECTOR_THRESHOLD = .30
 BBOX_MARGIN = .12
 FC_THRESHOLD = .60
+LAST_DETECTOR_BATCH_SIZE = 1
+
+
+def gpu_name():
+    if DEVICE.type != "cuda":
+        return "cpu"
+    return torch.cuda.get_device_name(DEVICE.index or 0)
+
+
+def detector_batch_size():
+    if DEVICE.type != "cuda":
+        return 1
+    memory_gb = torch.cuda.get_device_properties(DEVICE).total_memory / (1024 ** 3)
+    if memory_gb >= 35:
+        return 16
+    if memory_gb >= 20:
+        return 8
+    if memory_gb >= 14:
+        return 4
+    return 2
+
+
+def phase(message):
+    print(f"BEHAVETRACKER_HYBRID_PHASE={message}", flush=True)
 
 
 def sha256(path):
@@ -83,42 +109,94 @@ def run_detector(video, mask):
     width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = float(capture.get(cv2.CAP_PROP_FPS))
+    total = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
     if width <= 0 or height <= 0 or not fps > 0:
         raise RuntimeError("Vídeo sem resolução ou FPS válidos")
+    phase(f"Detector Wistar · GPU {gpu_name()} · carregando modelo")
     model = detector()
     rows, contexts = [], []
+    started = time.monotonic()
+    batch_size = detector_batch_size()
+    global LAST_DETECTOR_BATCH_SIZE
+    LAST_DETECTOR_BATCH_SIZE = batch_size
+    successful_batches = 0
+    phase(f"Detector Wistar · lote inicial {batch_size} · GPU {gpu_name()}")
+    print(f"BEHAVETRACKER_DETECTOR_PROGRESS=0/{total or '?'}", flush=True)
+
+    def append_prediction(prediction):
+        candidates = [
+            (float(score), box.detach().cpu().numpy(), int(label))
+            for score, label, box in zip(prediction["scores"], prediction["labels"], prediction["boxes"])
+            if int(label) == 1 and float(score) >= DETECTOR_THRESHOLD
+        ]
+        selected = max(candidates, default=None, key=lambda value: value[0])
+        if selected is None:
+            rows.append({"frame": len(rows), "x": "", "y": "", "w": "", "h": "",
+                         "score": 0.0, "observed": False})
+            contexts.append({"bboxes": np.empty((0, 4), np.float32)})
+            return
+        score, box, _ = selected
+        x1, y1, x2, y2 = box
+        dx, dy = (x2 - x1) * BBOX_MARGIN, (y2 - y1) * BBOX_MARGIN
+        px, py = max(0, x1 - dx), max(0, y1 - dy)
+        qx, qy = min(width, x2 + dx), min(height, y2 + dy)
+        w, h = qx - px, qy - py
+        rows.append({"frame": len(rows), "x": px, "y": py, "w": w, "h": h,
+                     "score": score, "observed": True,
+                     "raw_x1": x1, "raw_y1": y1, "raw_x2": x2, "raw_y2": y2})
+        contexts.append({"bboxes": np.asarray([[px, py, w, h]], dtype=np.float32)})
+
     with torch.inference_mode():
         while True:
-            ok, frame = capture.read()
-            if not ok:
+            batch = []
+            for _ in range(batch_size):
+                ok, frame = capture.read()
+                if not ok:
+                    break
+                masked = cv2.bitwise_and(frame, frame, mask=mask)
+                batch.append(to_tensor(cv2.cvtColor(masked, cv2.COLOR_BGR2RGB)).to(DEVICE))
+            if not batch:
                 break
-            masked = cv2.bitwise_and(frame, frame, mask=mask)
-            prediction = model([to_tensor(cv2.cvtColor(masked, cv2.COLOR_BGR2RGB)).to(DEVICE)])[0]
-            candidates = [
-                (float(score), box.detach().cpu().numpy(), int(label))
-                for score, label, box in zip(prediction["scores"], prediction["labels"], prediction["boxes"])
-                if int(label) == 1 and float(score) >= DETECTOR_THRESHOLD
-            ]
-            selected = max(candidates, default=None, key=lambda value: value[0])
-            if selected is None:
-                rows.append({"frame": len(rows), "x": "", "y": "", "w": "", "h": "",
-                             "score": 0.0, "observed": False})
-                contexts.append({"bboxes": np.empty((0, 4), np.float32)})
+            print(
+                f"BEHAVETRACKER_DETECTOR_PROGRESS={len(rows)}/{total or '?'} "
+                f"processando lote de {len(batch)}",
+                flush=True,
+            )
+            batch_start = time.monotonic()
+            try:
+                predictions = model(batch)
+            except RuntimeError as error:
+                if DEVICE.type != "cuda" or "out of memory" not in str(error).lower() or batch_size <= 1:
+                    raise
+                capture.set(cv2.CAP_PROP_POS_FRAMES, len(rows))
+                batch_size = max(1, batch_size // 2)
+                torch.cuda.empty_cache()
+                phase(f"Detector Wistar · memória insuficiente; reduzindo lote para {batch_size}")
                 continue
-            score, box, _ = selected
-            x1, y1, x2, y2 = box
-            dx, dy = (x2 - x1) * BBOX_MARGIN, (y2 - y1) * BBOX_MARGIN
-            px, py = max(0, x1 - dx), max(0, y1 - dy)
-            qx, qy = min(width, x2 + dx), min(height, y2 + dy)
-            w, h = qx - px, qy - py
-            rows.append({"frame": len(rows), "x": px, "y": py, "w": w, "h": h,
-                         "score": score, "observed": True,
-                         "raw_x1": x1, "raw_y1": y1, "raw_x2": x2, "raw_y2": y2})
-            contexts.append({"bboxes": np.asarray([[px, py, w, h]], dtype=np.float32)})
+            successful_batches += 1
+            LAST_DETECTOR_BATCH_SIZE = max(LAST_DETECTOR_BATCH_SIZE, batch_size)
+            if DEVICE.type == "cuda":
+                torch.cuda.synchronize()
+            elapsed_batch = max(time.monotonic() - batch_start, 1e-6)
+            batch_fps = len(predictions) / elapsed_batch
+            if successful_batches >= 3 and batch_size < 16 and batch_fps > 0:
+                batch_size = min(16, batch_size * 2)
+                phase(f"Detector Wistar · lote ajustado para {batch_size} · {batch_fps:.2f} frames/s")
+            for prediction in predictions:
+                append_prediction(prediction)
+                processed = len(rows)
+                if processed == 1 or processed % max(batch_size * 2, 1) == 0:
+                    elapsed = max(time.monotonic() - started, 1e-6)
+                    print(
+                        f"BEHAVETRACKER_DETECTOR_PROGRESS={processed}/{total or '?'} "
+                        f"({processed / elapsed:.2f} frames/s)",
+                        flush=True,
+                    )
     capture.release()
     if not rows:
         raise RuntimeError("Vídeo sem frames")
     pd.DataFrame(rows).to_csv(OUTPUT / "detections.csv", index=False)
+    print(f"BEHAVETRACKER_DETECTOR_PROGRESS={len(rows)}/{total or len(rows)} concluído", flush=True)
     return rows, contexts, len(rows), fps, width, height
 
 
@@ -138,7 +216,22 @@ def pose_dataframe(video, contexts, count):
         video=iterator, pose_runner=runner, detector_runner=None, robust_nframes=True,
     )
     if len(predictions) != count:
-        raise RuntimeError(f"Pose desalinhada: {len(predictions)}/{count}")
+        if not predictions:
+            raise RuntimeError("DeepLabCut não retornou previsões")
+        if len(predictions) > count:
+            raise RuntimeError(f"DeepLabCut retornou previsões demais: {len(predictions)}/{count}")
+        template = copy.deepcopy(predictions[0])
+        bodyparts = np.asarray(template.get("bodyparts"))
+        if bodyparts.size == 0:
+            raise RuntimeError("DeepLabCut retornou uma previsão sem keypoints")
+        blank = copy.deepcopy(template)
+        blank["bodyparts"] = np.full(bodyparts.shape, np.nan, dtype=np.float32)
+        missing = count - len(predictions)
+        predictions = list(predictions) + [copy.deepcopy(blank) for _ in range(missing)]
+        phase(
+            f"HRNet adaptada · {len(predictions) - missing}/{count} previsões; "
+            f"{missing} frames ausentes preenchidos como baixa confiança"
+        )
     frame_df = create_df_from_prediction(
         predictions=predictions, dlc_scorer="wistar_extdet_hrnet_adaptada",
         multi_animal=True, model_cfg=config, output_path=OUTPUT,
@@ -239,27 +332,35 @@ def export_quality_and_filtered(frame_df, detections, fps):
 
 
 def main():
+    phase("Inicializando pipeline D+F")
     if DEVICE.type != "cuda":
         raise RuntimeError("Pipeline D+F requer CUDA")
     OUTPUT.mkdir(parents=True, exist_ok=True)
     capture = cv2.VideoCapture(VIDEO)
     width, height = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)), int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
     capture.release()
+    phase("Preparando máscara da arena")
     mask = arena_mask(width, height, ARENA)
+    phase("Executando detector Wistar")
     detections, contexts, count, fps, width, height = run_detector(VIDEO, mask)
+    phase("Executando HRNet adaptada")
     pose = pose_dataframe(VIDEO, contexts, count)
+    phase("Calculando controle de qualidade e filtro F+C")
     export_quality_and_filtered(pose, detections, fps)
+    phase("Gerando CSV canônico")
     export_canonical(pose, detections, fps, width, height)
     canonical_path = Path(CSV_PATH)
     if not canonical_path.is_file() or canonical_path.stat().st_size == 0:
         raise RuntimeError("O CSV canônico não foi gerado")
-    (OUTPUT / "canonical_pose.csv.complete").write_text("ok", encoding="utf-8")
+    phase("Gerando manifesto")
     manifest = {
         "schemaVersion": 1, "pipelineVersion": "hybrid-df-notebook-port-1",
         "engineId": "wistar_superanimal_hybrid_v1", "modelBundleId": "wistar_df_v1",
         "sourceSha256": sha256(VIDEO), "frameCount": count, "fps": fps,
         "frameWidth": width, "frameHeight": height, "keypointCount": len(KEYPOINTS),
+        "keypoints": KEYPOINTS,
         "detectorThreshold": DETECTOR_THRESHOLD, "bboxMargin": BBOX_MARGIN,
+        "detectorBatchSize": LAST_DETECTOR_BATCH_SIZE,
         "poseLikelihoodThreshold": FC_THRESHOLD,
         "artifacts": {"detections": "detections.csv", "poseRawCsv": "pose_raw.csv",
                       "poseRawH5": "pose_raw.h5", "poseFiltered": "pose_filtered.csv",
@@ -267,6 +368,7 @@ def main():
     }
     (OUTPUT / "run_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     (OUTPUT / "canonical_pose.csv.complete").write_text("ok", encoding="utf-8")
+    phase("Pipeline D+F concluído")
 
 
 if __name__ == "__main__":
