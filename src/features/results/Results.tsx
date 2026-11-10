@@ -22,7 +22,6 @@ import { reviewEvents, trackingSourceKey } from "../../lib/tracking-reviews";
 import { downloadText, poseToCsv } from "../../lib/csv";
 import { centerPolygonPx, pointsToSvg } from "../../lib/geometry";
 import { calculateOftMetrics, METRIC_POLICY } from "../../lib/metrics";
-import { BEHAVIOR_LABELS, BEHAVIOR_POLICY, behaviorCsv, behaviorSummary } from "../../lib/behaviors";
 import { metricEligible, originalPose, referencePoseSamples, trajectorySegments } from "../../lib/pose";
 import { formatDuration } from "../../lib/format";
 import { useAppStore } from "../../store/AppStore";
@@ -57,6 +56,7 @@ export function Results({ experimentId }: { experimentId: string }) {
   const [revision, setRevision] = useState<"reviewed" | "raw">("reviewed");
   const [showExport, setShowExport] = useState(false);
   const inputSamples = trackingData[experimentId] ?? [];
+  const versionC = inputSamples.some((sample) => sample.processingVersion === "dlc-adapted-trajectory-c-1");
   const events = useMemo(() => experiment ? reviewEvents(experiment) : [], [experiment]);
   const rawSamples = useMemo(() => inputSamples.map(originalPose), [inputSamples]);
   const reviewedSamples = useMemo(
@@ -89,17 +89,17 @@ export function Results({ experimentId }: { experimentId: string }) {
   const centerPolygon = centerPolygonPx(experiment.arena);
   const trajectory = trajectorySegments(samples.map((sample) => metricEligible(sample) ? sample : { ...sample, status: "missing" }));
   const startPoint = trajectory[0]?.[0], endPoint = trajectory.at(-1)?.at(-1);
-  const behaviors = behaviorSummary(experiment, experiment.video.durationSec);
   const centerPct = metrics.centerPctClassifiable ?? 0;
-  const versionLabel = revision === "reviewed" ? `Revisão · ${events.length} eventos desta fonte` : "Inferência bruta";
+  const versionLabel = revision === "reviewed"
+    ? versionC ? `Versão C · ${events.length} correções desta fonte` : `Revisão · ${events.length} eventos desta fonte`
+    : versionC ? "Teste B · coordenadas brutas" : "Inferência bruta";
 
   const exportExperiment = () => {
     const scientificExperiment = {
       schema_version: experiment.schemaVersion,
       analysis_method_version: METRIC_POLICY.version,
+      trajectory_postprocess_version: inputSamples[0]?.processingVersion ?? null,
       metric_policy: METRIC_POLICY,
-      behavior_policy: BEHAVIOR_POLICY,
-      behavior_reviewed: experiment.behaviorReviewed ?? {},
       id: experiment.id,
       test_type: experiment.testType,
       subject_id: experiment.subjectId,
@@ -119,7 +119,7 @@ export function Results({ experimentId }: { experimentId: string }) {
       tracking: { reference_point: experiment.referencePoint, max_animals: 1, selection: experiment.trackingSelection,
         review_source: trackingSourceKey(experiment.trackingSelection), legacy_review_source: experiment.legacyReviewSource,
         reviews: experiment.trackingReviews,
-        coordinate_space: "original_video_pixels", posture_classification: "human_reviewed_candidates",
+        coordinate_space: "original_video_pixels", posture_classification: "not_performed",
         occluded_points: "not_imputed", recovered_points: "excluded_until_human_confirmation",
         predicted_boxes: "visual_only_excluded_from_metrics", macro_reference: "geometric_not_anatomical" },
     };
@@ -153,17 +153,14 @@ export function Results({ experimentId }: { experimentId: string }) {
             <Button size="sm" variant="secondary" onClick={() => downloadText("poses_reviewed.csv", poseToCsv(reviewedSamples), "text/csv")}>poses_reviewed.csv</Button>
             <Button size="sm" variant="secondary" onClick={exportCorrections}>corrections.jsonl</Button>
             <Button size="sm" variant="secondary" onClick={() => downloadText("metrics.csv", metricsCsv(metrics), "text/csv")}>metrics.csv</Button>
-            <Button size="sm" variant="secondary" onClick={() => downloadText("behaviors.csv", behaviorCsv(experiment, experiment.video.durationSec), "text/csv")}>behaviors.csv</Button>
-            <Button size="sm" variant="secondary" onClick={() => downloadText("behavior_summary.csv", ["behavior,count,duration_sec,review_status,source",
-              ...behaviors.map((item) => `${item.label},${item.count ?? ""},${item.durationSec ?? ""},${item.reviewed ? "complete_review" : "partial_review"},human_confirmed`)].join("\n"), "text/csv")}>behavior_summary.csv</Button>
           </div>
         </section>
       )}
 
       <section className="results-context panel">
         <div className="segmented-control">
-          <button className={revision === "reviewed" ? "active" : ""} onClick={() => setRevision("reviewed")}>Dados revisados</button>
-          <button className={revision === "raw" ? "active" : ""} onClick={() => setRevision("raw")}>Dados brutos</button>
+          <button className={revision === "reviewed" ? "active" : ""} onClick={() => setRevision("reviewed")}>{versionC ? "Versão C · revisável" : "Dados revisados"}</button>
+          <button className={revision === "raw" ? "active" : ""} onClick={() => setRevision("raw")}>{versionC ? "Teste B · bruto" : "Dados brutos"}</button>
         </div>
         <div className="context-divider" />
         <Badge tone={metrics.coveragePct >= 90 ? "success" : "warning"} dot>Cobertura {metrics.coveragePct.toFixed(1)}%</Badge>
@@ -181,7 +178,7 @@ export function Results({ experimentId }: { experimentId: string }) {
 
       <div className="results-main-grid">
         <section className="panel trajectory-card">
-          <div className="panel-header"><div><h2>Trajetória espacial</h2><p>Segmentos válidos na revisão selecionada.</p></div><Badge>{revision === "reviewed" ? "Revisado" : "Bruto"}</Badge></div>
+          <div className="panel-header"><div><h2>Trajetória espacial</h2><p>Segmentos válidos na revisão selecionada.</p></div><Badge>{revision === "reviewed" ? versionC ? "Versão C" : "Revisado" : versionC ? "Teste B" : "Bruto"}</Badge></div>
           <div className="trajectory-canvas">
             <svg viewBox={`0 0 ${experiment.video.width} ${experiment.video.height}`} preserveAspectRatio="xMidYMid meet">
               <rect width={experiment.video.width} height={experiment.video.height} fill="#f1f3ee" />
@@ -205,16 +202,6 @@ export function Results({ experimentId }: { experimentId: string }) {
           </div>
         </section>
       </div>
-
-      <section className="panel behavior-results">
-        <div className="panel-header"><div><h2>Rearing, grooming e freezing</h2><p>Episódios confirmados no vídeo · independentes da revisão de poses selecionada.</p></div></div>
-        <div className="behavior-result-grid">{behaviors.map((item) => <article key={item.label}>
-          <h3>{BEHAVIOR_LABELS[item.label]}</h3><strong>{item.count == null ? "Não anotado" : `${item.count} episódio(s)`}</strong>
-          <span>{item.durationSec == null ? "Duração não mensurada" : `${item.durationSec.toFixed(2)} s confirmados`}</span>
-          <small>{item.reviewed ? "Vídeo inteiro revisado para esta classe" : "Revisão parcial · não é o total da sessão"}</small>
-        </article>)}</div>
-        <p>Imobilidade operacional não equivale a freezing. Sugestões não confirmadas não são contadas. Sem revisão completa, zero anotações não significa ausência de comportamento.</p>
-      </section>
 
       <div className="results-detail-grid">
         <section className="panel detail-table-card">

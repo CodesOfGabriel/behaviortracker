@@ -90,6 +90,15 @@ describe("poses com visibilidade parcial", () => {
     expect(confidenceLabel(confirmed)).toBe("Manual");
   });
 
+  it("preserva a versão C e permite comparar o centro filtrado com o bruto", () => {
+    const filtered = point(1, { xPx: 105, processingVersion: "dlc-adapted-trajectory-c-1",
+      reason: "temporal_smoothing", original: { xPx: 110, yPx: 200, likelihood: .9, status: "valid", source: "detected" } });
+    const [restored] = parseCanonicalPoseCsv(poseToCsv([filtered]));
+    expect(restored).toMatchObject({ xPx: 105, processingVersion: "dlc-adapted-trajectory-c-1", reason: "temporal_smoothing" });
+    expect(originalPose(restored)).toMatchObject({ xPx: 110, processingVersion: "dlc-adapted-trajectory-c-1" });
+    expect(metricEligible(restored)).toBe(true);
+  });
+
   it("não permite transformar previsão ou ausência em observação apenas com confirmação", () => {
     const predicted = point(0, { source: "predicted" });
     const [unchanged] = applyCorrections([predicted], [{ id: "confirm", type: "CONFIRM_POINT", createdAt: "now", source: "manual", frameIndex: 0, keypoint: "body_center" }]);

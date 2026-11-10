@@ -102,6 +102,7 @@ export function parseCanonicalPoseCsv(text: string): PoseSample[] {
     const recoveryState = values[indexOf("recovery_state")];
     if (recoveryState && ["ready", "unavailable", "limited", "not_needed"].includes(recoveryState)) sample.recoveryState = recoveryState as PoseSample["recoveryState"];
     if (indexOf("tracking_reason") >= 0 && values[indexOf("tracking_reason")]) sample.reason = values[indexOf("tracking_reason")];
+    if (indexOf("processing_version") >= 0 && values[indexOf("processing_version")]) sample.processingVersion = values[indexOf("processing_version")];
     if (sample.source === "recovered" && !sample.original) throw new Error(`Recuperação sem observação original na linha ${rowIndex + 2}.`);
     return sample;
   });
@@ -116,7 +117,7 @@ function csvCell(value: unknown) {
 }
 
 export function poseToCsv(samples: PoseSample[]) {
-  const header = "frame_index,timestamp_sec,animal_id,keypoint,x_px,y_px,likelihood,status,spatial_region,support_count,support_total,source,raw_x_px,raw_y_px,raw_likelihood,raw_status,raw_spatial_region,raw_support_count,raw_support_total,recovery_state,metric_reference,reference_approved,bbox_x,bbox_y,bbox_width,bbox_height,raw_source,raw_bbox_x,raw_bbox_y,raw_bbox_width,raw_bbox_height,raw_metric_reference,raw_reference_approved,tracking_reason";
+  const header = "frame_index,timestamp_sec,animal_id,keypoint,x_px,y_px,likelihood,status,spatial_region,support_count,support_total,source,raw_x_px,raw_y_px,raw_likelihood,raw_status,raw_spatial_region,raw_support_count,raw_support_total,recovery_state,metric_reference,reference_approved,bbox_x,bbox_y,bbox_width,bbox_height,raw_source,raw_bbox_x,raw_bbox_y,raw_bbox_width,raw_bbox_height,raw_metric_reference,raw_reference_approved,tracking_reason,processing_version";
   const rows = samples.map((sample) =>
     [
       sample.frameIndex,
@@ -145,7 +146,7 @@ export function poseToCsv(samples: PoseSample[]) {
       sample.original ? sample.original.source ?? "detected" : sample.source ?? "detected",
       (sample.original ?? sample).bbox?.x, (sample.original ?? sample).bbox?.y,
       (sample.original ?? sample).bbox?.width, (sample.original ?? sample).bbox?.height,
-      (sample.original ?? sample).metricReference ?? "", (sample.original ?? sample).referenceApproved ?? "", sample.reason ?? "",
+      (sample.original ?? sample).metricReference ?? "", (sample.original ?? sample).referenceApproved ?? "", sample.reason ?? "", sample.processingVersion ?? "",
     ]
       .map(csvCell)
       .join(","),

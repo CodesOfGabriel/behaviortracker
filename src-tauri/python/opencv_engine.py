@@ -435,9 +435,9 @@ def run(request_path):
               "assistedMethod": "manual_templates_lk_1" if anchors else None,
               "strategy": config.get("strategy", "classic"), "neuralFallback": "unavailable" if hybrid else None}
     write_json(status_path, report)
+    index = 0
     try:
         with samples_path.open("w", encoding="utf-8", buffering=1) as output:
-            index = 0
             while True:
                 if (root/"cancel").exists() or os.getppid() != parent:
                     report["state"] = "cancelled"
@@ -475,7 +475,7 @@ def run(request_path):
                     if estimate:
                         box = estimate["bbox"]
                         observed = segmenter.process(frame, timestamp, guide_box=box)
-                        if observed["source"] == "segmented" and observed["bbox"]:
+                        if observed["source"] == "segmented" and observed["status"] != "missing" and observed.get("bbox"):
                             result = {**observed, "status": "low_confidence", "reason": "assisted_visual_and_contour"}
                         else:
                             result = {"xPx": box["x"]+box["width"]/2, "yPx": box["y"]+box["height"]/2,
@@ -506,6 +506,13 @@ def run(request_path):
             elapsed = time.perf_counter()-started
             report.update(framesProcessed=index, elapsedSec=elapsed, processingFps=index/max(.001, elapsed), observationCoveragePct=100*counts["observed"]/max(1,index))
             write_json(status_path, report)
+    except BaseException as error:
+        elapsed = time.perf_counter()-started
+        report.update(state="failed", error=str(error)[:2000], framesProcessed=index,
+                      elapsedSec=elapsed, processingFps=index/max(.001, elapsed),
+                      observationCoveragePct=100*counts["observed"]/max(1,index))
+        write_json(status_path, report)
+        raise
     finally:
         capture.close()
         clock.close()
@@ -517,5 +524,11 @@ if __name__ == "__main__":
     except BaseException as error:
         import traceback
         traceback.print_exc()
-        write_json(Path(sys.argv[1]).parent/"status.json", {"version": VERSION, "state": "failed", "error": str(error)[:2000]})
+        path = Path(sys.argv[1]).parent/"status.json"
+        try:
+            previous = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            previous = {"version": VERSION}
+        if previous.get("state") != "failed":
+            write_json(path, {**previous, "state": "failed", "error": str(error)[:2000]})
         raise SystemExit(1)

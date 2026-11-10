@@ -17,7 +17,7 @@ def file_sha256(path):
 def render_labeled_video(video, h5, fps, geometry, output_dir, expected_frames):
     root = Path(output_dir)
     report = {"schemaVersion": 1, "available": False, "source": "deeplabcut_raw_h5",
-              "filename": "dlc_labeled.mp4", "pcutoff": .1, "error": None}
+              "filename": "dlc_labeled.mp4", "pcutoff": .5, "error": None}
     try:
         import cv2
         from deeplabcut.utils.make_labeled_video import create_video
@@ -26,8 +26,8 @@ def render_labeled_video(video, h5, fps, geometry, output_dir, expected_frames):
         raw = root / "dlc_render_raw.mp4"
         bbox = tuple(geometry["cropping"] or [0, geometry["videoWidth"], 0, geometry["videoHeight"]])
         # display_cropped=False mantém a resolução original; o DLC aplica o offset do ROI.
-        create_video(video, h5, pcutoff=.1, fps=fps, bbox=bbox, display_cropped=False,
-                     plot_bboxes=False, output_path=str(raw))
+        create_video(video, h5, pcutoff=.5, fps=fps, bbox=bbox, display_cropped=False,
+                     plot_bboxes=True, output_path=str(raw))
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
             raise RuntimeError("FFmpeg não disponível para gerar MP4 compatível com o player")

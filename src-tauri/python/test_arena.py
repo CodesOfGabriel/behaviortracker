@@ -67,6 +67,13 @@ class ArenaTests(unittest.TestCase):
         self.assertEqual(torso_center([(400, 500, .8, "valid"), (420, 540, 1.0, "valid")]),
                          (410, 520, .9, "valid"))
 
+    def test_center_uses_two_confident_points_and_discards_a_distant_outlier(self):
+        points = [(400, 500, .9, "valid"), (420, 510, .8, "valid"),
+                  (900, 900, .95, "valid"), (405, 505, .4, "low_confidence")]
+        center = torso_center(points, 100)
+        self.assertEqual((center[0], center[1], center[3]), (410, 505, "valid"))
+        self.assertAlmostEqual(center[2], .85)
+        self.assertEqual(torso_center(points[:1] + points[2:3], 100)[3], "missing")
 
 if __name__ == "__main__":
     unittest.main()

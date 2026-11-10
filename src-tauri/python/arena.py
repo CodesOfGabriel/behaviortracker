@@ -1,6 +1,7 @@
 """Contexto 2D da caixa e conversão de poses; não é um classificador de rearing."""
 
 import math
+from itertools import combinations
 
 
 def cross(a, b, c):
@@ -87,12 +88,28 @@ def restore_point(x, y, likelihood, geometry):
     return x + crop[0], y + crop[2], score, "low_confidence" if score < .6 else "valid"
 
 
-def torso_center(points):
-    visible = [point for point in points if point[0] is not None and point[1] is not None and point[3] != "missing"]
+def reliable_torso_points(points, max_span=None):
+    visible = [point for point in points if point[0] is not None and point[1] is not None
+               and point[3] == "valid" and point[2] >= .6]
+    if not visible:
+        return []
+    if max_span is not None and len(visible) >= 2:
+        groups = [group for size in range(2, len(visible) + 1)
+                  for group in combinations(visible, size)
+                  if all(math.dist(a[:2], b[:2]) <= max_span for a, b in combinations(group, 2))]
+        if groups:
+            visible = list(max(groups, key=lambda group: (len(group), sum(point[2] for point in group))))
+        else:
+            return []
+    return visible
+
+
+def torso_center(points, max_span=None):
+    visible = reliable_torso_points(points, max_span)
     if not visible:
         return None, None, 0.0, "missing"
     count = len(visible)
     x, y, score = (sum(point[index] for point in visible) / count for index in range(3))
-    # Média de pontos anatômicos do tronco, não do focinho/orelhas; subconjuntos exigem revisão.
-    status = "low_confidence" if count < len(points) or score < .6 else "valid"
+    # Dois pontos de tronco confiáveis bastam; um ponto sozinho pede revisão.
+    status = "valid" if count >= 2 else "low_confidence"
     return x, y, score, status

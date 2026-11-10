@@ -59,7 +59,7 @@ class Capture:
         pass
 
     def get(self, prop):
-        return {5: 24, 3: 1000, 4: 1000}[prop]
+        return {5: 24, 3: 1000, 4: 1000, 7: 4}[prop]
 
     def release(self):
         pass
@@ -92,12 +92,17 @@ class Runner:
 def inference(**kwargs):
     assert kwargs["cropping"] == [120, 780, 65, 835], kwargs
     assert kwargs["max_individuals"] == 1
-    assert kwargs["batch_size"] == kwargs["detector_batch_size"] == 2
+    assert kwargs["video_adapt"] is True
+    assert kwargs["batch_size"] == 4 and kwargs["detector_batch_size"] == 2
+    assert kwargs["device"] == "cuda:0" and kwargs["pcutoff"] == .05
+    assert kwargs["pseudo_threshold"] == .1 and kwargs["bbox_threshold"] == .9
+    assert kwargs["detector_epochs"] == kwargs["pose_epochs"] == 1
     destination = Path(kwargs["dest_folder"])
     (destination / "raw.h5").write_bytes(b"raw sentinel -1 must remain")
+    (destination / "snapshot-hrnet-001.h5").write_bytes(b"adapted sentinel")
 
 
-sys.modules["cv2"] = types.SimpleNamespace(VideoCapture=Capture, CAP_PROP_FPS=5,
+sys.modules["cv2"] = types.SimpleNamespace(VideoCapture=Capture, CAP_PROP_FPS=5, CAP_PROP_FRAME_COUNT=7,
     CAP_PROP_FRAME_WIDTH=3, CAP_PROP_FRAME_HEIGHT=4, CAP_PROP_POS_FRAMES=1,
     COLOR_BGR2RGB=4, cvtColor=lambda image, mode: "RGB")
 sys.modules["pandas"] = types.SimpleNamespace(MultiIndex=MultiIndex, read_hdf=lambda _: Poses(), DataFrame=Canonical)
@@ -119,8 +124,8 @@ lookup = {(int(row["frame_index"]), row["keypoint"]): row for row in rows}
 assert lookup[0, "body_center"]["x_px"] == ""
 assert lookup[0, "body_center"]["likelihood"] == "0.0"
 partial = lookup[1, "body_center"]
-assert (float(partial["x_px"]), float(partial["y_px"])) == (400, 400), partial
-assert partial["status"] == "low_confidence" and partial["support_count"] == "1" and partial["support_total"] == "2", partial
+assert (float(partial["x_px"]), float(partial["y_px"])) == (410, 407.5), partial
+assert partial["status"] == "valid" and partial["support_count"] == "2" and partial["support_total"] == "3", partial
 nose = lookup[1, "nose"]
 assert (float(nose["x_px"]), float(nose["y_px"])) == (200, 150), nose
 assert nose["spatial_region"] == "wall_projection" and nose["status"] == "valid", nose
@@ -130,18 +135,25 @@ assert float(lookup[2, "body_center"]["timestamp_sec"]) == 2 / 24
 recovered = lookup[3, "body_center"]
 assert recovered["source"] == "recovered", recovered
 assert recovered["raw_x_px"] == "" and recovered["raw_status"] == "missing", recovered
-assert recovered["raw_support_count"] == "0" and recovered["support_count"] == "2", recovered
-assert (float(recovered["x_px"]), float(recovered["y_px"])) == (410, 410), recovered
+assert recovered["raw_support_count"] == "0" and recovered["support_count"] == "3", recovered
+assert abs(float(recovered["x_px"]) - 413.3333333333) < 1e-6, recovered
+assert abs(float(recovered["y_px"]) - 411.6666666667) < 1e-6, recovered
 assert recovered["recovery_state"] == "ready", recovered
 geometry = json.loads((root / "output" / "arena_geometry.json").read_text())
 assert geometry["cropping"] == [120, 780, 65, 835]
 assert geometry["postureClassification"] == "not_performed"
 assert geometry["recoveryPolicy"]["version"] == "visual-recovery-2"
+assert geometry["trajectoryPostprocessPolicy"]["version"] == "dlc-adapted-trajectory-c-1"
+assert all(row["processing_version"] == "dlc-adapted-trajectory-c-1" for row in rows)
+assert partial["raw_x_px"] == partial["x_px"] and partial["raw_y_px"] == partial["y_px"]
 assert (root / "output" / "raw.h5").read_bytes() == b"raw sentinel -1 must remain"
+assert json.loads((root / "output" / "render_request.json").read_text())["h5"].endswith("snapshot-hrnet-001.h5")
 assert (root / "canonical.csv.complete").is_file()
 assert (root / "output" / "render_request.json").is_file()
 assert not (root / "output" / "video_artifact.json").is_file(), "Video rendering must run after poses are available"
 profile = json.loads((root / "output" / "analysis_profile.json").read_text())
 assert profile["recoveryAttempts"] == 1
 assert profile["recoverySec"] > 0
+assert profile["postprocessVersion"] == "dlc-adapted-trajectory-c-1"
+assert profile["postprocessStats"]["rejectedStatistical"] == 0
 print("INFERENCE_CONTRACT_OK")

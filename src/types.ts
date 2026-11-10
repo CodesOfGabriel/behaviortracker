@@ -122,6 +122,7 @@ export interface PoseSample {
   bbox?: BoundingBox;
   contour?: Point[];
   reason?: string;
+  processingVersion?: string;
   uncertaintyPx?: number;
   recoveryState?: "ready" | "unavailable" | "limited" | "not_needed";
   original?: Pick<PoseSample, "xPx" | "yPx" | "likelihood" | "status" | "spatialRegion" | "supportCount" | "supportTotal" | "source" | "bbox" | "contour" | "metricReference" | "referenceApproved">;

@@ -105,7 +105,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="sidebar-card">
           <div className="sidebar-card-icon"><Beaker size={17} /></div>
           <div className="sidebar-card-title">MVP científico</div>
-          <p>Dados locais e revisão auditável. A inferência remota ainda depende do gate P0.</p>
+          <p>Analise no Colab com A100/H100 e revise os pontos antes de interpretar as métricas.</p>
           <button onClick={() => navigate({ name: "colab" })}>
             Ver limitações <ChevronRight size={14} />
           </button>
@@ -125,7 +125,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <header className="topbar">
           <div className="mobile-brand"><BrandMark size={30} /><span>BehaveTracker</span></div>
           <div className="topbar-spacer" />
-          <Badge tone="success" dot>Modo local</Badge>
+          <Badge tone="success" dot>Dados locais</Badge>
           <div className="topbar-divider" />
           <button
             className={cn("colab-chip", colabSummary.connected && "colab-chip-connected")}

@@ -181,7 +181,10 @@ class OpenCVTests(unittest.TestCase):
                 (root/f"frame{index:02d}.png").write_bytes(cv2.imencode(".png",self.textured_frame(x))[1].tobytes())
             subprocess.run([shutil.which("ffmpeg"),"-v","error","-framerate","20","-i",str(root/"frame%02d.png"),"-c:v","libx264","-pix_fmt","yuv420p",str(video)],check=True)
             anchors=[{"frameIndex":i,"timestampSec":i/20,"box":{"x":64+i,"y":98,"width":32,"height":24},"eventId":f"event-{i}"} for i in (0,20)]
+            # A referência visual encontra o animal, mas o limiar 254 impede a
+            # segmentação de produzir contorno (e portanto também uma bbox).
             cfg=config(guidance={"sourceJobId":"prior-job","anchors":anchors},initialBox=anchors[0]["box"])
+            cfg["threshold"]=254
             (root/"request.json").write_text(json.dumps({"video":str(video),"config":cfg,"ffprobe":shutil.which("ffprobe"),"ffmpeg":shutil.which("ffmpeg")}))
             run(root/"request.json")
             report=json.loads((root/"status.json").read_text())
@@ -189,12 +192,15 @@ class OpenCVTests(unittest.TestCase):
             self.assertEqual(report["state"],"succeeded")
             self.assertEqual(report["guidanceSourceJobId"],"prior-job")
             self.assertEqual(report["manualAnchorCount"],2)
+            self.assertGreater(report["counts"]["visual"],0)
             self.assertEqual(len(records),70)
             self.assertEqual(records[0]["source"],"manual")
             self.assertEqual(records[20]["bbox"],anchors[1]["box"])
             self.assertEqual(records[10]["source"],"predicted")
             self.assertEqual(records[10]["reason"],"manual_keyframe_interpolation")
             self.assertFalse(records[10]["referenceApproved"])
-            self.assertIn(records[30]["reason"],("assisted_visual_and_contour","assisted_visual_match"))
+            self.assertEqual(records[30]["reason"],"assisted_visual_match")
+            self.assertEqual(records[30]["source"],"recovered")
+            self.assertEqual(records[30]["status"],"low_confidence")
             self.assertAlmostEqual(records[30]["xPx"],110,delta=5)
             self.assertEqual(records[69]["status"],"missing")

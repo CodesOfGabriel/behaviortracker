@@ -6,7 +6,7 @@ export const workflowSteps = [
   { title: "Enviar vídeo", description: "Transferir para a pasta confirmada", stages: ["uploading"] },
   { title: "Validar arquivo", description: "Conferir tamanho e integridade", stages: ["verifying", "video_ready"] },
   { title: "Preparar modelo", description: "Verificar e reutilizar DeepLabCut", stages: ["environment_check", "installing", "environment_ready"] },
-  { title: "Processar vídeo", description: "Rastrear o animal com o modelo selecionado", stages: ["inference", "training"] },
+  { title: "Adaptar e processar", description: "Executar o Teste B do SuperAnimal e importar a pose adaptada", stages: ["inference", "training"] },
   { title: "Receber resultado", description: "Baixar poses e gerar vídeo de revisão", stages: ["downloading", "rendering", "completed"] },
 ] as const;
 

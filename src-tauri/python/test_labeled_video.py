@@ -48,7 +48,8 @@ class LabeledVideoTests(unittest.TestCase):
         self.assertEqual(kwargs["bbox"], (20, 180, 40, 160))
         self.assertFalse(kwargs["display_cropped"])
         self.assertEqual(kwargs["fps"], 24)
-        self.assertEqual(kwargs["pcutoff"], .1)
+        self.assertEqual(kwargs["pcutoff"], .5)
+        self.assertTrue(kwargs["plot_bboxes"])
         self.assertEqual((self.root / "raw.h5").read_bytes(), b"original h5")
         self.assertEqual(json.loads((self.root / "video_artifact.json").read_text()), report)
 

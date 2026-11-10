@@ -204,6 +204,11 @@ fn runtime_rank(spec: &RuntimeSpecKey, workload: &AnalysisWorkload) -> (u8, u8) 
     )
 }
 
+fn supports_adaptation_gpu(spec: &RuntimeSpecKey) -> bool {
+    spec.variant == "VARIANT_GPU"
+        && ["A100", "H100"].iter().any(|name| spec.accelerator.to_ascii_uppercase().contains(name))
+}
+
 fn preferred_runtime(runtimes: Vec<Runtime>, workload: &AnalysisWorkload) -> Option<Runtime> {
     runtimes
         .into_iter()
@@ -715,6 +720,7 @@ fn get_runtime(client: &Client, access_token: &str, name: &str) -> CommandResult
 fn choose_or_create_runtime(
     access_token: &str,
     workload: &AnalysisWorkload,
+    adaptation: bool,
 ) -> CommandResult<(Runtime, String)> {
     let client = api_client()?;
     let response = client
@@ -725,14 +731,16 @@ fn choose_or_create_runtime(
     let value = response_json(response, "Não foi possível listar os runtimes Colab")?;
     let runtimes: RuntimesResponse = serde_json::from_value(value)
         .map_err(|_| "A lista de runtimes Colab é inválida.".to_string())?;
-    if let Some(runtime) = preferred_runtime(runtimes.runtimes, workload) {
+    let allocated = runtimes.runtimes.into_iter().filter(|runtime| !adaptation ||
+        supports_adaptation_gpu(&runtime.runtime_spec)).collect();
+    if let Some(runtime) = preferred_runtime(allocated, workload) {
         let selected = get_runtime(&client, access_token, &runtime.name)?;
         return Ok((
             selected,
             format!(
                 "Reutilizando GPU já alocada ({}) · {}. Nenhum runtime adicional foi criado.",
                 runtime.runtime_spec.accelerator,
-                workload.description()
+                if adaptation { "A100/H100 para adaptação B" } else { workload.description() }
             ),
         ));
     }
@@ -745,15 +753,18 @@ fn choose_or_create_runtime(
     let value = response_json(response, "Não foi possível consultar os runtimes elegíveis")?;
     let specs: RuntimeSpecsResponse = serde_json::from_value(value)
         .map_err(|_| "A lista de runtimes elegíveis é inválida.".to_string())?;
-    let spec = preferred_spec(specs.runtime_specs, workload)
+    let eligible = specs.runtime_specs.into_iter().filter(|spec| !adaptation ||
+        supports_adaptation_gpu(&spec.key)).collect();
+    let spec = preferred_spec(eligible, workload)
         .ok_or_else(|| {
-            "A conta não possui um runtime GPU elegível agora. Verifique a disponibilidade no Colab e tente novamente."
+            if adaptation { "O Teste B precisa de A100 ou H100 (34 GiB de VRAM reservada no teste). Nenhum runtime compatível está disponível nesta conta agora." }
+            else { "A conta não possui um runtime GPU elegível agora. Verifique a disponibilidade no Colab e tente novamente." }
                 .to_string()
         })?;
     let selection_message = format!(
         "Runtime criado com {} · {} · selecionado entre as opções elegíveis da conta",
         spec.key.accelerator,
-        workload.description()
+        if adaptation { "A100/H100 para adaptação B" } else { workload.description() }
     );
     let request_id = new_uuid_v4();
     let runtime_id = format!(
@@ -1619,16 +1630,21 @@ geometry_api = runpy.run_path(str(helpers))
 recovery_helpers = Path(output_dir) / "recovery_helpers.py"
 recovery_helpers.write_text({recovery_helpers:?}, encoding="utf-8")
 recovery_api = runpy.run_path(str(recovery_helpers))
+postprocess_helpers = Path(output_dir) / "trajectory_postprocess.py"
+postprocess_helpers.write_text({postprocess_helpers:?}, encoding="utf-8")
+postprocess_api = runpy.run_path(str(postprocess_helpers))
 capture = cv2.VideoCapture(video_path)
 fps = float(capture.get(cv2.CAP_PROP_FPS))
 video_width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
 video_height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+video_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
 capture.release()
 if not math.isfinite(fps) or fps <= 0:
     raise RuntimeError("O vídeo não informou FPS válido; não é seguro inventar timestamps para a análise")
 geometry = geometry_api["prepare_geometry"](json.loads({arena_json:?}), video_width, video_height)
-geometry["poseAdapterVersion"] = "superanimal-canonical-3"
+geometry["poseAdapterVersion"] = "superanimal-adapted-quality-1"
 geometry["recoveryPolicy"] = recovery_api["POLICY"]
+geometry["trajectoryPostprocessPolicy"] = postprocess_api["POLICY"]
 Path(output_dir, "arena_geometry.json").write_text(json.dumps(geometry, ensure_ascii=False, indent=2), encoding="utf-8")
 print("BEHAVETRACKER_GEOMETRY=" + json.dumps(geometry), flush=True)
 
@@ -1638,23 +1654,34 @@ video_inference_superanimal(
     superanimal_name="superanimal_topviewmouse",
     model_name="hrnet_w32",
     detector_name="fasterrcnn_resnet50_fpn_v2",
-    video_adapt=False,
+    video_adapt=True,
     max_individuals=1,
     dest_folder=output_dir,
     create_labeled_video=False,
+    plot_bboxes=True,
     plot_trajectories=False,
     cropping=geometry["cropping"],
-    batch_size=2,
+    device="cuda:0",
+    batch_size=4,
     detector_batch_size=2,
+    pcutoff=0.05,
+    pseudo_threshold=0.1,
+    bbox_threshold=0.9,
+    detector_epochs=1,
+    pose_epochs=1,
 )
 inference_sec = time.perf_counter() - inference_started
 
-h5_files = sorted(glob.glob(os.path.join(output_dir, "*.h5")), key=os.path.getmtime)
-if not h5_files:
-    raise RuntimeError("DeepLabCut terminou sem produzir o arquivo H5 de poses")
-poses = pd.read_hdf(h5_files[-1])
+h5_files = glob.glob(os.path.join(output_dir, "*.h5"))
+adapted_h5 = [path for path in h5_files if "snapshot-" in os.path.basename(path)]
+if len(adapted_h5) != 1:
+    raise RuntimeError(f"Esperado um HDF5 após adaptação; encontrados {{len(adapted_h5)}}. Saída bruta anterior à adaptação não será importada")
+pose_h5 = adapted_h5[0]
+poses = pd.read_hdf(pose_h5)
 if not isinstance(poses.columns, pd.MultiIndex):
     raise RuntimeError("Formato de colunas do DeepLabCut não reconhecido")
+if video_frames > 0 and len(poses.index) != video_frames:
+    raise RuntimeError(f"O HDF5 adaptado tem {{len(poses.index)}} frames, mas o vídeo tem {{video_frames}}. Reencodifique o vídeo antes de medir tempo ou trajetória")
 
 available = {{}}
 for column in poses.columns:
@@ -1666,13 +1693,13 @@ for column in poses.columns:
     bodypart = parts[coord_index - 1].lower().replace("-", "_").replace(" ", "_")
     available.setdefault((bodypart, coordinate), poses[column])
 
-def find_bodypart(aliases):
+def find_bodypart(aliases, excluded=()):
     normalized = [value.lower().replace("-", "_").replace(" ", "_") for value in aliases]
     for alias in normalized:
-        if (alias, "x") in available and (alias, "y") in available:
+        if (alias, "x") in available and (alias, "y") in available and not any(token in alias for token in excluded):
             return alias
     for bodypart, coordinate in available:
-        if coordinate == "x" and any(alias in bodypart or bodypart in alias for alias in normalized):
+        if coordinate == "x" and not any(token in bodypart for token in excluded) and any(alias in bodypart or bodypart in alias for alias in normalized):
             if (bodypart, "y") in available:
                 return bodypart
     return None
@@ -1689,11 +1716,13 @@ aliases = {{
 selected = {{name: find_bodypart(values) for name, values in aliases.items()}}
 selected = {{name: part for name, part in selected.items() if part or name not in ("left_forepaw", "right_forepaw")}}
 all_bodyparts = sorted({{bodypart for bodypart, coordinate in available if coordinate == "x" and (bodypart, "y") in available}})
-torso = [
-    bodypart for bodypart in all_bodyparts
-    if any(token in bodypart for token in ("spine", "body", "center", "centre", "shoulder", "hip", "back"))
-    and not any(token in bodypart for token in ("tail", "paw", "ear", "nose", "snout"))
-]
+torso = list(dict.fromkeys(filter(None, (
+    find_bodypart(["spine2", "spine_mid", "mid_back", "back_center", "body_center", "center", "centre", "spine1", "back"], ("tail", "paw", "ear", "nose", "snout")),
+    find_bodypart(["spine3", "spine_hind", "hip", "hips", "rump", "pelvis"], ("tail", "paw", "ear", "nose", "snout")),
+    selected.get("tail_base"),
+))))
+if len(torso) < 2:
+    raise RuntimeError(f"O HDF5 adaptado não contém dois pontos corporais reconhecidos. Partes disponíveis: {{all_bodyparts}}")
 def raw_point(bodypart, position):
     score = available.get((bodypart, "likelihood"))
     try:
@@ -1726,33 +1755,52 @@ def append_row(frame, name, point, original, support, total, recovered, original
         geometry_api["spatial_region"](ox, oy, geometry), original_support, total])
 
 rows = []
+center_row_indices = []
 for numeric_frame, (points, recovered_names) in enumerate(recovered_frames):
     raw = raw_frames[numeric_frame]
     torso_points = [point_at(bodypart, points) for bodypart in torso]
     original_torso = [point_at(name, raw) for name in torso]
-    original_center = geometry_api["torso_center"](original_torso)
-    center = geometry_api["torso_center"](torso_points)
-    support = sum(point[3] != "missing" for point in torso_points)
+    max_body_span = 0.30 * min(video_width, video_height)
+    original_center = geometry_api["torso_center"](original_torso, max_body_span)
+    center = geometry_api["torso_center"](torso_points, max_body_span)
+    support = len(geometry_api["reliable_torso_points"](torso_points, max_body_span))
+    center_row_indices.append(len(rows))
     append_row(numeric_frame, "body_center", center, original_center, support, len(torso_points),
-        any(name in recovered_names for name in torso), sum(point[3] != "missing" for point in original_torso))
+        any(name in recovered_names for name in torso), len(geometry_api["reliable_torso_points"](original_torso, max_body_span)))
 
     for canonical_name, bodypart in selected.items():
         point = point_at(bodypart, points)
+        if point[3] == "valid" and center[3] == "valid" and math.dist(point[:2], center[:2]) > max_body_span * 1.5:
+            point = (*point[:3], "jump")
         append_row(numeric_frame, canonical_name, point, point_at(bodypart, raw), int(point[3] != "missing"), 1,
             bodypart in recovered_names, int(point_at(bodypart, raw)[3] != "missing"))
 recovery.close()
 recovery_sec = time.perf_counter() - recovery_started
+postprocess_started = time.perf_counter()
+centers = [(rows[index][4], rows[index][5], rows[index][6], rows[index][7]) for index in center_row_indices]
+sources = [rows[index][11] for index in center_row_indices]
+processed_centers, postprocess_stats = postprocess_api["postprocess_centers"](
+    centers, sources, video_width, video_height)
+center_reasons = {{}}
+for row_index, original, processed in zip(center_row_indices, centers, processed_centers):
+    rows[row_index][4], rows[row_index][5], rows[row_index][6], rows[row_index][7] = processed
+    rows[row_index][8] = geometry_api["spatial_region"](processed[0], processed[1], geometry)
+    if original[3] == "valid" and processed[3] == "jump":
+        center_reasons[row_index] = "statistical_outlier"
+    elif original[:2] != processed[:2]:
+        center_reasons[row_index] = "temporal_smoothing"
+postprocess_sec = time.perf_counter() - postprocess_started
 export_started = time.perf_counter()
 print(f"BEHAVETRACKER_RECOVERY_PROGRESS={{len(raw_frames)}}/{{len(raw_frames)}}", flush=True)
 print("BEHAVETRACKER_RECOVERY=" + json.dumps({{"attempted": recovery.attempted, "accepted": recovery.accepted,
     "unavailable": recovery.disabled_reason, "skippedBudget": recovery.skipped_budget, "policy": recovery_api["POLICY"]}}), flush=True)
 
 recovery_state = "unavailable" if recovery.disabled_reason else "limited" if recovery.skipped_budget else "ready" if recovery.attempted else "not_needed"
-canonical = pd.DataFrame([row + [recovery_state] for row in rows], columns=["frame_index", "timestamp_sec", "animal_id", "keypoint", "x_px", "y_px", "likelihood", "status", "spatial_region", "support_count", "support_total", "source", "raw_x_px", "raw_y_px", "raw_likelihood", "raw_status", "raw_spatial_region", "raw_support_count", "raw_support_total", "recovery_state"])
+canonical = pd.DataFrame([row + [recovery_state, postprocess_api["POLICY"]["version"], center_reasons.get(index, "")] for index, row in enumerate(rows)], columns=["frame_index", "timestamp_sec", "animal_id", "keypoint", "x_px", "y_px", "likelihood", "status", "spatial_region", "support_count", "support_total", "source", "raw_x_px", "raw_y_px", "raw_likelihood", "raw_status", "raw_spatial_region", "raw_support_count", "raw_support_total", "recovery_state", "processing_version", "tracking_reason"])
 canonical.to_csv(canonical_path, index=False)
-Path(output_dir, "render_request.json").write_text(json.dumps({{"video": video_path, "h5": h5_files[-1], "fps": fps, "geometry": geometry, "frames": len(poses.index)}}), encoding="utf-8")
-Path(output_dir, "analysis_profile.json").write_text(json.dumps({{"inferenceSec": inference_sec, "recoverySec": recovery_sec, "exportSec": time.perf_counter() - export_started, "recoveryAttempts": recovery.attempted, "recoveryAccepted": recovery.accepted, "recoverySkippedBudget": recovery.skipped_budget}}), encoding="utf-8")
-print(f"BEHAVETRACKER_TIMINGS inference={{inference_sec:.2f}}s recovery={{recovery_sec:.2f}}s export={{time.perf_counter() - export_started:.2f}}s", flush=True)
+Path(output_dir, "render_request.json").write_text(json.dumps({{"video": video_path, "h5": pose_h5, "fps": fps, "geometry": geometry, "frames": len(poses.index)}}), encoding="utf-8")
+Path(output_dir, "analysis_profile.json").write_text(json.dumps({{"inferenceSec": inference_sec, "recoverySec": recovery_sec, "postprocessSec": postprocess_sec, "postprocessVersion": postprocess_api["POLICY"]["version"], "postprocessStats": postprocess_stats, "exportSec": time.perf_counter() - export_started, "recoveryAttempts": recovery.attempted, "recoveryAccepted": recovery.accepted, "recoverySkippedBudget": recovery.skipped_budget}}), encoding="utf-8")
+print(f"BEHAVETRACKER_TIMINGS inference={{inference_sec:.2f}}s recovery={{recovery_sec:.2f}}s postprocess={{postprocess_sec:.2f}}s export={{time.perf_counter() - export_started:.2f}}s", flush=True)
 Path(canonical_path + ".complete").write_text("ok", encoding="utf-8")
 print(f"BEHAVETRACKER_RESULT={{canonical_path}}|rows={{len(canonical)}}|fps={{fps:.6f}}")
 "#,
@@ -1761,6 +1809,7 @@ print(f"BEHAVETRACKER_RESULT={{canonical_path}}|rows={{len(canonical)}}|fps={{fp
         canonical_csv = canonical_csv,
         arena_helpers = include_str!("../python/arena.py"),
         recovery_helpers = include_str!("../python/recovery.py"),
+        postprocess_helpers = include_str!("../python/trajectory_postprocess.py"),
         arena_json = serde_json::to_string(&arena).expect("validated arena is serializable"),
     );
     format!("from pathlib import Path\nif Path({canonical_csv:?}).is_file() and Path({:?}).is_file():\n    print('BEHAVETRACKER_RESULT_CACHED')\nelse:\n{}",
@@ -1885,7 +1934,7 @@ pub(crate) fn start_training(app:AppHandle,experiment_id:String,job_id:String,da
 }
 fn run_training(app:AppHandle,job:&str,dataset:&Path,digest:&str,epochs:u32)->CommandResult<()> {
     update_job(&app,job,"running","runtime",10,"Localizando GPU elegível para treinamento experimental")?;
-    let token=google_access_token(&app,PROFILE_ID)?;let(runtime,reason)=choose_or_create_runtime(&token,&AnalysisWorkload{width:1280,height:720,duration_sec:0.})?;
+    let token=google_access_token(&app,PROFILE_ID)?;let(runtime,reason)=choose_or_create_runtime(&token,&AnalysisWorkload{width:1280,height:720,duration_sec:0.},false)?;
     update_job(&app,job,"running","runtime",12,&reason)?;
     let connection=runtime.connection_info.clone().ok_or("Runtime não informou conexão Jupyter")?;
     let session=format!("{}/sessions/behavetracker-{}",runtime.name,job.split('-').next().unwrap_or("train"));
@@ -1997,7 +2046,7 @@ fn run_analysis(
         10,
         "Localizando um runtime GPU elegível",
     )?;
-    let (runtime, selection_message) = choose_or_create_runtime(&access_token, &runtime_workload)?;
+    let (runtime, selection_message) = choose_or_create_runtime(&access_token, &runtime_workload, diagnostic.is_none())?;
     update_job(&app, &job_id, "running", "runtime", 12, &selection_message)?;
     if runtime.name.is_empty() {
         return Err("O Colab retornou um runtime sem identificador.".into());
@@ -2131,9 +2180,9 @@ fn run_analysis(
                 .as_ref()
                 .is_some_and(|geometry| geometry.rim_corners_px.is_some())
             {
-                "Executando SuperAnimal com borda + chão e margem de 5%; paredes preservadas no recorte. Geometria 2D não classifica rearing."
+                "Executando adaptação B do SuperAnimal com borda + chão e margem de 5%; paredes preservadas no recorte."
             } else {
-                "Executando SuperAnimal no vídeo inteiro · projeto sem borda calibrada; não será aplicado recorte só no chão"
+                "Executando adaptação B do SuperAnimal no vídeo inteiro · projeto sem borda calibrada"
             },
         )?;
         let code = if let Some(model)=&custom_model {custom_code(&absolute_video,model,&remote_output,&remote_csv,arena.as_ref(),diagnostic.as_ref())} else if let Some(range) = &diagnostic {
@@ -2237,7 +2286,9 @@ pub fn start_colab_analysis(
     validate_local_id(&request.experiment_id, "Experimento")?;
     validate_local_id(&request.upload_id, "Upload")?;
     request.workload.validate()?;
-    if let Some(range) = &request.diagnostic { range.validate(request.workload.duration_sec)?; }
+    if request.diagnostic.is_some() {
+        return Err("O teste de rastreamento foi removido. Use Analisar no Colab para processar o vídeo completo.".into());
+    }
     if let Some(arena) = &request.arena {
         arena.validate(&request.workload)?;
     }
@@ -2274,7 +2325,8 @@ pub fn start_colab_analysis(
         return Ok(active);
     }
     let job_id = new_uuid_v4();
-    let selected_model=crate::training::active_model(&app)?;
+    // Versões experimentais antigas permanecem no disco, mas novas análises usam SuperAnimal.
+    let selected_model: Option<(String, PathBuf, String)> = None;
     let transaction = connection
         .unchecked_transaction()
         .map_err(|_| "Não foi possível iniciar o registro do job.".to_string())?;
@@ -2296,7 +2348,7 @@ pub fn start_colab_analysis(
             "INSERT INTO colab_job_geometry(job_id, geometry_json) VALUES (?1, ?2)",
             params![
                 &job_id,
-                serde_json::to_string(&json!({"poseAdapterVersion":if selected_model.is_some(){"custom-keypoint-rcnn-1"}else{"superanimal-canonical-3"}, "recoveryVersion":if selected_model.is_some(){"not_used"}else{"visual-recovery-2"}, "arena": &request.arena}))
+                serde_json::to_string(&json!({"poseAdapterVersion":"superanimal-adapted-quality-1", "trajectoryPostprocessVersion":"dlc-adapted-trajectory-c-1", "recoveryVersion":"visual-recovery-2", "arena": &request.arena}))
                     .map_err(|_| "Não foi possível serializar a geometria.")?
             ],
         )
@@ -2509,7 +2561,7 @@ mod tests {
         background_launch_code, background_poll_code, background_report, execute_with_recovery,
         inference_code, job_events, monitor_background_with, new_uuid_v4, parse_mcp_payload,
         preferred_runtime, preferred_spec, prepare_environment_with, read_sse_reply,
-        record_job_update, resolve_jupyter_workspace, safe_extension, workspace_gpu, download_labeled_video, AnalysisArena,
+        record_job_update, resolve_jupyter_workspace, safe_extension, supports_adaptation_gpu, workspace_gpu, download_labeled_video, AnalysisArena,
         AnalysisFailure, AnalysisWorkload, ConnectionInfo, McpFailure, Runtime, RuntimeSpec,
         RuntimeSpecKey, MAX_EXECUTION_ATTEMPTS,
     };
@@ -2911,6 +2963,17 @@ mod tests {
         }
         .validate()
         .is_err());
+    }
+
+    #[test]
+    fn adaptation_only_accepts_the_gpu_classes_used_for_its_memory_budget() {
+        let spec = |accelerator: &str| RuntimeSpecKey {
+            variant: "VARIANT_GPU".into(), accelerator: accelerator.into(), shape: "SHAPE_STANDARD".into()
+        };
+        assert!(supports_adaptation_gpu(&spec("NVIDIA_A100")));
+        assert!(supports_adaptation_gpu(&spec("NVIDIA_H100")));
+        assert!(!supports_adaptation_gpu(&spec("NVIDIA_T4")));
+        assert!(!supports_adaptation_gpu(&spec("NVIDIA_L4")));
     }
 
     struct InterruptedRead {
