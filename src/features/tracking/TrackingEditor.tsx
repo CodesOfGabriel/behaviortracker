@@ -381,8 +381,11 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   }
 
   const appendEvent = (event: CorrectionEvent) => {
+    const source = trackingSourceKey(experiment.trackingSelection);
     updateExperiment(experiment.id, current=>({ corrections: [...current.corrections,
-      {...event,reviewSource:trackingSourceKey(experiment.trackingSelection)}], status: "review" }));
+      {...event, reviewSource: source, runId: experiment.trackingSelection?.jobId,
+        algorithmVersion: inputSamples[0]?.processingVersion,
+        sourceVideoSha256: experiment.video.sha256}], status: "review" }));
     if(event.type==="REVERT_EVENT")setCorrectionMessage("Correção desfeita. Trajeto e métricas revisados foram recalculados.");
   };
 
@@ -574,7 +577,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
         width: experiment.video.width,
         height: experiment.video.height,
         durationSec: experiment.video.durationSec,
-      }, experiment.arena);
+      }, experiment.arena, experiment.analysisEngine ?? "wistar_superanimal_hybrid_v1");
       setAnalysisJob(started);
       setAnalysisHistory((jobs) => [started, ...jobs.filter((job) => job.jobId !== started.jobId)]);
       const completed = await waitForColabJob(started.jobId, (job) => {
@@ -913,4 +916,3 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     </div>
   );
 }
-

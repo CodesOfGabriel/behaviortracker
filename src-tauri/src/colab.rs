@@ -24,6 +24,12 @@ const LOCAL_CHUNK_LIMIT: usize = 8 * 1024 * 1024;
 const REMOTE_CHUNK_SIZE: usize = 1024 * 1024;
 const MAX_VIDEO_SIZE: i64 = 20 * 1024 * 1024 * 1024;
 const MAX_EXECUTION_ATTEMPTS: usize = 5;
+const HYBRID_BUNDLE_ID: &str = "wistar_df_v1";
+const HYBRID_BUNDLE_FILES: [(&str, &str); 3] = [
+    ("best_detector.pth", "efc08b431067384e46acee488a4d9173d3cf9c1b5c9158dc0606e7371a51dbc2"),
+    ("snapshot-hrnet_w32-001.pt", "d81c8f18ba0729263168b96eab3e09b6bc3d0ee194b131fb381d2526266ff215"),
+    ("pytorch_config.yaml", "847076c1253f53816155fe247ca1448a13039498d902c2d75b24dac9d800f907"),
+];
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -69,6 +75,10 @@ pub struct ColabJobEvent {
 pub struct StartAnalysisRequest {
     experiment_id: String,
     upload_id: String,
+    #[serde(default = "default_engine_id")]
+    engine_id: String,
+    #[serde(default)]
+    model_bundle_id: Option<String>,
     #[serde(default)]
     workload: AnalysisWorkload,
     #[serde(default)]
@@ -106,6 +116,16 @@ struct AnalysisArena {
     corners_px: [ImagePoint; 4],
     #[serde(default)]
     rim_corners_px: Option<[ImagePoint; 4]>,
+    #[serde(default)]
+    occlusion_polygons_px: Vec<Vec<ImagePoint>>,
+    #[serde(default)]
+    calibration_version: Option<String>,
+    #[serde(default)]
+    reference_frame_sec: Option<f64>,
+}
+
+fn default_engine_id() -> String {
+    "superanimal_video_adapt_b_legacy".to_string()
 }
 
 impl AnalysisArena {
@@ -144,6 +164,17 @@ impl AnalysisArena {
                     "A borda e o chão devem ser quadriláteros convexos, sem cruzamentos.".into(),
                 );
             }
+        }
+        for polygon in &self.occlusion_polygons_px {
+            if polygon.len() < 3 || polygon.iter().any(|p| {
+                !p.x.is_finite() || !p.y.is_finite() || p.x < 0.0 || p.y < 0.0
+                    || p.x > self.video_width as f64 || p.y > self.video_height as f64
+            }) {
+                return Err("Os polígonos de oclusão devem ter ao menos três vértices dentro do vídeo.".into());
+            }
+        }
+        if self.reference_frame_sec.is_some_and(|value| !value.is_finite() || value < 0.0) {
+            return Err("O frame de referência da calibração é inválido.".into());
         }
         Ok(())
     }
@@ -1826,28 +1857,157 @@ fn download_result(
         .timeout(Duration::from_secs(300))
         .build()
         .map_err(|_| "Não foi possível iniciar o download do resultado.".to_string())?;
-    let mut response = client
-        .get(jupyter_url(connection, &format!("files/{remote_path}")))
-        .header("X-Colab-Runtime-Proxy-Token", &connection.token)
-        .send()
-        .map_err(|_| "Falha de rede ao baixar o CSV do Colab.".to_string())?;
-    if !response.status().is_success() {
+    let mut attempted = Vec::new();
+    for candidate in jupyter_path_candidates(remote_path) {
+        attempted.push(candidate.clone());
+        let response = client
+            .get(jupyter_url(connection, &format!("files/{candidate}")))
+            .header("X-Colab-Runtime-Proxy-Token", &connection.token)
+            .send()
+            .map_err(|_| "Falha de rede ao baixar o resultado do Colab.".to_string())?;
+        if response.status().is_success() {
+            let mut output = File::create(local_path)
+                .map_err(|_| "Não foi possível criar o resultado local.".to_string())?;
+            let mut response = response;
+            std::io::copy(&mut response, &mut output)
+                .map_err(|_| "Falha ao salvar o resultado retornado pelo Colab.".to_string())?;
+            break;
+        }
+        if response.status() != reqwest::StatusCode::NOT_FOUND {
+            return Err(format!(
+                "O Jupyter recusou o download do resultado (HTTP {}).",
+                response.status().as_u16()
+            ));
+        }
+        let contents = client
+            .get(jupyter_url(
+                connection,
+                &format!("api/contents/{candidate}?content=1"),
+            ))
+            .header("X-Colab-Runtime-Proxy-Token", &connection.token)
+            .send()
+            .map_err(|_| "Falha de rede ao consultar o resultado no Jupyter.".to_string())?;
+        if contents.status() == reqwest::StatusCode::NOT_FOUND {
+            continue;
+        }
+        if !contents.status().is_success() {
+            return Err(format!(
+                "O Jupyter recusou a leitura do resultado (HTTP {}).",
+                contents.status().as_u16()
+            ));
+        }
+        let model = response_json(contents, "Não foi possível ler o resultado no Jupyter")?;
+        let content = model
+            .get("content")
+            .and_then(Value::as_str)
+            .ok_or("O Jupyter retornou um resultado sem conteúdo.")?;
+        let bytes = if model.get("format").and_then(Value::as_str) == Some("base64") {
+            STANDARD
+                .decode(content)
+                .map_err(|_| "O conteúdo base64 retornado pelo Jupyter é inválido.")?
+        } else {
+            content.as_bytes().to_vec()
+        };
+        fs::write(local_path, bytes)
+            .map_err(|_| "Falha ao salvar o resultado retornado pelo Jupyter.".to_string())?;
+        break;
+    }
+    if !local_path.is_file() {
         return Err(format!(
-            "O Jupyter recusou o download do resultado (HTTP {}).",
-            response.status().as_u16()
+            "O Jupyter não encontrou o resultado nos caminhos: {}.",
+            attempted.join(", ")
         ));
     }
-    let mut output = File::create(local_path)
-        .map_err(|_| "Não foi possível criar o CSV local de resultado.".to_string())?;
-    std::io::copy(&mut response, &mut output)
-        .map_err(|_| "Falha ao salvar o CSV retornado pelo Colab.".to_string())?;
-    if output
-        .metadata()
+    if fs::metadata(local_path)
         .map_err(|_| "Não foi possível validar o CSV retornado.".to_string())?
         .len()
         == 0
     {
         return Err("O Colab retornou um CSV vazio.".into());
+    }
+    Ok(())
+}
+
+fn jupyter_path_candidates(path: &str) -> Vec<String> {
+    let normalized = path.trim_matches('/');
+    let without_content = normalized.strip_prefix("content/").unwrap_or(normalized);
+    let mut candidates = Vec::new();
+    for candidate in [normalized, without_content, &format!("/content/{without_content}")] {
+        let candidate = candidate.trim_matches('/').to_string();
+        if !candidates.contains(&candidate) {
+            candidates.push(candidate);
+        }
+    }
+    candidates
+}
+
+fn download_remote_artifact(
+    app: &AppHandle,
+    job_id: &str,
+    session: &str,
+    remote_path: &str,
+    local_path: &Path,
+) -> Result<(), AnalysisFailure> {
+    let path_literal = format!("{remote_path:?}");
+    let size_payload = execute_job_code(
+        app,
+        job_id,
+        &google_access_token(app, PROFILE_ID)?,
+        session,
+        &format!(
+            "from pathlib import Path\np=Path({path_literal})\nif not p.is_file(): raise FileNotFoundError(str(p))\nprint('BEHAVETRACKER_FILE_SIZE='+str(p.stat().st_size))"
+        ),
+    )?;
+    let size = size_payload
+        .get("stdout")
+        .and_then(Value::as_str)
+        .and_then(|stdout| {
+            stdout.lines().find_map(|line| {
+                line.strip_prefix("BEHAVETRACKER_FILE_SIZE=")
+                    .and_then(|value| value.parse::<u64>().ok())
+            })
+        })
+        .ok_or("O runtime não informou o tamanho do artefato.")?;
+    let mut output = File::create(local_path)
+        .map_err(|_| "Não foi possível criar o artefato local.".to_string())?;
+    let mut offset = 0_u64;
+    const CHUNK_SIZE: u64 = 256 * 1024;
+    while offset < size {
+        let length = (size - offset).min(CHUNK_SIZE);
+        let payload = execute_job_code(
+            app,
+            job_id,
+            &google_access_token(app, PROFILE_ID)?,
+            session,
+            &format!(
+                "import base64\nfrom pathlib import Path\np=Path({path_literal})\nwith p.open('rb') as f:\n    f.seek({offset})\n    data=f.read({length})\nprint('BEHAVETRACKER_FILE_CHUNK='+base64.b64encode(data).decode('ascii'))"
+            ),
+        )?;
+        let encoded = payload
+            .get("stdout")
+            .and_then(Value::as_str)
+            .and_then(|stdout| {
+                stdout.lines().find_map(|line| {
+                    line.strip_prefix("BEHAVETRACKER_FILE_CHUNK=")
+                })
+            })
+            .ok_or("O runtime não retornou um bloco do artefato.")?;
+        let chunk = STANDARD
+            .decode(encoded)
+            .map_err(|_| "O runtime retornou um bloco inválido.")?;
+        if chunk.len() != length as usize {
+            return Err("O tamanho do bloco retornado pelo runtime é inválido.".into());
+        }
+        output
+            .write_all(&chunk)
+            .map_err(|_| "Falha ao salvar o artefato local.".to_string())?;
+        offset += length;
+    }
+    if fs::metadata(local_path)
+        .map_err(|_| "Não foi possível validar o artefato local.".to_string())?
+        .len() != size
+    {
+        return Err("O artefato local ficou incompleto.".into());
     }
     Ok(())
 }
@@ -1893,6 +2053,118 @@ if not Path({csv:?}+'.complete').is_file():
     (root/'arena_helpers.py').write_text({geometry:?},encoding='utf-8')
     runpy.run_path(str(root/'custom_model.py'))['infer']({video:?},{model:?},str(root),{csv:?},json.loads({arena:?}),runpy.run_path(str(root/'arena_helpers.py')),json.loads({range:?}))
 "#,source=include_str!("../python/custom_model.py"),geometry=include_str!("../python/arena.py"),arena=serde_json::to_string(&arena).unwrap(),range=serde_json::to_string(&range).unwrap())
+}
+
+fn hybrid_bundle_paths(app: &AppHandle) -> CommandResult<Vec<(String, String)>> {
+    let mut roots = Vec::new();
+    let mut add_root = |root: PathBuf| {
+        if !roots.iter().any(|candidate| candidate == &root) {
+            roots.push(root);
+        }
+    };
+    if let Ok(root) = std::env::current_dir() {
+        for candidate in root.ancestors() {
+            add_root(candidate.to_path_buf());
+        }
+    }
+    if let Ok(executable) = std::env::current_exe() {
+        if let Some(parent) = executable.parent() {
+            for candidate in parent.ancestors() {
+                add_root(candidate.to_path_buf());
+            }
+        }
+    }
+    if let Ok(root) = app.path().resource_dir() {
+        add_root(root.clone());
+        add_root(root.join("models"));
+    }
+    if let Ok(root) = app.path().app_data_dir() {
+        add_root(root.clone());
+        add_root(root.join("models"));
+    }
+    HYBRID_BUNDLE_FILES.iter().map(|(filename, expected)| {
+        let path = roots.iter().map(|root| root.join(filename)).find(|path| path.is_file())
+            .ok_or_else(|| format!("Arquivo do bundle D+F ausente: {filename}"))?;
+        let digest = crate::video::sha256(&path)?;
+        if digest != *expected {
+            return Err(format!("SHA-256 inesperado no bundle D+F: {filename}"));
+        }
+        Ok((filename.to_string(), path.to_string_lossy().into_owned()))
+    }).collect()
+}
+
+fn upload_hybrid_bundle(
+    app: &AppHandle,
+    job: &str,
+    connection: &ConnectionInfo,
+    session: &str,
+    remote_directory: &str,
+    bundle_id: Option<&str>,
+) -> Result<Option<String>, AnalysisFailure> {
+    if bundle_id != Some(HYBRID_BUNDLE_ID) {
+        return Err("Bundle D+F não reconhecido.".into());
+    }
+    let files = hybrid_bundle_paths(app)?;
+    let parent = remote_directory.rsplit_once('/').map(|(value, _)| value)
+        .ok_or("Pasta remota inválida")?;
+    let remote_root = format!("{parent}/models/{HYBRID_BUNDLE_ID}");
+    let remote_root_absolute = format!("/content/behavetracker/models/{HYBRID_BUNDLE_ID}");
+    let mkdir_code = format!(
+        "from pathlib import Path\nPath({remote_root_absolute:?}).mkdir(parents=True, exist_ok=True)\nprint('BEHAVETRACKER_HYBRID_DIR_READY')"
+    );
+    let mkdir_result = execute_job_code(
+        app,
+        job,
+        &google_access_token(app, PROFILE_ID)?,
+        session,
+        &mkdir_code,
+    )?;
+    if !mkdir_result["stdout"]
+        .as_str()
+        .unwrap_or("")
+        .contains("BEHAVETRACKER_HYBRID_DIR_READY")
+    {
+        return Err("O Colab não conseguiu preparar a pasta remota do bundle D+F.".into());
+    }
+    for (filename, path) in files {
+        let local = Path::new(&path);
+        let size = fs::metadata(local).map_err(|_| format!("Arquivo do bundle indisponível: {filename}"))?.len() as i64;
+        let digest = crate::video::sha256(local)?;
+        let remote = format!("{remote_root}/{filename}");
+        let destination = format!("/content/behavetracker/models/{HYBRID_BUNDLE_ID}/{filename}");
+        let cache_check = format!(
+            "from pathlib import Path\nimport hashlib\np=Path({destination:?})\nh=hashlib.sha256()\nif p.is_file():\n    with p.open('rb') as f:\n        for b in iter(lambda:f.read(1048576),b''): h.update(b)\nprint('BEHAVETRACKER_HYBRID_CACHED' if p.is_file() and h.hexdigest()=={digest:?} else 'BEHAVETRACKER_HYBRID_MISSING')"
+        );
+        let response = execute_job_code(app, job, &google_access_token(app, PROFILE_ID)?, session, &cache_check)?;
+        if !response["stdout"].as_str().unwrap_or("").contains("BEHAVETRACKER_HYBRID_CACHED") {
+            upload_video(app, job, connection, local, &remote, size)?;
+            verify_remote_file(app, job, session, &destination, &digest)?;
+        }
+    }
+    Ok(Some(format!("/content/behavetracker/models/{HYBRID_BUNDLE_ID}")))
+}
+
+fn prepare_hybrid_environment(app: &AppHandle, job: &str, session: &str, directory: &str) -> Result<(), AnalysisFailure> {
+    update_job(app, job, "running", "environment_check", 52, "Validando PyTorch, TorchVision, DeepLabCut e CUDA para D+F")?;
+    run_background_task(app, job, session, directory, "setup", &format!(
+        "import importlib.util,subprocess,sys\nif importlib.util.find_spec('deeplabcut') is None:\n    subprocess.check_call([sys.executable,'-m','pip','install','-q','--pre','deeplabcut[modelzoo]>=3.0,<4'])\nimport torch,torchvision\nif not torch.cuda.is_available(): raise RuntimeError('CUDA não está disponível para o pipeline D+F')\ntorchvision.ops.nms(torch.zeros((0,4),device='cuda'),torch.zeros(0,device='cuda'),0.5)\nimport deeplabcut\nimport deeplabcut.pose_estimation_pytorch as pep\nfrom deeplabcut.pose_estimation_pytorch.config import PoseConfig\nfrom deeplabcut.pose_estimation_pytorch.apis.videos import create_df_from_prediction\nrequired=['get_pose_inference_runner','VideoIterator','video_inference']\nmissing=[name for name in required if not hasattr(pep,name)]\nif missing: raise RuntimeError('API DLC ausente: '+', '.join(missing))\nprint('BEHAVETRACKER_HYBRID_ENV_OK '+torch.__version__+' '+torchvision.__version__+' '+deeplabcut.__version__)"
+    ))?;
+    update_job(app, job, "running", "environment_ready", 60, "Ambiente D+F validado")?;
+    Ok(())
+}
+
+fn hybrid_code(video: &str, output: &str, csv: &str, arena: Option<&AnalysisArena>, models: &str) -> String {
+    let arena_literal = match serde_json::to_string(&arena).unwrap() {
+        value if value == "null" => "None".to_string(),
+        value => format!("json.loads({value:?})"),
+    };
+    let source = include_str!("../python/hybrid_pipeline.py")
+        .replace("__VIDEO__", &serde_json::to_string(video).unwrap())
+        .replace("__OUTPUT__", &serde_json::to_string(output).unwrap())
+        .replace("__CSV__", &serde_json::to_string(csv).unwrap())
+        .replace("__MODELS__", &serde_json::to_string(models).unwrap())
+        .replace("__ARENA__", &arena_literal);
+    format!("from pathlib import Path\np=Path({output:?})/'hybrid_pipeline.py'\np.parent.mkdir(parents=True, exist_ok=True)\np.write_text({source:?},encoding='utf-8')\nexec(compile(p.read_text(),str(p),'exec'),{{}})\n")
 }
 fn custom_environment_code()->String {"import torch,torchvision,cv2\nfrom PIL import Image\nif not torch.cuda.is_available(): raise RuntimeError('CUDA não está disponível no runtime. Selecione uma sessão GPU.')\ntorchvision.ops.nms(torch.zeros((0,4),device='cuda'),torch.zeros(0,device='cuda'),0.5)\nprint('BEHAVETRACKER_CUSTOM_ENV_OK '+torch.__version__+' '+torchvision.__version__)".into()}
 fn prepare_custom_environment(app:&AppHandle,job:&str,session:&str,directory:&str)->Result<(),AnalysisFailure>{
@@ -1990,6 +2262,8 @@ fn run_analysis(
     workload: AnalysisWorkload,
     arena: Option<AnalysisArena>,
     diagnostic: Option<DiagnosticRange>,
+    engine_id: String,
+    model_bundle_id: Option<String>,
 ) -> CommandResult<()> {
     prepare_tables(&app)?;
     update_job(&app, &job_id, "running", "authorizing", 2, "Preparando o vídeo local sem reduzir resolução ou FPS")?;
@@ -2046,7 +2320,11 @@ fn run_analysis(
         10,
         "Localizando um runtime GPU elegível",
     )?;
-    let (runtime, selection_message) = choose_or_create_runtime(&access_token, &runtime_workload, diagnostic.is_none())?;
+    let (runtime, selection_message) = choose_or_create_runtime(
+        &access_token,
+        &runtime_workload,
+        diagnostic.is_none() && engine_id == "superanimal_video_adapt_b_legacy",
+    )?;
     update_job(&app, &job_id, "running", "runtime", 12, &selection_message)?;
     if runtime.name.is_empty() {
         return Err("O Colab retornou um runtime sem identificador.".into());
@@ -2115,6 +2393,11 @@ fn run_analysis(
         )?;
         let remote_directory =
             resolve_jupyter_workspace(&connection, &absolute_directory, &job_id)?;
+        let hybrid_models = if engine_id == "wistar_superanimal_hybrid_v1" {
+            upload_hybrid_bundle(&app, &job_id, &connection, &session, &remote_directory, model_bundle_id.as_deref())?
+        } else {
+            None
+        };
         update_job(
             &app,
             &job_id,
@@ -2168,7 +2451,7 @@ fn run_analysis(
             "Vídeo recebido e validado · tamanho e SHA-256 conferem",
         )?;
 
-        if custom_model.is_some(){prepare_custom_environment(&app,&job_id,&session,&absolute_directory)?;}else{prepare_environment(&app, &job_id, &session, &absolute_directory)?;}
+        if custom_model.is_some(){prepare_custom_environment(&app,&job_id,&session,&absolute_directory)?;}else if engine_id == "wistar_superanimal_hybrid_v1" { prepare_hybrid_environment(&app, &job_id, &session, &absolute_directory)?; } else {prepare_environment(&app, &job_id, &session, &absolute_directory)?;}
 
         update_job(
             &app,
@@ -2176,7 +2459,7 @@ fn run_analysis(
             "running",
             "inference",
             65,
-            if custom_model.is_some(){"Executando modelo personalizado experimental · confiança anatômica não calibrada; revise as posições"} else if diagnostic.is_some() { "Diagnóstico curto · medindo detector e pose separadamente, sem recuperação ou adaptação" } else if arena
+            if engine_id == "wistar_superanimal_hybrid_v1" { "Executando pipeline D+F · detector Wistar + HRNet adaptada · resultados experimentais" } else if custom_model.is_some(){"Executando modelo personalizado experimental · confiança anatômica não calibrada; revise as posições"} else if diagnostic.is_some() { "Diagnóstico curto · medindo detector e pose separadamente, sem recuperação ou adaptação" } else if arena
                 .as_ref()
                 .is_some_and(|geometry| geometry.rim_corners_px.is_some())
             {
@@ -2185,7 +2468,15 @@ fn run_analysis(
                 "Executando adaptação B do SuperAnimal no vídeo inteiro · projeto sem borda calibrada"
             },
         )?;
-        let code = if let Some(model)=&custom_model {custom_code(&absolute_video,model,&remote_output,&remote_csv,arena.as_ref(),diagnostic.as_ref())} else if let Some(range) = &diagnostic {
+        let code = if engine_id == "wistar_superanimal_hybrid_v1" {
+            hybrid_code(
+                &absolute_video,
+                &remote_output,
+                &format!("{remote_output}/canonical_pose.csv"),
+                arena.as_ref(),
+                hybrid_models.as_deref().ok_or("Bundle D+F não enviado")?,
+            )
+        } else if let Some(model)=&custom_model {custom_code(&absolute_video,model,&remote_output,&remote_csv,arena.as_ref(),diagnostic.as_ref())} else if let Some(range) = &diagnostic {
             diagnostic_code(&absolute_video, &remote_output, &remote_csv, arena.as_ref(), range)
         } else {
             inference_code(&absolute_video, &remote_output, &remote_csv, arena.as_ref())
@@ -2219,11 +2510,40 @@ fn run_analysis(
         let refreshed_connection = refreshed_runtime.connection_info.ok_or_else(|| {
             "O runtime não renovou os dados de conexão para o download.".to_string()
         })?;
-        download_result(
-            &refreshed_connection,
-            &format!("{remote_directory}/canonical_pose.csv"),
-            &result_path,
-        )?;
+        if engine_id == "wistar_superanimal_hybrid_v1" {
+            download_remote_artifact(
+                &app,
+                &job_id,
+                &session,
+                &format!("{remote_output}/canonical_pose.csv"),
+                &result_path,
+            )?;
+        } else {
+            download_result(
+                &refreshed_connection,
+                &format!("{remote_directory}/canonical_pose.csv"),
+                &result_path,
+            )?;
+        }
+        if engine_id == "wistar_superanimal_hybrid_v1" {
+            for artifact in [
+                "detections.csv",
+                "pose_raw.csv",
+                "pose_raw.h5",
+                "pose_filtered.csv",
+                "qc_by_frame.csv",
+                "run_manifest.json",
+            ] {
+                let artifact_path = result_directory.join(format!("{job_id}-{artifact}"));
+                download_remote_artifact(
+                    &app,
+                    &job_id,
+                    &session,
+                    &format!("{remote_output}/{artifact}"),
+                    &artifact_path,
+                )?;
+            }
+        }
         open_database(&app)?
             .execute(
                 "UPDATE colab_jobs SET result_path = ?2 WHERE job_id = ?1",
@@ -2286,6 +2606,14 @@ pub fn start_colab_analysis(
     validate_local_id(&request.experiment_id, "Experimento")?;
     validate_local_id(&request.upload_id, "Upload")?;
     request.workload.validate()?;
+    if request.engine_id != "superanimal_video_adapt_b_legacy" {
+        if request.engine_id != "wistar_superanimal_hybrid_v1" {
+            return Err("Motor de análise não reconhecido.".into());
+        }
+        if request.model_bundle_id.as_deref() != Some(HYBRID_BUNDLE_ID) {
+            return Err("O pipeline D+F requer o bundle wistar_df_v1 validado.".into());
+        }
+    }
     if request.diagnostic.is_some() {
         return Err("O teste de rastreamento foi removido. Use Analisar no Colab para processar o vídeo completo.".into());
     }
@@ -2348,7 +2676,14 @@ pub fn start_colab_analysis(
             "INSERT INTO colab_job_geometry(job_id, geometry_json) VALUES (?1, ?2)",
             params![
                 &job_id,
-                serde_json::to_string(&json!({"poseAdapterVersion":"superanimal-adapted-quality-1", "trajectoryPostprocessVersion":"dlc-adapted-trajectory-c-1", "recoveryVersion":"visual-recovery-2", "arena": &request.arena}))
+                serde_json::to_string(&json!({
+                    "engineId": &request.engine_id,
+                    "modelBundleId": &request.model_bundle_id,
+                    "poseAdapterVersion":"superanimal-adapted-quality-1",
+                    "trajectoryPostprocessVersion":"dlc-adapted-trajectory-c-1",
+                    "recoveryVersion":"visual-recovery-2",
+                    "arena": &request.arena
+                }))
                     .map_err(|_| "Não foi possível serializar a geometria.")?
             ],
         )
@@ -2380,6 +2715,8 @@ pub fn start_colab_analysis(
             request.workload,
             request.arena,
             request.diagnostic,
+            request.engine_id,
+            request.model_bundle_id,
         ) {
             let _ = fail_job(&task_app, &task_job_id, &error);
         }

@@ -28,7 +28,11 @@
   },
   "bundle": {
     "active": false,
-    "targets": "all"
+    "targets": "all",
+    "resources": [
+      "../best_detector.pth",
+      "../snapshot-hrnet_w32-001.pt",
+      "../pytorch_config.yaml"
+    ]
   }
 }
-

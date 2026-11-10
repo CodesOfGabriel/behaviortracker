@@ -7,7 +7,7 @@
   "required": ["schema_version", "analysis_method_version", "id", "test_type", "subject_id", "video", "arena", "tracking"],
   "properties": {
     "schema_version": { "const": "1.0" },
-    "analysis_method_version": { "const": "oft-0.1" },
+    "analysis_method_version": { "enum": ["oft-0.1", "oft-0.2"] },
     "id": { "type": "string", "format": "uuid" },
     "test_type": { "const": "open_field" },
     "subject_id": { "type": "string", "minLength": 1 },
@@ -42,7 +42,31 @@
         "width_cm": { "type": "number", "exclusiveMinimum": 0 },
         "height_cm": { "type": "number", "exclusiveMinimum": 0 },
         "center_area_fraction": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
-        "boundary_policy": { "const": "center_inclusive" }
+        "boundary_policy": { "const": "center_inclusive" },
+        "rim_corners_px": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "required": ["x", "y"],
+            "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
+          }
+        },
+        "occlusion_polygons_px": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "minItems": 3,
+            "items": {
+              "type": "object",
+              "required": ["x", "y"],
+              "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
+            }
+          }
+        },
+        "calibration_version": { "type": "string" },
+        "reference_frame_sec": { "type": "number", "minimum": 0 }
       }
     },
     "tracking": {
@@ -50,9 +74,10 @@
       "required": ["reference_point", "max_animals"],
       "properties": {
         "reference_point": { "type": "string", "minLength": 1 },
-        "max_animals": { "const": 1 }
+        "max_animals": { "const": 1 },
+        "analysis_engine": { "enum": ["superanimal_video_adapt_b_legacy", "wistar_superanimal_hybrid_v1"] },
+        "model_bundle_id": { "type": ["string", "null"] }
       }
     }
   }
 }
-

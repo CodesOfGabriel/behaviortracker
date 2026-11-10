@@ -11,6 +11,8 @@ describe("geometria enviada ao backend Colab", () => {
     expect(invoke).toHaveBeenLastCalledWith("start_colab_analysis", { request: {
       experimentId: "experiment", uploadId: "upload", workload: { width: 1280, height: 720, durationSec: 10 },
       arena: { ...defaultArena, videoWidth: 1280, videoHeight: 720 },
+      engineId: "wistar_superanimal_hybrid_v1",
+      modelBundleId: "wistar_df_v1",
     } });
   });
 

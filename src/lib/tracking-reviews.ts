@@ -15,7 +15,12 @@ export function reviewEvents(experiment: Experiment): CorrectionEvent[] {
       const target = events.get(event.targetEventId ?? "");
       return target ? scope(target, visited) : "invalid";
     }
-    if (event.type === "ANNOTATE_BEHAVIOR" || event.type === "REJECT_CANDIDATE") return "shared";
+    if (event.type === "REJECT_CANDIDATE") return event.reviewSource ?? "legacy";
+    if (event.type === "ANNOTATE_BEHAVIOR") {
+      return event.sourceVideoSha256 && event.sourceVideoSha256 === experiment.video.sha256
+        ? "shared"
+        : event.reviewSource ?? "legacy";
+    }
     return event.reviewSource ?? experiment.legacyReviewSource ?? "legacy";
   };
   return experiment.corrections.filter(event => [current, "shared"].includes(scope(event)));
@@ -27,7 +32,7 @@ export function hasUnassignedCorrections(experiment: Experiment) {
 }
 
 export function preferredReference(samples: PoseSample[]) {
-  return ["box_center", "silhouette_center", "body_center"].find(key => samples.some(sample => sample.keypoint === key)) ?? samples[0]?.keypoint ?? "body_center";
+  return ["box_center", "silhouette_center", "body_center", "mouse_center"].find(key => samples.some(sample => sample.keypoint === key)) ?? samples[0]?.keypoint ?? "body_center";
 }
 
 /** Não altera/apaga eventos. Congela a revisão anterior antes de trocar os dados exibidos. */

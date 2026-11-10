@@ -1,0 +1,18 @@
+{
+  "bundleId": "wistar_df_v1",
+  "keypointCount": 27,
+  "files": {
+    "best_detector.pth": {
+      "sizeBytes": 173406835,
+      "sha256": "efc08b431067384e46acee488a4d9173d3cf9c1b5c9158dc0606e7371a51dbc2"
+    },
+    "snapshot-hrnet_w32-001.pt": {
+      "sizeBytes": 118196193,
+      "sha256": "d81c8f18ba0729263168b96eab3e09b6bc3d0ee194b131fb381d2526266ff215"
+    },
+    "pytorch_config.yaml": {
+      "sizeBytes": 5996,
+      "sha256": "847076c1253f53816155fe247ca1448a13039498d902c2d75b24dac9d800f907"
+    }
+  }
+}

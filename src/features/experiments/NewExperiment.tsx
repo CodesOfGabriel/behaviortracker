@@ -362,6 +362,8 @@ export function NewExperiment() {
       id,
       schemaVersion: "1.0",
       analysisMethodVersion: "oft-0.2",
+      analysisEngine: "wistar_superanimal_hybrid_v1",
+      modelBundleId: "wistar_df_v1",
       title: title.trim() || `Campo aberto · ${subjectId.trim()}`,
       subjectId: subjectId.trim(),
       group: group.trim() || undefined,
@@ -534,4 +536,3 @@ export function NewExperiment() {
     </div>
   );
 }
-

@@ -10,4 +10,6 @@ __pycache__/
 .env
 .env.*
 !.env.example
-
+*.pth
+*.pt
+models/*.yaml

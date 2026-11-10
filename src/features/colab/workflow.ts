@@ -5,9 +5,9 @@ export const workflowSteps = [
   { title: "Encontrar GPU", description: "Alocar GPU e abrir a sessão", stages: ["runtime", "workspace", "gpu_ready"] },
   { title: "Enviar vídeo", description: "Transferir para a pasta confirmada", stages: ["uploading"] },
   { title: "Validar arquivo", description: "Conferir tamanho e integridade", stages: ["verifying", "video_ready"] },
-  { title: "Preparar modelo", description: "Verificar e reutilizar DeepLabCut", stages: ["environment_check", "installing", "environment_ready"] },
-  { title: "Adaptar e processar", description: "Executar o Teste B do SuperAnimal e importar a pose adaptada", stages: ["inference", "training"] },
-  { title: "Receber resultado", description: "Baixar poses e gerar vídeo de revisão", stages: ["downloading", "rendering", "completed"] },
+  { title: "Preparar modelo", description: "Validar detector Wistar, HRNet e CUDA no Colab", stages: ["environment_check", "installing", "environment_ready"] },
+  { title: "Detector + HRNet", description: "Executar D+F e importar os 27 keypoints", stages: ["inference", "training"] },
+  { title: "Receber resultado", description: "Baixar poses; gráficos e vídeo são gerados no app", stages: ["downloading", "rendering", "completed"] },
 ] as const;
 
 export type CheckpointState = "pending" | "active" | "done" | "failed";

@@ -18,13 +18,14 @@ import { useMemo, useState } from "react";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { applyCorrections } from "../../lib/corrections";
-import { reviewEvents, trackingSourceKey } from "../../lib/tracking-reviews";
+import { preferredReference, reviewEvents, trackingSourceKey } from "../../lib/tracking-reviews";
 import { downloadText, poseToCsv } from "../../lib/csv";
 import { centerPolygonPx, pointsToSvg } from "../../lib/geometry";
 import { calculateOftMetrics, METRIC_POLICY } from "../../lib/metrics";
 import { metricEligible, originalPose, referencePoseSamples, trajectorySegments } from "../../lib/pose";
 import { formatDuration } from "../../lib/format";
 import { useAppStore } from "../../store/AppStore";
+import { exportAnnotatedVideo } from "../../lib/video-export";
 import type { OftMetrics } from "../../types";
 
 function metricValue(value: number | null, suffix: string, digits = 1) {
@@ -51,10 +52,12 @@ function metricsCsv(metrics: OftMetrics) {
 }
 
 export function Results({ experimentId }: { experimentId: string }) {
-  const { getExperiment, navigate, trackingData, updateExperiment } = useAppStore();
+  const { getExperiment, navigate, trackingData, updateExperiment, assets } = useAppStore();
   const experiment = getExperiment(experimentId);
   const [revision, setRevision] = useState<"reviewed" | "raw">("reviewed");
   const [showExport, setShowExport] = useState(false);
+  const [exportingVideo, setExportingVideo] = useState(false);
+  const [videoExportError, setVideoExportError] = useState<string | null>(null);
   const inputSamples = trackingData[experimentId] ?? [];
   const versionC = inputSamples.some((sample) => sample.processingVersion === "dlc-adapted-trajectory-c-1");
   const events = useMemo(() => experiment ? reviewEvents(experiment) : [], [experiment]);
@@ -63,7 +66,9 @@ export function Results({ experimentId }: { experimentId: string }) {
     () => applyCorrections(inputSamples, events),
     [events, inputSamples],
   );
-  const referencePoint = experiment?.referencePoint ?? "body_center";
+  const referencePoint = experiment?.referencePoint && rawSamples.some(sample => sample.keypoint === experiment.referencePoint)
+    ? experiment.referencePoint
+    : preferredReference(rawSamples);
   const rawReference = useMemo(() => referencePoseSamples(rawSamples,referencePoint),[rawSamples,referencePoint]);
   const reviewedReference = useMemo(() => referencePoseSamples(reviewedSamples,referencePoint),[reviewedSamples,referencePoint]);
   const rawMetrics = useMemo(
@@ -115,8 +120,13 @@ export function Results({ experimentId }: { experimentId: string }) {
         height_cm: experiment.arena.heightCm,
         center_area_fraction: experiment.arena.centerAreaFraction,
         boundary_policy: experiment.arena.boundaryPolicy,
+        occlusion_polygons_px: experiment.arena.occlusionPolygonsPx,
+        calibration_version: experiment.arena.calibrationVersion,
+        reference_frame_sec: experiment.arena.referenceFrameSec,
       },
       tracking: { reference_point: experiment.referencePoint, max_animals: 1, selection: experiment.trackingSelection,
+        analysis_engine: experiment.analysisEngine ?? "superanimal_video_adapt_b_legacy",
+        model_bundle_id: experiment.modelBundleId,
         review_source: trackingSourceKey(experiment.trackingSelection), legacy_review_source: experiment.legacyReviewSource,
         reviews: experiment.trackingReviews,
         coordinate_space: "original_video_pixels", posture_classification: "not_performed",
@@ -130,6 +140,30 @@ export function Results({ experimentId }: { experimentId: string }) {
     downloadText("corrections.jsonl", experiment.corrections.map((event) => JSON.stringify(event)).join("\n"), "application/x-ndjson");
   };
 
+  const exportVideo = async () => {
+    const file = assets[experiment.id]?.file;
+    if (!file) return;
+    setExportingVideo(true);
+    setVideoExportError(null);
+    const url = URL.createObjectURL(file);
+    try {
+      const video = document.createElement("video");
+      video.src = url;
+      video.muted = true;
+      video.preload = "auto";
+      await new Promise<void>((resolve, reject) => {
+        video.onloadedmetadata = () => resolve();
+        video.onerror = () => reject(new Error("Não foi possível abrir o vídeo original."));
+      });
+      await exportAnnotatedVideo(video, reviewedReference, experiment.arena, `${experiment.id}-revisado.webm`);
+    } catch (error) {
+      setVideoExportError(error instanceof Error ? error.message : "Não foi possível gerar o vídeo revisado.");
+    } finally {
+      URL.revokeObjectURL(url);
+      setExportingVideo(false);
+    }
+  };
+
   return (
     <div className="page results-page">
       <button className="back-link" onClick={() => navigate({ name: "editor", experimentId })}><ArrowLeft size={16} /> Voltar ao editor</button>
@@ -141,9 +175,13 @@ export function Results({ experimentId }: { experimentId: string }) {
         </div>
         <div className="results-actions">
           <Button variant="secondary" icon={<Download size={16} />} onClick={() => setShowExport((current) => !current)}>Exportar</Button>
+          <Button variant="secondary" disabled={exportingVideo || !assets[experiment.id]?.file} onClick={() => void exportVideo()}>
+            {exportingVideo ? "Gerando vídeo…" : "Vídeo revisado"}
+          </Button>
           <Button icon={<Check size={16} />} onClick={() => updateExperiment(experiment.id, { status: "completed" })}>Concluir revisão</Button>
         </div>
       </section>
+      {videoExportError && <div className="validation-box invalid"><AlertTriangle size={16} />{videoExportError}</div>}
 
       {showExport && (
         <section className="export-drawer panel">
@@ -227,4 +265,3 @@ export function Results({ experimentId }: { experimentId: string }) {
     </div>
   );
 }
-

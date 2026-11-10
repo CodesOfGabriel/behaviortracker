@@ -1,0 +1,60 @@
+"""Validação local do bundle de modelos D+F; não baixa nem executa pesos."""
+
+import hashlib
+from pathlib import Path
+
+
+REQUIRED_FILES = (
+    "best_detector.pth",
+    "snapshot-hrnet_w32-001.pt",
+    "pytorch_config.yaml",
+)
+REQUIRED_BUNDLE_ID = "wistar_df_v1"
+
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def validate_bundle(directory, manifest=None):
+    root = Path(directory)
+    files = {}
+    for filename in REQUIRED_FILES:
+        path = root / filename
+        if not path.is_file() or path.stat().st_size <= 0:
+            raise ValueError(f"Arquivo obrigatório ausente ou vazio: {filename}")
+        files[filename] = {"path": str(path), "sizeBytes": path.stat().st_size, "sha256": sha256(path)}
+    try:
+        config_text = (root / "pytorch_config.yaml").read_text(encoding="utf-8")
+    except Exception as error:
+        raise ValueError(f"Configuração PyTorch inválida: {error}") from error
+    bodyparts = []
+    in_bodyparts = False
+    bodyparts_indent = None
+    for line in config_text.splitlines():
+        stripped = line.strip()
+        if stripped in ("bodyparts:", "bodyparts: []"):
+            in_bodyparts = stripped == "bodyparts:"
+            bodyparts_indent = len(line) - len(line.lstrip()) + 2
+            continue
+        if in_bodyparts and len(line) - len(line.lstrip()) == bodyparts_indent and stripped.startswith("- "):
+            bodyparts.append(stripped[2:].strip())
+            continue
+        if in_bodyparts and line.strip() and len(line) - len(line.lstrip()) < bodyparts_indent:
+            in_bodyparts = False
+    if "metadata:" in config_text and not bodyparts and "bodyparts:" not in config_text:
+        bodyparts = []
+    if bodyparts is not None and len(bodyparts) != 27:
+        raise ValueError("A configuração HRNet precisa declarar 27 keypoints")
+    if manifest is not None:
+        if manifest.get("bundleId") != REQUIRED_BUNDLE_ID:
+            raise ValueError("Bundle D+F incompatível")
+        for filename, entry in files.items():
+            expected = manifest.get("files", {}).get(filename, {}).get("sha256")
+            if expected and expected != entry["sha256"]:
+                raise ValueError(f"Hash do bundle não confere: {filename}")
+    return {"bundleId": REQUIRED_BUNDLE_ID, "files": files, "keypointCount": len(bodyparts) if bodyparts else None}

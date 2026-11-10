@@ -4,10 +4,22 @@ import { makeDemoExperiment, makeDemoPose } from "../lib/demo-data";
 
 const STORAGE_KEY = "behavetracker.experiments.v1";
 
+function migrateExperiment(experiment: Experiment): Experiment {
+  return {
+    ...experiment,
+    schemaVersion: "1.0",
+    analysisMethodVersion: experiment.analysisMethodVersion ?? "oft-0.2",
+    corrections: (experiment.corrections ?? []).map((event) => ({
+      ...event,
+      source: "manual",
+    })),
+  };
+}
+
 function loadExperiments(): Experiment[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as Experiment[]) : [];
+    return raw ? (JSON.parse(raw) as Experiment[]).map(migrateExperiment) : [];
   } catch {
     return [];
   }
@@ -110,4 +122,3 @@ export function useAppStore() {
   if (!store) throw new Error("useAppStore precisa estar dentro de AppStoreProvider");
   return store;
 }
-

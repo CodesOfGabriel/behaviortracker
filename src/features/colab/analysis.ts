@@ -19,6 +19,8 @@ export type ColabJob = {
   resultsReady?: boolean;
   training?: boolean;
   customModel?: boolean;
+  engineId?: "superanimal_video_adapt_b_legacy" | "wistar_superanimal_hybrid_v1";
+  modelBundleId?: string | null;
 };
 
 export type DiagnosticRange = { startSec: number; endSec: number };
@@ -74,9 +76,11 @@ export async function stageVideo(
 }
 
 export function startColabJob(experimentId: string, uploadId: string,
-  workload: { width: number; height: number; durationSec: number }, arena: ArenaConfig) {
+  workload: { width: number; height: number; durationSec: number }, arena: ArenaConfig,
+  engineId: "superanimal_video_adapt_b_legacy" | "wistar_superanimal_hybrid_v1" = "wistar_superanimal_hybrid_v1") {
   return invoke<ColabJob>("start_colab_analysis", {
-    request: { experimentId, uploadId, workload, arena: { ...arena, videoWidth: workload.width, videoHeight: workload.height } },
+    request: { experimentId, uploadId, workload, arena: { ...arena, videoWidth: workload.width, videoHeight: workload.height },
+      engineId, ...(engineId === "wistar_superanimal_hybrid_v1" ? { modelBundleId: "wistar_df_v1" } : {}) },
   });
 }
 

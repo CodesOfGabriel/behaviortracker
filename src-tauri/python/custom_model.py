@@ -23,6 +23,17 @@ def file_sha256(path):
     return digest.hexdigest()
 
 
+def low_confidence_center(points):
+    visible = [point for point in points if point[0] is not None and point[1] is not None]
+    if not visible:
+        return None, None, 0.0, "missing"
+    count = len(visible)
+    return (sum(point[0] for point in visible) / count,
+            sum(point[1] for point in visible) / count,
+            sum(point[2] for point in visible) / count,
+            "low_confidence")
+
+
 def load_dataset(path, directory):
     """Valida snapshot sem executar código contido no pacote."""
     root = Path(directory)
@@ -261,7 +272,10 @@ def infer(video_path, model_path, output_dir, canonical_path, arena, arena_api, 
                             points[name]=(float(x),float(y),0.,"low_confidence")
                             cv2.circle(image,(round(float(x)),round(float(y))),4,(100,240,200),-1)
                     cv2.rectangle(image,(round(float(box[0])),round(float(box[1]))),(round(float(box[2])),round(float(box[3]))),(200,150,255),2)
-                center=arena_api["torso_center"]([points[name] for name in ("neck","mid_back","hip")])
+                torso_points = [points[name] for name in ("neck", "mid_back", "hip")]
+                center = arena_api["torso_center"](torso_points)
+                if center[3] == "missing":
+                    center = low_confidence_center(torso_points)
                 frames.append({"frameIndex":index,"timestampSec":index/fps,"state":"partial" if box_data else "detector_missing","bbox":box_data,"availablePoints":sum(p[3]!="missing" for p in points.values()),"strongPoints":0,"totalPoints":len(LANDMARKS),"canonicalCenterAvailable":center[3]!="missing","canonicalCenterStatus":center[3]})
                 for name,p in [("body_center",center),*points.items()]:
                     x,y,score,status=p

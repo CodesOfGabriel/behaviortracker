@@ -1,0 +1,273 @@
+"""Pipeline D+F portado do notebook M, com artefatos compatíveis com o app."""
+
+import csv
+import hashlib
+import json
+import math
+from pathlib import Path
+
+import cv2
+import numpy as np
+import pandas as pd
+import torch
+from torchvision.models.detection import fasterrcnn_resnet50_fpn_v2
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+from torchvision.transforms.functional import to_tensor
+
+import deeplabcut.pose_estimation_pytorch as pep
+from deeplabcut.pose_estimation_pytorch.apis.videos import create_df_from_prediction
+from deeplabcut.pose_estimation_pytorch.config import PoseConfig
+
+
+VIDEO = __VIDEO__
+OUTPUT = Path(__OUTPUT__)
+CSV_PATH = __CSV__
+MODELS = Path(__MODELS__)
+ARENA = __ARENA__ or {}
+DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+KEYPOINTS = []
+DETECTOR_THRESHOLD = .30
+BBOX_MARGIN = .12
+FC_THRESHOLD = .60
+
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for block in iter(lambda: handle.read(4 * 1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def polygon(points, width, height, name):
+    if not isinstance(points, list) or len(points) < 3:
+        raise ValueError(f"{name} precisa de ao menos três vértices")
+    result = []
+    for point in points:
+        x, y = float(point["x"]), float(point["y"])
+        if not math.isfinite(x) or not math.isfinite(y) or not 0 <= x <= width or not 0 <= y <= height:
+            raise ValueError(f"{name} possui vértice fora do vídeo")
+        result.append([round(x), round(y)])
+    return np.asarray(result, dtype=np.int32)
+
+
+def arena_mask(width, height, arena):
+    mask = np.full((height, width), 255, dtype=np.uint8)
+    regions = []
+    if arena.get("cornersPx"):
+        regions.append(polygon(arena["cornersPx"], width, height, "piso"))
+    if arena.get("rimCornersPx"):
+        regions.append(polygon(arena["rimCornersPx"], width, height, "borda"))
+    if regions:
+        mask.fill(0)
+        for region in regions:
+            cv2.fillPoly(mask, [region], 255)
+    for index, points in enumerate(arena.get("occlusionPolygonsPx", [])):
+        cv2.fillPoly(mask, [polygon(points, width, height, f"oclusão {index + 1}")], 0)
+    return mask
+
+
+def detector():
+    checkpoint = torch.load(MODELS / "best_detector.pth", map_location="cpu", weights_only=True)
+    if checkpoint.get("num_classes") != 2 or "state_dict" not in checkpoint:
+        raise RuntimeError("Checkpoint do detector incompatível")
+    model = fasterrcnn_resnet50_fpn_v2(weights=None, weights_backbone=None, min_size=640, max_size=1280)
+    features = model.roi_heads.box_predictor.cls_score.in_features
+    model.roi_heads.box_predictor = FastRCNNPredictor(features, 2)
+    model.load_state_dict(checkpoint["state_dict"], strict=True)
+    return model.to(DEVICE).eval()
+
+
+def run_detector(video, mask):
+    capture = cv2.VideoCapture(video)
+    width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = float(capture.get(cv2.CAP_PROP_FPS))
+    if width <= 0 or height <= 0 or not fps > 0:
+        raise RuntimeError("Vídeo sem resolução ou FPS válidos")
+    model = detector()
+    rows, contexts = [], []
+    with torch.inference_mode():
+        while True:
+            ok, frame = capture.read()
+            if not ok:
+                break
+            masked = cv2.bitwise_and(frame, frame, mask=mask)
+            prediction = model([to_tensor(cv2.cvtColor(masked, cv2.COLOR_BGR2RGB)).to(DEVICE)])[0]
+            candidates = [
+                (float(score), box.detach().cpu().numpy(), int(label))
+                for score, label, box in zip(prediction["scores"], prediction["labels"], prediction["boxes"])
+                if int(label) == 1 and float(score) >= DETECTOR_THRESHOLD
+            ]
+            selected = max(candidates, default=None, key=lambda value: value[0])
+            if selected is None:
+                rows.append({"frame": len(rows), "x": "", "y": "", "w": "", "h": "",
+                             "score": 0.0, "observed": False})
+                contexts.append({"bboxes": np.empty((0, 4), np.float32)})
+                continue
+            score, box, _ = selected
+            x1, y1, x2, y2 = box
+            dx, dy = (x2 - x1) * BBOX_MARGIN, (y2 - y1) * BBOX_MARGIN
+            px, py = max(0, x1 - dx), max(0, y1 - dy)
+            qx, qy = min(width, x2 + dx), min(height, y2 + dy)
+            w, h = qx - px, qy - py
+            rows.append({"frame": len(rows), "x": px, "y": py, "w": w, "h": h,
+                         "score": score, "observed": True,
+                         "raw_x1": x1, "raw_y1": y1, "raw_x2": x2, "raw_y2": y2})
+            contexts.append({"bboxes": np.asarray([[px, py, w, h]], dtype=np.float32)})
+    capture.release()
+    if not rows:
+        raise RuntimeError("Vídeo sem frames")
+    pd.DataFrame(rows).to_csv(OUTPUT / "detections.csv", index=False)
+    return rows, contexts, len(rows), fps, width, height
+
+
+def pose_dataframe(video, contexts, count):
+    config = PoseConfig.from_any(str(MODELS / "pytorch_config.yaml"))
+    global KEYPOINTS
+    KEYPOINTS = list(config["metadata"]["bodyparts"])
+    if len(KEYPOINTS) != 27:
+        raise RuntimeError(f"Esperados 27 keypoints; configuração declarou {len(KEYPOINTS)}")
+    runner = pep.get_pose_inference_runner(
+        model_config=config, snapshot_path=str(MODELS / "snapshot-hrnet_w32-001.pt"),
+        max_individuals=1, device="cuda:0", batch_size=2,
+    )
+    iterator = pep.VideoIterator(str(video))
+    iterator.set_context(contexts)
+    predictions = pep.video_inference(
+        video=iterator, pose_runner=runner, detector_runner=None, robust_nframes=True,
+    )
+    if len(predictions) != count:
+        raise RuntimeError(f"Pose desalinhada: {len(predictions)}/{count}")
+    frame_df = create_df_from_prediction(
+        predictions=predictions, dlc_scorer="wistar_extdet_hrnet_adaptada",
+        multi_animal=True, model_cfg=config, output_path=OUTPUT,
+        output_prefix="pose_raw", save_as_csv=True,
+    )
+    raw_csv = OUTPUT / "pose_raw.csv"
+    if not (OUTPUT / "pose_raw.h5").is_file():
+        raise RuntimeError("DeepLabCut não gerou o H5 bruto esperado")
+    if not raw_csv.is_file():
+        frame_df.to_csv(raw_csv)
+    return frame_df
+
+
+def column(frame_df, bodypart, coordinate):
+    matches = [item for item in frame_df.columns if len(item) >= 2 and item[-2] == bodypart and item[-1] == coordinate]
+    if len(matches) != 1:
+        raise RuntimeError(f"Coluna {bodypart}/{coordinate} ambígua ou ausente")
+    return frame_df[matches[0]].to_numpy(dtype=float)
+
+
+def filtered(values):
+    result = []
+    half = 2
+    for index, sample in enumerate(values):
+        x, y, likelihood = sample
+        if not all(math.isfinite(value) for value in (x, y, likelihood)) or likelihood < FC_THRESHOLD:
+            result.append((None, None, likelihood))
+            continue
+        window = [
+            item for item in values[max(0, index - half):min(len(values), index + half + 1)]
+            if all(math.isfinite(value) for value in item) and item[2] >= FC_THRESHOLD
+        ]
+        if len(window) < 3:
+            result.append((None, None, likelihood))
+        else:
+            result.append((float(np.median([item[0] for item in window])),
+                           float(np.median([item[1] for item in window])), likelihood))
+    return result
+
+
+def export_canonical(frame_df, detections, fps, width, height):
+    rows = []
+    for frame in range(len(detections)):
+        detection = detections[frame]
+        bbox = (detection["x"], detection["y"], detection["w"], detection["h"]) if detection["observed"] else ("", "", "", "")
+        for bodypart in KEYPOINTS:
+            x, y, likelihood = column(frame_df, bodypart, "x")[frame], column(frame_df, bodypart, "y")[frame], column(frame_df, bodypart, "likelihood")[frame]
+            valid = all(math.isfinite(value) for value in (x, y, likelihood)) and x >= 0 and y >= 0
+            status = "valid" if valid and likelihood >= FC_THRESHOLD else "low_confidence" if valid else "missing"
+            rows.append([frame, frame / fps, "animal_1", bodypart, x if valid else "", y if valid else "",
+                         max(0., min(1., likelihood)) if math.isfinite(likelihood) else 0., status,
+                         "unknown", bbox[0], bbox[1], bbox[2], bbox[3], "detected"])
+    header = ["frame_index", "timestamp_sec", "animal_id", "keypoint", "x_px", "y_px", "likelihood",
+              "status", "spatial_region", "bbox_x", "bbox_y", "bbox_width", "bbox_height", "source"]
+    with Path(CSV_PATH).open("w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(header)
+        writer.writerows(rows)
+
+
+def export_quality_and_filtered(frame_df, detections, fps):
+    filtered_rows = []
+    quality_rows = []
+    for bodypart in KEYPOINTS:
+        values = list(zip(column(frame_df, bodypart, "x"),
+                          column(frame_df, bodypart, "y"),
+                          column(frame_df, bodypart, "likelihood")))
+        smoothed = filtered(values)
+        for frame, (raw, final) in enumerate(zip(values, smoothed)):
+            rx, ry, likelihood = raw
+            fx, fy, _ = final
+            filtered_rows.append({
+                "frame_index": frame, "keypoint": bodypart,
+                "raw_x_px": rx if math.isfinite(rx) else "",
+                "raw_y_px": ry if math.isfinite(ry) else "",
+                "likelihood": likelihood if math.isfinite(likelihood) else 0.,
+                "filtered_x_px": "" if fx is None else fx,
+                "filtered_y_px": "" if fy is None else fy,
+                "filtered_status": "valid" if fx is not None else "missing",
+            })
+    reference = "mouse_center" if "mouse_center" in KEYPOINTS else None
+    for frame, detection in enumerate(detections):
+        flags = []
+        if not detection["observed"]:
+            flags.append("sem_bbox")
+        if reference is None:
+            flags.append("centro_nao_confiavel")
+        else:
+            likelihood = column(frame_df, reference, "likelihood")[frame]
+            if not math.isfinite(likelihood) or likelihood < FC_THRESHOLD:
+                flags.append("centro_nao_confiavel")
+        quality_rows.append({
+            "frame_index": frame, "timestamp_sec": frame / fps,
+            "observed": detection["observed"], "quality_flags": ";".join(flags),
+        })
+    pd.DataFrame(filtered_rows).to_csv(OUTPUT / "pose_filtered.csv", index=False)
+    pd.DataFrame(quality_rows).to_csv(OUTPUT / "qc_by_frame.csv", index=False)
+
+
+def main():
+    if DEVICE.type != "cuda":
+        raise RuntimeError("Pipeline D+F requer CUDA")
+    OUTPUT.mkdir(parents=True, exist_ok=True)
+    capture = cv2.VideoCapture(VIDEO)
+    width, height = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)), int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    capture.release()
+    mask = arena_mask(width, height, ARENA)
+    detections, contexts, count, fps, width, height = run_detector(VIDEO, mask)
+    pose = pose_dataframe(VIDEO, contexts, count)
+    export_quality_and_filtered(pose, detections, fps)
+    export_canonical(pose, detections, fps, width, height)
+    canonical_path = Path(CSV_PATH)
+    if not canonical_path.is_file() or canonical_path.stat().st_size == 0:
+        raise RuntimeError("O CSV canônico não foi gerado")
+    (OUTPUT / "canonical_pose.csv.complete").write_text("ok", encoding="utf-8")
+    manifest = {
+        "schemaVersion": 1, "pipelineVersion": "hybrid-df-notebook-port-1",
+        "engineId": "wistar_superanimal_hybrid_v1", "modelBundleId": "wistar_df_v1",
+        "sourceSha256": sha256(VIDEO), "frameCount": count, "fps": fps,
+        "frameWidth": width, "frameHeight": height, "keypointCount": len(KEYPOINTS),
+        "detectorThreshold": DETECTOR_THRESHOLD, "bboxMargin": BBOX_MARGIN,
+        "poseLikelihoodThreshold": FC_THRESHOLD,
+        "artifacts": {"detections": "detections.csv", "poseRawCsv": "pose_raw.csv",
+                      "poseRawH5": "pose_raw.h5", "poseFiltered": "pose_filtered.csv",
+                      "quality": "qc_by_frame.csv", "canonical": "canonical_pose.csv"},
+    }
+    (OUTPUT / "run_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    (OUTPUT / "canonical_pose.csv.complete").write_text("ok", encoding="utf-8")
+
+
+if __name__ == "__main__":
+    main()

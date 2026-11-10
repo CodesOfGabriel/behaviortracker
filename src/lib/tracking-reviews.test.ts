@@ -47,8 +47,14 @@ describe("revisões isoladas por fonte e execução",()=>{
     expect(applyCorrections([point],reviewEvents(switched))[0].xPx).toBe(10);
   });
   it("compartilha somente episódios comportamentais confirmados no mesmo vídeo",()=>{
-    const behavior:CorrectionEvent={id:"behavior",type:"ANNOTATE_BEHAVIOR",label:"rearing",startSec:1,endSec:2,createdAt:"now",source:"manual"};
-    const original=select({...makeDemoExperiment(),corrections:[move,behavior]},colab);
+    const videoSha256 = "a".repeat(64);
+    const behavior:CorrectionEvent={id:"behavior",type:"ANNOTATE_BEHAVIOR",label:"rearing",startSec:1,endSec:2,createdAt:"now",source:"manual",sourceVideoSha256:videoSha256};
+    const original=select({...makeDemoExperiment(),video:{...makeDemoExperiment().video,sha256:videoSha256},corrections:[move,behavior]},colab);
     expect(reviewEvents(select(original,local))).toEqual([behavior]);
+  });
+  it("não compartilha candidatos rejeitados entre execuções",()=>{
+    const candidate:CorrectionEvent={id:"candidate",type:"REJECT_CANDIDATE",candidateId:"rearing-1",createdAt:"now",source:"manual"};
+    const original=select({...makeDemoExperiment(),corrections:[candidate]},colab);
+    expect(reviewEvents(select(original,{engine:"colab",jobId:"new"}))).toEqual([]);
   });
 });

@@ -42,6 +42,11 @@ def prepare_geometry(arena, width, height):
         raise ValueError("A resolução do vídeo é diferente da usada para marcar borda e chão; refaça a calibração")
     floor = polygon_points(arena["cornersPx"], width, height) if arena else []
     rim = polygon_points(arena["rimCornersPx"], width, height) if arena and arena.get("rimCornersPx") else []
+    occlusions = []
+    for polygon in (arena or {}).get("occlusionPolygonsPx", []):
+        if not isinstance(polygon, list) or len(polygon) < 3:
+            raise ValueError("Polígono de oclusão precisa de ao menos três vértices")
+        occlusions.append(polygon_points_any(polygon, width, height))
     hull = convex_hull(floor + rim) if rim else []
     crop = None
     if rim:
@@ -54,8 +59,17 @@ def prepare_geometry(arena, width, height):
             "arenaRevision": arena.get("revision") if arena else None,
             "videoWidth": width, "videoHeight": height, "floorCornersPx": floor,
             "rimCornersPx": rim, "enclosureHullPx": hull, "cropping": crop,
+            "occlusionPolygonsPx": occlusions,
             "marginFraction": .05, "outputCoordinateSpace": "original_video_pixels",
             "postureClassification": "not_performed", "occludedPoints": "not_imputed"}
+
+
+def polygon_points_any(points, width, height):
+    result = [(float(point["x"]), float(point["y"])) for point in points]
+    if any(not math.isfinite(x) or not math.isfinite(y) or x < 0 or x > width or y < 0 or y > height
+           for x, y in result):
+        raise ValueError("Vértice de oclusão fora da resolução do vídeo")
+    return result
 
 
 def contains(point, polygon):

@@ -34,6 +34,16 @@ class ArenaTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "resolução"):
             prepare_geometry(self.arena, 1920, 1080)
 
+    def test_preserves_valid_occlusion_polygons_in_geometry_contract(self):
+        polygon = [{"x": 300, "y": 350}, {"x": 350, "y": 350}, {"x": 350, "y": 400}]
+        geometry = prepare_geometry(dict(self.arena, occlusionPolygonsPx=[polygon]), 1000, 1000)
+        self.assertEqual(geometry["occlusionPolygonsPx"], [[(300.0, 350.0), (350.0, 350.0), (350.0, 400.0)]])
+
+    def test_rejects_occlusion_vertices_outside_video(self):
+        polygon = [{"x": -1, "y": 350}, {"x": 350, "y": 350}, {"x": 350, "y": 400}]
+        with self.assertRaisesRegex(ValueError, "oclusão"):
+            prepare_geometry(dict(self.arena, occlusionPolygonsPx=[polygon]), 1000, 1000)
+
     def test_refuses_invalid_geometry_instead_of_running_with_wrong_coordinates(self):
         for points in [quad(-1, 0, 100, 100), quad(0, 0, 1001, 100), quad(1, 1, 2, 2),
                        [{"x": 0, "y": 0}, {"x": 100, "y": 100}, {"x": 0, "y": 100}, {"x": 100, "y": 0}]]:

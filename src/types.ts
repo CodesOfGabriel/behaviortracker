@@ -2,6 +2,7 @@ export type Point = { x: number; y: number };
 export type BoundingBox = { x: number; y: number; width: number; height: number };
 export type TrackingSelection = { engine: "opencv" | "colab"; jobId: string };
 export type Quadrilateral = [Point, Point, Point, Point];
+export type AnalysisEngineId = "superanimal_video_adapt_b_legacy" | "wistar_superanimal_hybrid_v1";
 
 export type ExperimentStatus =
   | "draft"
@@ -28,6 +29,7 @@ export interface VideoMetadata {
   timingSource: "browser-estimate" | "ffprobe" | "synthetic";
   calibrationFrameSec?: number;
   lastModified?: number;
+  sha256?: string;
   preparation?: VideoPreparation;
 }
 
@@ -50,6 +52,9 @@ export interface ArenaConfig {
   heightCm: number;
   centerAreaFraction: number;
   boundaryPolicy: "center_inclusive";
+  occlusionPolygonsPx?: Point[][];
+  calibrationVersion?: string;
+  referenceFrameSec?: number;
 }
 
 export interface CorrectionEvent {
@@ -69,6 +74,10 @@ export interface CorrectionEvent {
   endSec?: number;
   label?: "rearing" | "grooming" | "freezing" | "other";
   candidateId?: string;
+  runId?: string;
+  algorithmVersion?: string;
+  sourceVideoSha256?: string;
+  clockMapVersion?: string;
   source: "manual";
 }
 
@@ -76,6 +85,8 @@ export interface Experiment {
   id: string;
   schemaVersion: "1.0";
   analysisMethodVersion: "oft-0.1" | "oft-0.2";
+  analysisEngine?: AnalysisEngineId;
+  modelBundleId?: string;
   title: string;
   subjectId: string;
   group?: string;
@@ -107,7 +118,10 @@ export type PoseSource = "detected" | "recovered" | "predicted" | "manual" | "se
 
 export interface PoseSample {
   frameIndex: number;
+  normalizedFrameIndex?: number;
+  sourceFrameIndex?: number;
   timestampSec: number;
+  sourceTimestampSec?: number;
   keypoint: string;
   xPx: number | null;
   yPx: number | null;
@@ -123,9 +137,30 @@ export interface PoseSample {
   contour?: Point[];
   reason?: string;
   processingVersion?: string;
+  runId?: string;
+  clockMapVersion?: string;
   uncertaintyPx?: number;
   recoveryState?: "ready" | "unavailable" | "limited" | "not_needed";
   original?: Pick<PoseSample, "xPx" | "yPx" | "likelihood" | "status" | "spatialRegion" | "supportCount" | "supportTotal" | "source" | "bbox" | "contour" | "metricReference" | "referenceApproved">;
+}
+
+export interface FrameClockMap {
+  version: string;
+  normalizedFrameIndex: number;
+  sourceFrameIndex: number | null;
+  normalizedTimestampSec: number;
+  sourceTimestampSec: number | null;
+}
+
+export interface DetectionSample {
+  frameIndex: number;
+  timestampSec: number;
+  observed: boolean;
+  score: number | null;
+  bboxRaw?: BoundingBox | null;
+  bboxPose?: BoundingBox | null;
+  qualityFlags: string[];
+  runId?: string;
 }
 
 export interface OftMetrics {
@@ -143,4 +178,3 @@ export interface OftMetrics {
   centerLatencySec: number | null;
   immobilityTimeSec: number;
 }
-
