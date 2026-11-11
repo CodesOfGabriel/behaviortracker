@@ -71,6 +71,13 @@ try {
   await command("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1080, deviceScaleFactor: 1, mobile: false });
   await command("Page.navigate", { url: process.env.BEHAVETRACKER_PREVIEW_URL ?? "http://127.0.0.1:1420" });
   await click("Novo experimento");
+  await waitFor(`!!document.querySelector('.protocol-option:not(:disabled)')`);
+  assert.equal(await evaluate(`document.querySelectorAll('.protocol-option').length`), 2);
+  assert.ok(await evaluate(`document.querySelector('.protocol-option-disabled').disabled`));
+  assert.ok(await evaluate(`document.querySelector('.brand-mark img').getAttribute('src') === '/RatLogo_white.png'`));
+  const picker = await command("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
+  await writeFile(join(directory, "protocol-picker.png"), Buffer.from(picker.data, "base64"));
+  await evaluate(`document.querySelector('.protocol-option:not(:disabled)').click()`);
   await waitFor(`!!document.querySelector('input[placeholder="Ex.: RAT_001"]')`);
   await evaluate(`(() => { const input = document.querySelector('input[placeholder="Ex.: RAT_001"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'ARENA_UI_TEST'); input.dispatchEvent(new Event('input', {bubbles:true})); })()`);
   await click("Continuar");
@@ -110,6 +117,7 @@ try {
   assert.ok(await evaluate(`document.documentElement.scrollWidth <= innerWidth`), "Overflow horizontal no celular");
   const mobile = await command("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
   await writeFile(join(directory, "mobile.png"), Buffer.from(mobile.data, "base64"));
+  await command("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1080, deviceScaleFactor: 1, mobile: false });
   await click("Continuar");
   await click("Criar e abrir editor");
   await waitFor(`!!document.querySelector('.tracking-overlay')`);
@@ -118,7 +126,7 @@ try {
   assert.equal(experiment.arena.rimCornersPx.length, 4);
   assert.notDeepEqual(experiment.arena.cornersPx, experiment.arena.rimCornersPx);
   assert.equal(experiment.subjectId, "ARENA_UI_TEST");
-  assert.ok(await evaluate(`!!document.querySelector('.tracking-overlay polygon[stroke="#bb9aff"]')`));
+  assert.ok(await evaluate(`!!document.querySelector('.tracking-overlay polygon[stroke="#f0f0ed"]')`));
   await click("Vídeo do DeepLabCut");
   await waitFor(`!!document.querySelector('.dlc-video-panel')`);
   assert.ok(await evaluate(`!document.querySelector('.tracking-overlay')`), "O vídeo bruto do DLC não pode mostrar correções do editor");
@@ -126,15 +134,36 @@ try {
   assert.ok(await evaluate(`!${button("Confirmar ponto após revisar")}`));
   await click("Editor");
   await waitFor(`!!document.querySelector('.tracking-overlay')`);
+  assert.equal(await evaluate(`document.querySelectorAll('.tracking-page select').length`), 0);
+  assert.equal(await evaluate(`document.querySelectorAll('.speed-options button').length`), 4);
+  assert.ok(await evaluate(`!document.querySelector('.tracking-source-bar, .colab-connect-notice, .select-menu-trigger')`));
+  const editor = await command("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
+  await writeFile(join(directory, "editor.png"), Buffer.from(editor.data, "base64"));
+  assert.ok(await evaluate(`!document.querySelector('.video-toolbar .segmented-control:not(.video-source-tabs)')`));
   const tabs = await evaluate(`Array.from(document.querySelectorAll('[role="tab"]')).map(tab => tab.textContent.trim())`);
-  assert.deepEqual(tabs.filter(label => ["Revisar vídeo", "Execuções"].includes(label)), ["Revisar vídeo", "Execuções"]);
+  assert.deepEqual(tabs.filter(label => ["Revisar vídeo", "Execuções"].includes(label)), ["Revisar vídeo"]);
   assert.ok(!tabs.some(label => ["Análise local", "Teste híbrido", "Comportamentos", "Ensinar o modelo", "Testar rastreamento"].includes(label)));
   assert.ok(await evaluate(`!document.querySelector('.behavior-review, .local-hybrid-notice, .diagnostic-panel, .training-panel')`));
   await click("Ver resultados");
   await waitFor(`!!document.querySelector('.results-page')`);
+  assert.ok(await evaluate(`!document.querySelector('.results-context .segmented-control')`));
   assert.ok(await evaluate(`!document.querySelector('.behavior-results')`));
   await click("Exportar");
   assert.ok(await evaluate(`!document.querySelector('.export-drawer').textContent.includes('behaviors.csv')`));
+  await evaluate(`(async () => {
+    const image = new Image(); image.src = '/open-field-background.png'; await image.decode();
+    const canvas = document.createElement('canvas'); canvas.width = 480; canvas.height = 480;
+    canvas.getContext('2d').drawImage(image, 0, 0, 480, 480);
+    const experiments = JSON.parse(localStorage.getItem('behavetracker.experiments.v1'));
+    experiments[0].calibrationThumbnailDataUrl = canvas.toDataURL('image/jpeg', .7);
+    localStorage.setItem('behavetracker.experiments.v1', JSON.stringify(experiments));
+  })()`);
+  await command("Page.reload");
+  await waitFor(`!!document.querySelector('.experiment-thumb.has-image img')`);
+  const thumbnailLayout = await evaluate(`(() => { const card = document.querySelector('.experiment-row').getBoundingClientRect(); const thumb = document.querySelector('.experiment-thumb.has-image').getBoundingClientRect(); const image = document.querySelector('.experiment-thumb.has-image img'); return { card: { width: card.width, height: card.height }, thumb: { width: thumb.width, height: thumb.height }, fit: getComputedStyle(image).objectFit }; })()`);
+  assert.ok(Math.abs(thumbnailLayout.thumb.width - thumbnailLayout.card.width) <= 2 && Math.abs(thumbnailLayout.thumb.height - thumbnailLayout.card.height) <= 2 && thumbnailLayout.fit === "cover", JSON.stringify(thumbnailLayout));
+  const dashboard = await command("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
+  await writeFile(join(directory, "dashboard-card.png"), Buffer.from(dashboard.data, "base64"));
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ arenaSelection: "passed", confirmation: "passed", pointerAndKeyboard: "passed", persistence: "passed", desktopAndMobile: "passed", removedWorkspaces: "passed", resultsWithoutBehaviorPanel: "passed", directory }));
 } catch (error) {

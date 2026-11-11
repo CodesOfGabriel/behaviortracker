@@ -53,7 +53,7 @@ export function BoxOverlay({ box, width, height, drawing, editable, predicted, m
     }}
     onPointerCancel={cancel} onLostPointerCapture={() => { if (drag.current) cancel(); }}>
     {visible && validBox(visible) && <g data-tracking-box="animal">
-      <rect {...visible} fill={manual ? "#bb9aff12" : "none"} stroke={predicted ? "#f7c96b" : manual ? "#bb9aff" : "#d7f169"}
+      <rect {...visible} fill={manual ? "#f0f0ed12" : "none"} stroke={predicted ? "#f7c96b" : manual ? "#f0f0ed" : "#a7adb2"}
         strokeWidth={Math.max(2, width * .002)} strokeDasharray={predicted ? "10 7" : undefined}
         style={{ cursor: editable ? "move" : "default", pointerEvents: editable ? "all" : "none" }} onPointerDown={event => begin(event, visible)} />
       <text x={visible.x} y={Math.max(15, visible.y - 8)} fill="#fff" fontSize={Math.max(12, width * .012)}>
@@ -65,7 +65,7 @@ export function BoxOverlay({ box, width, height, drawing, editable, predicted, m
         [visible.x, visible.y + visible.height, visible.x + visible.width, visible.y],
         [visible.x + visible.width, visible.y + visible.height, visible.x, visible.y],
       ].map(([x, y, ox, oy], index) => <rect key={index} data-box-handle={index} x={x-size/2} y={y-size/2} width={size} height={size}
-        fill="#bb9aff" stroke="#171821" strokeWidth="1" style={{ cursor: index === 0 || index === 3 ? "nwse-resize" : "nesw-resize" }}
+        fill="#f0f0ed" stroke="#171821" strokeWidth="1" style={{ cursor: index === 0 || index === 3 ? "nwse-resize" : "nesw-resize" }}
         onPointerDown={event => begin(event, undefined, { x: ox, y: oy })} />)}
     </g>}
     {drawing && editable && <rect data-box-draw="true" width={width} height={height} fill="transparent" style={{ cursor: "crosshair" }} onPointerDown={event => begin(event)} />}

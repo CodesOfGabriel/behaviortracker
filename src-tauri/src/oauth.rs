@@ -127,7 +127,7 @@ pub(crate) fn open_database(app: &AppHandle) -> CommandResult<Connection> {
     fs::create_dir_all(&data_dir)
         .map_err(|_| "Não foi possível criar o diretório de dados do aplicativo.".to_string())?;
     let connection = Connection::open(data_dir.join("behavetracker.sqlite3"))
-        .map_err(|_| "Não foi possível abrir o banco local do BehaveTracker.".to_string())?;
+        .map_err(|_| "Não foi possível abrir o banco local do Behavior Tracker.".to_string())?;
     connection
         .execute_batch(
             "PRAGMA foreign_keys = ON;
@@ -148,7 +148,7 @@ pub(crate) fn open_database(app: &AppHandle) -> CommandResult<Connection> {
                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
              );",
         )
-        .map_err(|_| "Não foi possível preparar o banco local do BehaveTracker.".to_string())?;
+        .map_err(|_| "Não foi possível preparar o banco local do Behavior Tracker.".to_string())?;
     migrate_credential_state(&connection)?;
     Ok(connection)
 }
@@ -405,9 +405,9 @@ fn send_browser_response(stream: &mut TcpStream, success: bool) {
         "Autorização não concluída"
     };
     let message = if success {
-        "Você pode fechar esta aba e voltar ao BehaveTracker."
+        "Você pode fechar esta aba e voltar ao Behavior Tracker."
     } else {
-        "Volte ao BehaveTracker para consultar o erro."
+        "Volte ao Behavior Tracker para consultar o erro."
     };
     let body = format!(
         "<!doctype html><html lang=\"pt-BR\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><title>{title}</title><style>body{{font-family:system-ui;background:#f5f6f2;color:#153c32;display:grid;place-items:center;min-height:100vh;margin:0}}main{{max-width:440px;background:white;border:1px solid #dfe4dd;border-radius:16px;padding:32px;box-shadow:0 12px 35px #153c3218}}h1{{font-size:24px}}p{{color:#65706b;line-height:1.6}}</style><main><h1>{title}</h1><p>{message}</p></main></html>"

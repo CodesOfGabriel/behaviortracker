@@ -12,6 +12,7 @@ import {
   Ruler,
   UploadCloud,
   Video,
+  Waves,
 } from "lucide-react";
 import { useMemo, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { Badge } from "../../components/ui/Badge";
@@ -21,7 +22,8 @@ import { centerPolygonPx, pointsToSvg, validateArenaRegions } from "../../lib/ge
 import { formatBytes, formatDuration } from "../../lib/format";
 import { useAppStore } from "../../store/AppStore";
 import type { ArenaConfig, Experiment, Point, VideoAsset, VideoMetadata } from "../../types";
-import { prepareVideo } from "../colab/analysis";
+import { getHybridBundleAvailability, importHybridBundle, LATEST_HYBRID_BUNDLE_ID, prepareVideo } from "../colab/analysis";
+import type { HybridBundleStatus } from "../colab/analysis";
 import { isTauriRuntime } from "../colab/connection";
 
 const STEPS = [
@@ -102,7 +104,12 @@ async function captureVideoFrame(element: HTMLVideoElement, requestedTimeSec: nu
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Não foi possível preparar a captura do frame.");
   context.drawImage(element, 0, 0, canvas.width, canvas.height);
-  return { frameDataUrl: canvas.toDataURL("image/jpeg", 0.9), timeSec };
+  const thumbnail = document.createElement("canvas");
+  const scale = Math.min(1, 480 / canvas.width);
+  thumbnail.width = Math.max(1, Math.round(canvas.width * scale));
+  thumbnail.height = Math.max(1, Math.round(canvas.height * scale));
+  thumbnail.getContext("2d")?.drawImage(canvas, 0, 0, thumbnail.width, thumbnail.height);
+  return { frameDataUrl: canvas.toDataURL("image/jpeg", 0.9), thumbnailDataUrl: thumbnail.toDataURL("image/jpeg", 0.72), timeSec };
 }
 
 function ArenaPreview({
@@ -121,7 +128,7 @@ function ArenaPreview({
   const svgRef = useRef<SVGSVGElement>(null);
   const [dragging, setDragging] = useState<number | null>(null);
   const activeCorners = layer === "rim" ? arena.rimCornersPx ?? arena.cornersPx : arena.cornersPx;
-  const color = layer === "rim" ? "#bb9aff" : "#d7f169";
+  const color = layer === "rim" ? "#f1f1ed" : "#a7adb2";
   const center = useMemo(() => {
     try {
       return centerPolygonPx(arena);
@@ -188,13 +195,13 @@ function ArenaPreview({
             </text>
           </>
         )}
-        <polygon points={pointsToSvg(arena.cornersPx)} fill="#d7f169" fillOpacity=".08" stroke="#d7f169" strokeWidth={Math.max(3, metadata.width / 420)} />
+        <polygon points={pointsToSvg(arena.cornersPx)} fill="#a7adb2" fillOpacity=".08" stroke="#a7adb2" strokeWidth={Math.max(3, metadata.width / 420)} />
         {arena.rimCornersPx && <>
-          {arena.rimCornersPx.map((point, index) => <line key={index} x1={point.x} y1={point.y} x2={arena.cornersPx[index].x} y2={arena.cornersPx[index].y} stroke="#bb9aff" strokeOpacity=".45" strokeDasharray="8 6" strokeWidth={Math.max(2, metadata.width / 650)} />)}
-          <polygon points={pointsToSvg(arena.rimCornersPx)} fill="#a67bff" fillOpacity=".04" stroke="#bb9aff" strokeWidth={Math.max(3, metadata.width / 420)} />
+          {arena.rimCornersPx.map((point, index) => <line key={index} x1={point.x} y1={point.y} x2={arena.cornersPx[index].x} y2={arena.cornersPx[index].y} stroke="#f0f0ed" strokeOpacity=".45" strokeDasharray="8 6" strokeWidth={Math.max(2, metadata.width / 650)} />)}
+          <polygon points={pointsToSvg(arena.rimCornersPx)} fill="#f0f0ed" fillOpacity=".04" stroke="#f0f0ed" strokeWidth={Math.max(3, metadata.width / 420)} />
         </>}
         {center.length === 4 && (
-          <polygon points={pointsToSvg(center)} fill="#70d6ad" fillOpacity=".16" stroke="#70d6ad" strokeWidth={Math.max(2, metadata.width / 650)} strokeDasharray="12 8" />
+          <polygon points={pointsToSvg(center)} fill="#85ae98" fillOpacity=".16" stroke="#85ae98" strokeWidth={Math.max(2, metadata.width / 650)} strokeDasharray="12 8" />
         )}
         {activeCorners.map((point, index) => (
           <g
@@ -219,7 +226,7 @@ function ArenaPreview({
             }}
             transform={`translate(${point.x} ${point.y})`}
           >
-            <circle r={metadata.width / 90} fill="#161b28" stroke={color} strokeWidth={metadata.width / 360} />
+            <circle r={metadata.width / 90} fill="#1a211b" stroke={color} strokeWidth={metadata.width / 360} />
             <circle r={metadata.width / 220} fill={color} />
             <text y={-metadata.width / 55} textAnchor="middle" fontSize={metadata.width / 58} fontWeight="700" fill="#fff">
               {layer === "rim" ? "B" : "P"}{index + 1}
@@ -240,10 +247,17 @@ export function NewExperiment() {
   const { navigate, saveExperiment } = useAppStore();
   const [draftId] = useState(() => crypto.randomUUID());
   const [step, setStep] = useState(0);
+  const [protocolSelected, setProtocolSelected] = useState(false);
   const [title, setTitle] = useState("");
   const [subjectId, setSubjectId] = useState("");
   const [group, setGroup] = useState("");
   const [notes, setNotes] = useState("");
+  const modelBundleId = LATEST_HYBRID_BUNDLE_ID;
+  const [bundleStatus, setBundleStatus] = useState<HybridBundleStatus | null>(null);
+  const [bundleDirectory, setBundleDirectory] = useState("");
+  const [bundleError, setBundleError] = useState<string | null>(null);
+  const [importingBundle, setImportingBundle] = useState(false);
+  const [checkingBundle, setCheckingBundle] = useState(false);
   const [video, setVideo] = useState<VideoMetadata | null>(null);
   const [asset, setAsset] = useState<VideoAsset>({});
   const [arena, setArena] = useState<ArenaConfig>(defaultArena);
@@ -263,7 +277,28 @@ export function NewExperiment() {
   );
 
   const regionsConfirmed = confirmedRegions.rim && confirmedRegions.floor;
-  const canContinue = !loadingVideo && [Boolean(subjectId.trim()), Boolean(video), !arenaError && regionsConfirmed, true][step];
+  const canContinue = !loadingVideo && !checkingBundle && [Boolean(subjectId.trim()), Boolean(video), !arenaError && regionsConfirmed, true][step];
+
+  const verifyBundle = async () => {
+    if (!isTauriRuntime()) return true;
+    setCheckingBundle(true);
+    setBundleError(null);
+    try {
+      const status = await getHybridBundleAvailability(modelBundleId);
+      setBundleStatus(status);
+      return status.installed;
+    } catch (error) {
+      setBundleError(String(error));
+      return false;
+    } finally {
+      setCheckingBundle(false);
+    }
+  };
+
+  const continueWizard = async () => {
+    if (step === 0 && !(await verifyBundle())) return;
+    setStep((current) => current + 1);
+  };
 
   const changeRegion = (layer: ArenaLayer, corners: ArenaConfig["cornersPx"]) => {
     setArena((current) => ({ ...current, [layer === "rim" ? "rimCornersPx" : "cornersPx"]: corners }));
@@ -321,7 +356,7 @@ export function NewExperiment() {
       } else setPreparationMessage("A compactação local está disponível no aplicativo desktop. A prévia web mantém o original.");
       if (asset.objectUrl) URL.revokeObjectURL(asset.objectUrl);
       setVideo(metadata);
-      setAsset({ objectUrl, frameDataUrl: captured.frameDataUrl, frameTimeSec: captured.timeSec, file });
+      setAsset({ objectUrl, frameDataUrl: captured.frameDataUrl, thumbnailDataUrl: captured.thumbnailDataUrl, frameTimeSec: captured.timeSec, file });
       setFrameCandidateSec(captured.timeSec);
       setArena((current) => ({ ...current, cornersPx: initialCorners(metadata.width, metadata.height), rimCornersPx: [
         { x: metadata.width * .08, y: metadata.height * .05 }, { x: metadata.width * .92, y: metadata.height * .05 },
@@ -344,7 +379,7 @@ export function NewExperiment() {
     try {
       const element = await openVideo(asset.objectUrl);
       const captured = await captureVideoFrame(element, frameCandidateSec);
-      setAsset((current) => ({ ...current, frameDataUrl: captured.frameDataUrl, frameTimeSec: captured.timeSec }));
+      setAsset((current) => ({ ...current, frameDataUrl: captured.frameDataUrl, thumbnailDataUrl: captured.thumbnailDataUrl, frameTimeSec: captured.timeSec }));
       setVideo((current) => current ? { ...current, calibrationFrameSec: captured.timeSec } : current);
       setFrameCandidateSec(captured.timeSec);
     } catch (error) {
@@ -363,7 +398,7 @@ export function NewExperiment() {
       schemaVersion: "1.0",
       analysisMethodVersion: "oft-0.2",
       analysisEngine: "wistar_superanimal_hybrid_v1",
-      modelBundleId: "wistar_df_v1",
+      modelBundleId,
       title: title.trim() || `Campo aberto · ${subjectId.trim()}`,
       subjectId: subjectId.trim(),
       group: group.trim() || undefined,
@@ -373,17 +408,44 @@ export function NewExperiment() {
       createdAt: now,
       updatedAt: now,
       video,
+      calibrationThumbnailDataUrl: asset.thumbnailDataUrl,
       arena,
-      referencePoint: "body_center",
+      referencePoint: "mouse_center",
       corrections: [],
     };
     saveExperiment(experiment, asset);
     navigate({ name: "editor", experimentId: id });
   };
 
+  if (!protocolSelected) {
+    return (
+      <div className="page wizard-page protocol-page">
+        <button className="back-link" onClick={() => navigate({ name: "dashboard" })}><ArrowLeft size={16} /> Voltar aos experimentos</button>
+        <section className="page-heading protocol-heading">
+          <div>
+            <div className="eyebrow">Novo experimento</div>
+            <h1>Selecione o protocolo</h1>
+            <p>Escolha o tipo de experimento para configurar os dados e o vídeo da sessão.</p>
+          </div>
+        </section>
+        <div className="protocol-options" aria-label="Tipos de experimento">
+          <button type="button" className="protocol-option protocol-option-open-field" onClick={() => setProtocolSelected(true)}>
+            <span className="protocol-option-icon"><FlaskConical size={25} strokeWidth={1.7} /></span>
+            <span className="protocol-option-body"><small>Disponível</small><strong>Campo Aberto</strong><span>Rastreamento do animal, trajetória e ocupação das zonas da arena.</span></span>
+            <ArrowRight size={20} className="protocol-option-arrow" />
+          </button>
+          <button type="button" className="protocol-option protocol-option-forced-swim protocol-option-disabled" disabled aria-describedby="forced-swim-description">
+            <span className="protocol-option-icon"><Waves size={25} strokeWidth={1.7} /></span>
+            <span className="protocol-option-body"><small>Em desenvolvimento</small><strong>Nado Forçado</strong><span id="forced-swim-description">Análise deste protocolo estará disponível em uma versão futura.</span></span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="page wizard-page">
-      <button className="back-link" onClick={() => navigate({ name: "dashboard" })}><ArrowLeft size={16} /> Voltar aos experimentos</button>
+      <button className="back-link" onClick={() => step === 0 ? setProtocolSelected(false) : setStep(step - 1)}><ArrowLeft size={16} /> {step === 0 ? "Alterar protocolo" : "Voltar à etapa anterior"}</button>
       <section className="page-heading wizard-heading">
         <div>
           <div className="eyebrow">Novo experimento</div>
@@ -408,12 +470,16 @@ export function NewExperiment() {
           {step === 0 && (
             <div className="wizard-section">
               <div className="wizard-section-heading"><div className="section-icon"><FlaskConical size={21} /></div><div><h2>Dados do experimento</h2><p>Identifique a unidade científica e o protocolo.</p></div></div>
-              <div className="protocol-card selected">
-                <div className="protocol-visual"><span className="protocol-mouse" /></div>
-                <div><Badge tone="success">MVP</Badge><h3>Teste de campo aberto</h3><p>Um rato, câmera fixa e uma única arena.</p></div>
-                <CheckCircle2 size={21} />
-              </div>
               <div className="form-grid">
+                {isTauriRuntime() && <div className="full">
+                  <p role="status">{checkingBundle ? "Localizando arquivos do modelo…" : bundleStatus?.installed ? "Arquivos do modelo atual encontrados" : bundleStatus?.error || "O modelo mais recente será localizado ao continuar."}</p>
+                  {bundleStatus?.installed === false && <label><span>Pasta com os três arquivos do bundle</span><input value={bundleDirectory} onChange={(event) => setBundleDirectory(event.target.value)} placeholder="Caminho completo da pasta" /></label>}
+                  {bundleStatus?.installed === false && <Button type="button" variant="secondary" disabled={!bundleDirectory.trim()} loading={importingBundle} onClick={() => {
+                    setImportingBundle(true); setBundleError(null);
+                    void importHybridBundle(modelBundleId, bundleDirectory.trim()).then(setBundleStatus).catch((error) => setBundleError(String(error))).finally(() => setImportingBundle(false));
+                  }}>Instalar modelo</Button>}
+                  {bundleError && <p className="form-error">{bundleError}</p>}
+                </div>}
                 <label><span>ID do sujeito <b>*</b></span><input autoFocus value={subjectId} onChange={(event) => setSubjectId(event.target.value)} placeholder="Ex.: RAT_001" /></label>
                 <label><span>Grupo experimental</span><input value={group} onChange={(event) => setGroup(event.target.value)} placeholder="Ex.: Controle" /></label>
                 <label className="full"><span>Nome do experimento</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Gerado automaticamente se ficar vazio" /></label>
@@ -501,7 +567,17 @@ export function NewExperiment() {
                     <label><span>Largura</span><div className="input-suffix"><input type="number" min="1" value={arena.widthCm} onChange={(event) => setArena((current) => ({ ...current, widthCm: Number(event.target.value) }))} /><i>cm</i></div></label>
                     <label><span>Altura</span><div className="input-suffix"><input type="number" min="1" value={arena.heightCm} onChange={(event) => setArena((current) => ({ ...current, heightCm: Number(event.target.value) }))} /><i>cm</i></div></label>
                   </div>
-                  <label><span>Área central</span><select value={arena.centerAreaFraction} onChange={(event) => setArena((current) => ({ ...current, centerAreaFraction: Number(event.target.value) }))}><option value={0.25}>25% da área</option><option value={0.36}>36% da área</option><option value={0.49}>49% da área</option></select></label>
+                  <div className="center-area-field">
+                    <span id="center-area-label">Área central</span>
+                    <div className="center-area-options" role="group" aria-labelledby="center-area-label">
+                      {([0.25, 0.36, 0.49] as const).map((fraction) => (
+                        <button key={fraction} type="button" aria-pressed={arena.centerAreaFraction === fraction}
+                          onClick={() => setArena((current) => ({ ...current, centerAreaFraction: fraction }))}>
+                          <strong>{Math.round(fraction * 100)}%</strong>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <div className="center-explanation"><strong>Centro geométrico</strong><p>A fração é aplicada à área. Em uma arena 60 × 60 cm, 25% resulta em centro 30 × 30 cm.</p></div>
                   <div className="center-explanation"><strong>Animal em pé ou parcialmente visível</strong><p>As paredes ficam dentro do enquadramento do modelo. Cada ponto visível é preservado separadamente; partes ocultas não são inventadas. Estas áreas 2D não confirmam rearing nem recuperam profundidade.</p></div>
                   <div className={arenaError || !regionsConfirmed ? "validation-box invalid" : "validation-box valid"}>{arenaError || !regionsConfirmed ? <Info size={16} /> : <CheckCircle2 size={16} />}<span>{arenaError || (!regionsConfirmed ? "Confirme a borda e o chão antes de continuar." : "Borda e chão confirmados. Medidas calibradas pelo piso.")}</span></div>
@@ -518,15 +594,16 @@ export function NewExperiment() {
                 <div><span>Sujeito</span><strong>{subjectId}</strong><small>{group || "Sem grupo informado"}</small></div>
                 <div><span>Vídeo</span><strong>{video.filename}</strong><small>{formatDuration(video.durationSec)} · {video.width} × {video.height}</small></div>
                 <div><span>Arena</span><strong>{arena.widthCm} × {arena.heightCm} cm</strong><small>Borda + chão confirmados · centro: {Math.round(arena.centerAreaFraction * 100)}% do piso</small></div>
+                <div><span>Modelo de análise</span><strong>Wistar D+F · versão atual</strong><small>Referência anatômica: mouse_center</small></div>
               </div>
               <div className="review-contract"><div><Badge tone="info">Geometria 2D</Badge><h3>Dados que serão preservados</h3></div><ul><li><Check size={15} /> Metadados do vídeo e sistema de coordenadas</li><li><Check size={15} /> Oito vértices: borda e chão na resolução original</li><li><Check size={15} /> Recorte com paredes para o modelo; medidas físicas apenas no chão</li><li><Check size={15} /> Dados brutos e pontos visíveis, sem preenchimento de partes ocultas</li></ul></div>
             </div>
           )}
 
           <footer className="wizard-footer">
-            <Button variant="ghost" onClick={() => step === 0 ? navigate({ name: "dashboard" }) : setStep(step - 1)} icon={<ArrowLeft size={17} />}>{step === 0 ? "Cancelar" : "Voltar"}</Button>
+            <Button variant="ghost" onClick={() => step === 0 ? setProtocolSelected(false) : setStep(step - 1)} icon={<ArrowLeft size={17} />}>{step === 0 ? "Alterar protocolo" : "Voltar"}</Button>
             {step < 3 ? (
-              <Button disabled={!canContinue} onClick={() => setStep(step + 1)}>Continuar <ArrowRight size={17} /></Button>
+              <Button disabled={!canContinue} loading={checkingBundle} onClick={() => void continueWizard()}>Continuar <ArrowRight size={17} /></Button>
             ) : (
               <Button disabled={Boolean(arenaError) || !regionsConfirmed} onClick={createExperiment} icon={<Check size={17} />}>Criar e abrir editor</Button>
             )}

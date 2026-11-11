@@ -22,17 +22,26 @@ const COLAB_API: &str = "https://colaboratory.googleapis.com";
 const MCP_ENDPOINT: &str = "https://colaboratory.googleapis.com/mcp";
 const LOCAL_CHUNK_LIMIT: usize = 8 * 1024 * 1024;
 const REMOTE_CHUNK_SIZE: usize = 1024 * 1024;
+const FAST_REMOTE_CHUNK_SIZE: usize = 4 * 1024 * 1024;
 const MAX_VIDEO_SIZE: i64 = 20 * 1024 * 1024 * 1024;
 const MAX_EXECUTION_ATTEMPTS: usize = 5;
 const BACKGROUND_POLL_INTERVAL_SECS: u64 = 12;
 const MCP_RETRY_BASE_SECS: u64 = 10;
 const MCP_RETRY_MAX_SECS: u64 = 60;
-const HYBRID_BUNDLE_ID: &str = "wistar_df_v1";
-const HYBRID_BUNDLE_FILES: [(&str, &str); 3] = [
-    ("best_detector.pth", "efc08b431067384e46acee488a4d9173d3cf9c1b5c9158dc0606e7371a51dbc2"),
-    ("snapshot-hrnet_w32-001.pt", "d81c8f18ba0729263168b96eab3e09b6bc3d0ee194b131fb381d2526266ff215"),
-    ("pytorch_config.yaml", "847076c1253f53816155fe247ca1448a13039498d902c2d75b24dac9d800f907"),
+const WISTAR_V2_RELEASE: &str = "https://github.com/CodesOfGabriel/behaviortracker/releases/download/models-wistar-df-v2-r1";
+const HYBRID_COMMON_FILES: [(&str, u64, &str); 2] = [
+    ("snapshot-hrnet_w32-001.pt", 118196193, "d81c8f18ba0729263168b96eab3e09b6bc3d0ee194b131fb381d2526266ff215"),
+    ("pytorch_config.yaml", 5996, "847076c1253f53816155fe247ca1448a13039498d902c2d75b24dac9d800f907"),
 ];
+
+fn hybrid_bundle_files(bundle_id: &str) -> CommandResult<[(&'static str, u64, &'static str); 3]> {
+    let detector = match bundle_id {
+        "wistar_df_v1" => ("best_detector.pth", 173406835, "efc08b431067384e46acee488a4d9173d3cf9c1b5c9158dc0606e7371a51dbc2"),
+        "wistar_df_v2" => ("best_detector.pth", 173392347, "211891e0ec5f5b3f56d0f0be5b9255319ce9857284e72e558ccfc9f4ca93eef0"),
+        _ => return Err("Bundle D+F não reconhecido.".into()),
+    };
+    Ok([detector, HYBRID_COMMON_FILES[0], HYBRID_COMMON_FILES[1]])
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -60,6 +69,8 @@ pub struct ColabJob {
     results_ready: bool,
     training: bool,
     custom_model: bool,
+    engine_id: Option<String>,
+    model_bundle_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -251,11 +262,44 @@ fn preferred_runtime(runtimes: Vec<Runtime>, workload: &AnalysisWorkload) -> Opt
         })
 }
 
-fn preferred_spec(specs: Vec<RuntimeSpec>, workload: &AnalysisWorkload) -> Option<RuntimeSpec> {
-    specs
+fn ranked_eligible_specs(specs: Vec<RuntimeSpec>, workload: &AnalysisWorkload) -> Vec<RuntimeSpec> {
+    let mut specs: Vec<_> = specs
         .into_iter()
         .filter(|spec| spec.eligible && spec.key.variant == "VARIANT_GPU")
-        .min_by_key(|spec| runtime_rank(&spec.key, workload))
+        .collect();
+    specs.sort_by_key(|spec| {
+        (
+            runtime_rank(&spec.key, workload),
+            spec.key.accelerator.clone(),
+            spec.key.shape.clone(),
+        )
+    });
+    specs
+}
+
+#[cfg(test)]
+fn preferred_spec(specs: Vec<RuntimeSpec>, workload: &AnalysisWorkload) -> Option<RuntimeSpec> {
+    ranked_eligible_specs(specs, workload).into_iter().next()
+}
+
+fn runtime_attempt_specs(specs: Vec<RuntimeSpec>, workload: &AnalysisWorkload) -> Vec<RuntimeSpec> {
+    let mut seen_accelerators = std::collections::HashSet::new();
+    ranked_eligible_specs(specs, workload)
+        .into_iter()
+        .filter(|spec| seen_accelerators.insert(spec.key.accelerator.to_ascii_uppercase()))
+        .take(2)
+        .collect()
+}
+
+fn is_assignment_capacity_error(error: &Value) -> bool {
+    let message = error
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let exhausted = error.get("code").and_then(Value::as_i64) == Some(8)
+        || message.contains("resource_exhausted");
+    exhausted && !message.contains("quota")
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -479,6 +523,25 @@ pub fn append_video_staging_chunk(
     offset: i64,
     bytes: Vec<u8>,
 ) -> CommandResult<VideoStaging> {
+    append_video_staging_bytes(&app, &upload_id, offset, &bytes)
+}
+
+#[tauri::command]
+pub fn append_video_staging_raw(app: AppHandle, request: tauri::ipc::Request<'_>) -> CommandResult<VideoStaging> {
+    let upload_id = request.headers().get("x-upload-id")
+        .and_then(|value| value.to_str().ok())
+        .ok_or("ID do upload ausente")?;
+    let offset = request.headers().get("x-offset")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<i64>().ok())
+        .ok_or("Offset do vídeo inválido")?;
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("Bloco binário do vídeo ausente".into());
+    };
+    append_video_staging_bytes(&app, upload_id, offset, bytes)
+}
+
+fn append_video_staging_bytes(app: &AppHandle, upload_id: &str, offset: i64, bytes: &[u8]) -> CommandResult<VideoStaging> {
     validate_local_id(&upload_id, "Upload")?;
     if bytes.is_empty() || bytes.len() > LOCAL_CHUNK_LIMIT {
         return Err("Bloco de vídeo inválido.".into());
@@ -516,7 +579,7 @@ pub fn append_video_staging_chunk(
         )
         .map_err(|_| "Não foi possível atualizar o upload temporário.".to_string())?;
     Ok(VideoStaging {
-        upload_id,
+        upload_id: upload_id.to_string(),
         expected_size,
         received_size: next_size,
     })
@@ -590,6 +653,8 @@ fn row_to_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<ColabJob> {
         results_ready: false,
         training: false,
         custom_model: false,
+        engine_id: None,
+        model_bundle_id: None,
     })
 }
 
@@ -616,6 +681,13 @@ fn enrich_job(connection: &Connection, job: &mut ColabJob) -> CommandResult<()> 
         .optional().map_err(|_| "Não foi possível consultar o tipo da execução")?;
     job.diagnostic = range.map(|text| serde_json::from_str(&text).map_err(|_| "Trecho diagnóstico inválido")).transpose()?;
     job.results_ready = connection.query_row("SELECT result_path IS NOT NULL FROM colab_jobs WHERE job_id=?1", [&job.job_id], |row| row.get(0)).map_err(|_| "Não foi possível consultar as poses")?;
+    let geometry: Option<String> = connection.query_row("SELECT geometry_json FROM colab_job_geometry WHERE job_id=?1", [&job.job_id], |row| row.get(0))
+        .optional().map_err(|_| "Não foi possível consultar o bundle da execução")?;
+    if let Some(geometry) = geometry {
+        let value: Value = serde_json::from_str(&geometry).map_err(|_| "Geometria da execução inválida")?;
+        job.engine_id = value["engineId"].as_str().map(str::to_owned);
+        job.model_bundle_id = value["modelBundleId"].as_str().map(str::to_owned);
+    }
     Ok(())
 }
 
@@ -660,6 +732,17 @@ fn update_job(
 ) -> CommandResult<()> {
     let mut connection = open_database(app)?;
     record_job_update(&mut connection, job_id, status, stage, progress, message)
+}
+
+fn record_timing(app: &AppHandle, job_id: &str, phase: &str, started: Instant) {
+    if let Ok(connection) = open_database(app) {
+        let message = format!("Tempo {phase}: {:.1} s", started.elapsed().as_secs_f64());
+        let _ = connection.execute(
+            "INSERT INTO colab_job_events(job_id,stage,status,progress,message)
+             SELECT job_id,'timing',status,progress,?2 FROM colab_jobs WHERE job_id=?1",
+            params![job_id, message],
+        );
+    }
 }
 
 fn record_job_update(
@@ -747,12 +830,12 @@ fn get_runtime(client: &Client, access_token: &str, name: &str) -> CommandResult
     serde_json::from_value(value).map_err(|_| "Runtime Colab inválido.".to_string())
 }
 
-fn choose_or_create_runtime(
+fn find_allocated_runtime(
+    client: &Client,
     access_token: &str,
     workload: &AnalysisWorkload,
     adaptation: bool,
-) -> CommandResult<(Runtime, String)> {
-    let client = api_client()?;
+) -> CommandResult<Option<Runtime>> {
     let response = client
         .get(format!("{COLAB_API}/v1beta/runtimes"))
         .bearer_auth(access_token)
@@ -761,15 +844,28 @@ fn choose_or_create_runtime(
     let value = response_json(response, "Não foi possível listar os runtimes Colab")?;
     let runtimes: RuntimesResponse = serde_json::from_value(value)
         .map_err(|_| "A lista de runtimes Colab é inválida.".to_string())?;
-    let allocated = runtimes.runtimes.into_iter().filter(|runtime| !adaptation ||
-        supports_adaptation_gpu(&runtime.runtime_spec)).collect();
-    if let Some(runtime) = preferred_runtime(allocated, workload) {
-        let selected = get_runtime(&client, access_token, &runtime.name)?;
+    let allocated = runtimes.runtimes.into_iter().filter(|runtime| {
+        !adaptation || supports_adaptation_gpu(&runtime.runtime_spec)
+    }).collect();
+    preferred_runtime(allocated, workload)
+        .map(|runtime| get_runtime(client, access_token, &runtime.name))
+        .transpose()
+}
+
+fn choose_or_create_runtime(
+    access_token: &str,
+    workload: &AnalysisWorkload,
+    adaptation: bool,
+    on_progress: &mut dyn FnMut(&str) -> CommandResult<()>,
+) -> CommandResult<(Runtime, String)> {
+    let client = api_client()?;
+    if let Some(runtime) = find_allocated_runtime(&client, access_token, workload, adaptation)? {
+        let accelerator = runtime.runtime_spec.accelerator.clone();
         return Ok((
-            selected,
+            runtime,
             format!(
                 "Reutilizando GPU já alocada ({}) · {}. Nenhum runtime adicional foi criado.",
-                runtime.runtime_spec.accelerator,
+                accelerator,
                 if adaptation { "A100/H100 para adaptação B" } else { workload.description() }
             ),
         ));
@@ -785,70 +881,77 @@ fn choose_or_create_runtime(
         .map_err(|_| "A lista de runtimes elegíveis é inválida.".to_string())?;
     let eligible = specs.runtime_specs.into_iter().filter(|spec| !adaptation ||
         supports_adaptation_gpu(&spec.key)).collect();
-    let spec = preferred_spec(eligible, workload)
-        .ok_or_else(|| {
+    let options = runtime_attempt_specs(eligible, workload);
+    if options.is_empty() {
+        return Err({
             if adaptation { "O Teste B precisa de A100 ou H100 (34 GiB de VRAM reservada no teste). Nenhum runtime compatível está disponível nesta conta agora." }
             else { "A conta não possui um runtime GPU elegível agora. Verifique a disponibilidade no Colab e tente novamente." }
                 .to_string()
-        })?;
-    let selection_message = format!(
-        "Runtime criado com {} · {} · selecionado entre as opções elegíveis da conta",
-        spec.key.accelerator,
-        if adaptation { "A100/H100 para adaptação B" } else { workload.description() }
-    );
-    let request_id = new_uuid_v4();
-    let runtime_id = format!(
-        "behavetracker-{}",
-        request_id.split('-').next().unwrap_or("job")
-    );
-    let response = client
-        .post(format!("{COLAB_API}/v1beta/runtimes"))
-        .query(&[
-            ("requestId", request_id.as_str()),
-            ("runtimeId", runtime_id.as_str()),
-        ])
-        .bearer_auth(access_token)
-        .json(&json!({ "runtimeSpec": spec.key }))
-        .send()
-        .map_err(|_| "Falha de rede ao criar o runtime Colab.".to_string())?;
-    let mut operation = response_json(response, "Não foi possível criar o runtime Colab")?;
-    let operation_name = operation
-        .get("name")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "A Colab API não retornou a operação de criação.".to_string())?
-        .to_string();
-
-    for _ in 0..150 {
-        if operation.get("done").and_then(Value::as_bool) == Some(true) {
-            if let Some(message) = operation.pointer("/error/message").and_then(Value::as_str) {
-                return Err(format!("A criação do runtime Colab falhou: {message}"));
-            }
-            let runtime_name = operation
-                .pointer("/response/name")
-                .and_then(Value::as_str)
-                .unwrap_or_else(|| {
-                    // The requested runtime name is deterministic even when the operation omits response.
-                    ""
-                });
-            let name = if runtime_name.is_empty() {
-                format!("runtimes/{runtime_id}")
-            } else {
-                runtime_name.to_string()
-            };
-            return Ok((
-                get_runtime(&client, access_token, &name)?,
-                selection_message,
-            ));
-        }
-        thread::sleep(Duration::from_secs(2));
-        let response = client
-            .get(format!("{COLAB_API}/v1/{operation_name}"))
-            .bearer_auth(access_token)
-            .send()
-            .map_err(|_| "Falha de rede ao aguardar o runtime Colab.".to_string())?;
-        operation = response_json(response, "Não foi possível acompanhar a criação do runtime")?;
+        });
     }
-    Err("O runtime Colab não ficou pronto em 5 minutos.".into())
+    let mut capacity_failure = String::new();
+    for (attempt, spec) in options.iter().enumerate() {
+        if attempt > 0 {
+            thread::sleep(Duration::from_secs(10));
+        }
+        on_progress(&format!("Solicitando GPU {} ao Colab (tentativa {}/{})", spec.key.accelerator, attempt + 1, options.len()))?;
+        let request_id = new_uuid_v4();
+        let runtime_id = format!("behavetracker-{}", request_id.split('-').next().unwrap_or("job"));
+        let response = client
+            .post(format!("{COLAB_API}/v1beta/runtimes"))
+            .query(&[("requestId", request_id.as_str()), ("runtimeId", runtime_id.as_str())])
+            .bearer_auth(access_token)
+            .json(&json!({ "runtimeSpec": &spec.key }))
+            .send()
+            .map_err(|_| "Falha de rede ao criar o runtime Colab.".to_string())?;
+        let mut operation = response_json(response, "Não foi possível criar o runtime Colab")?;
+        let operation_name = operation.get("name").and_then(Value::as_str)
+            .ok_or_else(|| "A Colab API não retornou a operação de criação.".to_string())?
+            .to_string();
+
+        let mut finished = false;
+        for _ in 0..150 {
+            if operation.get("done").and_then(Value::as_bool) == Some(true) {
+                finished = true;
+                if let Some(error) = operation.get("error") {
+                    let message = error.get("message").and_then(Value::as_str).unwrap_or("erro sem detalhes");
+                    if !is_assignment_capacity_error(error) {
+                        return Err(format!("A criação do runtime Colab falhou: {message}"));
+                    }
+                    capacity_failure = message.to_string();
+                    break;
+                }
+                let name = operation.pointer("/response/name").and_then(Value::as_str)
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_else(|| format!("runtimes/{runtime_id}"));
+                return Ok((
+                    get_runtime(&client, access_token, &name)?,
+                    format!("Runtime criado com {} · {} · selecionado entre as opções elegíveis da conta",
+                        spec.key.accelerator,
+                        if adaptation { "A100/H100 para adaptação B" } else { workload.description() }),
+                ));
+            }
+            thread::sleep(Duration::from_secs(2));
+            let response = client
+                .get(format!("{COLAB_API}/v1/{operation_name}"))
+                .bearer_auth(access_token)
+                .send()
+                .map_err(|_| "Falha de rede ao aguardar o runtime Colab.".to_string())?;
+            operation = response_json(response, "Não foi possível acompanhar a criação do runtime")?;
+        }
+        if !finished {
+            return Err("O runtime Colab não ficou pronto em 5 minutos.".into());
+        }
+        if let Some(runtime) = find_allocated_runtime(&client, access_token, workload, adaptation)? {
+            let accelerator = runtime.runtime_spec.accelerator.clone();
+            return Ok((runtime, format!("Reutilizando GPU alocada ({accelerator}) após a falha. Nenhuma nova solicitação de runtime foi feita.")));
+        }
+        if let Some(next) = options.get(attempt + 1) {
+            on_progress(&format!("Colab não alocou {}. Aguardando 10 s para tentar {}.", spec.key.accelerator, next.key.accelerator))?;
+        }
+    }
+    let attempted = options.iter().map(|spec| spec.key.accelerator.as_str()).collect::<Vec<_>>().join(", ");
+    Err(format!("O Colab não conseguiu alocar GPU ({attempted}) agora. Aguarde e tente novamente; os arquivos do job ainda não foram enviados ao runtime. Detalhe do Colab: {capacity_failure}"))
 }
 
 fn jupyter_url(connection: &ConnectionInfo, path: &str) -> String {
@@ -877,28 +980,16 @@ fn put_jupyter_model(
     if !response.status().is_success() {
         let status = response.status().as_u16();
         let detail = response.text().unwrap_or_default();
+        let chunk = model.get("chunk").and_then(Value::as_i64)
+            .map(|value| format!(" bloco {value}"))
+            .unwrap_or_default();
         return Err(format!(
-            "O Jupyter recusou o upload (HTTP {status}): {}",
-            detail.chars().take(240).collect::<String>()
+            "O Jupyter recusou o upload de {remote_path}{chunk} (HTTP {status}): {}",
+            if detail.is_empty() { "resposta vazia do proxy".to_string() }
+            else { detail.chars().take(240).collect::<String>() }
         ));
     }
     Ok(())
-}
-
-fn remote_file_size(client: &Client, connection: &ConnectionInfo, remote_path: &str) -> CommandResult<Option<i64>> {
-    let response = client
-        .get(jupyter_url(
-            connection,
-            &format!("api/contents/{remote_path}?content=0"),
-        ))
-        .header("X-Colab-Runtime-Proxy-Token", &connection.token)
-        .send()
-        .map_err(|_| "Falha de rede ao consultar o arquivo remoto.".to_string())?;
-    if response.status() == reqwest::StatusCode::NOT_FOUND {
-        return Ok(None);
-    }
-    let model = response_json(response, "Não foi possível consultar o arquivo remoto")?;
-    Ok(model.get("size").and_then(Value::as_i64))
 }
 
 fn workspace_candidates(absolute_directory: &str) -> Vec<String> {
@@ -975,24 +1066,34 @@ fn upload_video(
     remote_file: &str,
     size: i64,
 ) -> CommandResult<()> {
-    let client = api_client()?;
-    if remote_file_size(&client, connection, remote_file)? == Some(size) {
-        update_job(
-            app,
-            job_id,
-            "running",
-            "uploading",
-            45,
-            "Arquivo já está completo no Colab · reutilizando o upload confirmado",
-        )?;
-        return Ok(());
+    match upload_video_chunks(app, job_id, connection, local_path, remote_file, size, FAST_REMOTE_CHUNK_SIZE) {
+        Ok(()) => Ok(()),
+        Err(error) if ["HTTP 408", "HTTP 413", "HTTP 429", "HTTP 502", "HTTP 503", "HTTP 504", "Falha de rede durante o upload"].iter().any(|code| error.contains(code)) => {
+            update_job(app, job_id, "running", "uploading", 20,
+                "O proxy não aceitou blocos de 4 MiB · reiniciando o arquivo com blocos de 1 MiB")?;
+            upload_video_chunks(app, job_id, connection, local_path, remote_file, size, REMOTE_CHUNK_SIZE)
+        }
+        Err(error) => Err(error),
     }
+}
+
+fn upload_video_chunks(
+    app: &AppHandle,
+    job_id: &str,
+    connection: &ConnectionInfo,
+    local_path: &Path,
+    remote_file: &str,
+    size: i64,
+    chunk_size: usize,
+) -> CommandResult<()> {
+    let client = api_client()?;
     let mut file = File::open(local_path)
         .map_err(|_| "O vídeo temporário não está mais disponível.".to_string())?;
-    let mut buffer = vec![0_u8; REMOTE_CHUNK_SIZE];
+    let mut buffer = vec![0_u8; chunk_size];
     let mut sent = 0_i64;
     let mut chunk_number = 1_i64;
-    let chunked = size > REMOTE_CHUNK_SIZE as i64;
+    let chunked = size > chunk_size as i64;
+    let display_name = remote_file.rsplit('/').next().unwrap_or("arquivo");
     let mut last_percent = -1;
     loop {
         let read = file
@@ -1026,13 +1127,34 @@ fn upload_video(
             "uploading",
             progress,
             &format!(
-                "Enviando vídeo ao Colab · {}%",
+                "Enviando {display_name} ao Colab · {}%",
                 ((sent * 100) / size).min(100)
             ),
         )?;
     }
     if sent != size {
         return Err("O upload remoto terminou com tamanho incorreto.".into());
+    }
+    Ok(())
+}
+
+fn reuse_cached_video(app: &AppHandle, job: &str, session: &str, video: &str, digest: &str) -> Result<bool, AnalysisFailure> {
+    let cache = format!("/content/behavetracker/videos/{digest}");
+    let code = format!(
+        "import hashlib,os,shutil\nfrom pathlib import Path\nsrc=Path({cache:?});dst=Path({video:?})\nif src.is_file():\n    h=hashlib.sha256()\n    with src.open('rb') as f:\n        for block in iter(lambda:f.read(1048576),b''): h.update(block)\n    if h.hexdigest()=={digest:?}:\n        dst.parent.mkdir(parents=True,exist_ok=True)\n        dst.unlink(missing_ok=True)\n        try: os.link(src,dst)\n        except OSError: shutil.copyfile(src,dst)\n        print('BEHAVETRACKER_VIDEO_CACHED')"
+    );
+    let result = execute_job_code(app, job, &google_access_token(app, PROFILE_ID)?, session, &code)?;
+    Ok(result["stdout"].as_str().unwrap_or("").contains("BEHAVETRACKER_VIDEO_CACHED"))
+}
+
+fn cache_verified_video(app: &AppHandle, job: &str, session: &str, video: &str, digest: &str) -> Result<(), AnalysisFailure> {
+    let cache = format!("/content/behavetracker/videos/{digest}");
+    let code = format!(
+        "import os,shutil\nfrom pathlib import Path\nsrc=Path({video:?});dst=Path({cache:?})\ndst.parent.mkdir(parents=True,exist_ok=True)\ndst.unlink(missing_ok=True)\ntry: os.link(src,dst)\nexcept OSError: shutil.copyfile(src,dst)\nprint('BEHAVETRACKER_VIDEO_CACHE_READY')"
+    );
+    let result = execute_job_code(app, job, &google_access_token(app, PROFILE_ID)?, session, &code)?;
+    if !result["stdout"].as_str().unwrap_or("").contains("BEHAVETRACKER_VIDEO_CACHE_READY") {
+        return Err("O runtime não confirmou o cache do vídeo.".into());
     }
     Ok(())
 }
@@ -1479,7 +1601,9 @@ fn run_background_task(
     monitor_background_with(
         &background_launch_code(directory, task, source),
         &background_poll_code(directory, task),
-        if task == "setup" {
+        if task.starts_with("model_") {
+            "Baixando e validando pesos do modelo"
+        } else if task == "setup" {
             if job.training||job.custom_model {"Preparando ambiente PyTorch"}else{"Preparando DeepLabCut"}
         } else if job.training {
             "Treinando detector e pontos personalizados"
@@ -1509,7 +1633,7 @@ fn run_background_task(
             .and_then(|_| fs::rename(temporary, &log_path))
             .map_err(|_| "Não foi possível salvar o log técnico da execução.".into())
         },
-        || thread::sleep(Duration::from_secs(BACKGROUND_POLL_INTERVAL_SECS)),
+        || thread::sleep(Duration::from_secs(if task.starts_with("model_") { 2 } else { BACKGROUND_POLL_INTERVAL_SECS })),
     )
 }
 
@@ -1978,71 +2102,65 @@ fn download_remote_artifact(
     app: &AppHandle,
     job_id: &str,
     session: &str,
+    connection: &ConnectionInfo,
     remote_path: &str,
     local_path: &Path,
 ) -> Result<(), AnalysisFailure> {
     let path_literal = format!("{remote_path:?}");
-    let size_payload = execute_job_code(
+    let metadata_payload = execute_job_code(
         app,
         job_id,
         &google_access_token(app, PROFILE_ID)?,
         session,
         &format!(
-            "from pathlib import Path\np=Path({path_literal})\nif not p.is_file(): raise FileNotFoundError(str(p))\nprint('BEHAVETRACKER_FILE_SIZE='+str(p.stat().st_size))"
+            "import hashlib,json\nfrom pathlib import Path\np=Path({path_literal})\nif not p.is_file(): raise FileNotFoundError(str(p))\nh=hashlib.sha256()\nwith p.open('rb') as f:\n    for block in iter(lambda:f.read(1048576),b''): h.update(block)\nprint('BEHAVETRACKER_FILE_META='+json.dumps(dict(size=p.stat().st_size,sha256=h.hexdigest())))"
         ),
     )?;
-    let size = size_payload
+    let metadata = metadata_payload
         .get("stdout")
         .and_then(Value::as_str)
-        .and_then(|stdout| {
-            stdout.lines().find_map(|line| {
-                line.strip_prefix("BEHAVETRACKER_FILE_SIZE=")
-                    .and_then(|value| value.parse::<u64>().ok())
-            })
-        })
-        .ok_or("O runtime não informou o tamanho do artefato.")?;
-    let mut output = File::create(local_path)
-        .map_err(|_| "Não foi possível criar o artefato local.".to_string())?;
-    let mut offset = 0_u64;
-    const CHUNK_SIZE: u64 = 256 * 1024;
-    while offset < size {
-        let length = (size - offset).min(CHUNK_SIZE);
-        let payload = execute_job_code(
-            app,
-            job_id,
-            &google_access_token(app, PROFILE_ID)?,
-            session,
-            &format!(
-                "import base64\nfrom pathlib import Path\np=Path({path_literal})\nwith p.open('rb') as f:\n    f.seek({offset})\n    data=f.read({length})\nprint('BEHAVETRACKER_FILE_CHUNK='+base64.b64encode(data).decode('ascii'))"
-            ),
-        )?;
-        let encoded = payload
-            .get("stdout")
-            .and_then(Value::as_str)
-            .and_then(|stdout| {
-                stdout.lines().find_map(|line| {
-                    line.strip_prefix("BEHAVETRACKER_FILE_CHUNK=")
-                })
-            })
-            .ok_or("O runtime não retornou um bloco do artefato.")?;
-        let chunk = STANDARD
-            .decode(encoded)
-            .map_err(|_| "O runtime retornou um bloco inválido.")?;
-        if chunk.len() != length as usize {
-            return Err("O tamanho do bloco retornado pelo runtime é inválido.".into());
+        .and_then(|stdout| stdout.lines().find_map(|line| line.strip_prefix("BEHAVETRACKER_FILE_META=")))
+        .and_then(|value| serde_json::from_str::<Value>(value).ok())
+        .ok_or_else(|| {
+            format!("O runtime não publicou o artefato esperado: {remote_path}. A execução Python foi marcada como concluída, mas o arquivo não existe no output.")
+        })?;
+    let size = metadata["size"].as_u64().ok_or("Tamanho do artefato remoto inválido")?;
+    let digest = metadata["sha256"].as_str().filter(|value| value.len() == 64 && value.bytes().all(|c| c.is_ascii_hexdigit()))
+        .ok_or("SHA-256 do artefato remoto inválido")?;
+    publish_verified_artifact(connection, remote_path, local_path, size, digest).map_err(Into::into)
+}
+
+fn publish_verified_artifact(connection: &ConnectionInfo, remote_path: &str, local_path: &Path, size: u64, digest: &str) -> CommandResult<()> {
+    let filename = local_path.file_name().and_then(|name| name.to_str()).ok_or("Nome do artefato local inválido")?;
+    let temporary = local_path.with_file_name(format!("{filename}.partial"));
+    let _ = fs::remove_file(&temporary);
+    let result = (|| -> CommandResult<()> {
+        let client = Client::builder().timeout(Duration::from_secs(600)).build()
+            .map_err(|_| "Não foi possível iniciar o download do artefato")?;
+        let mut found = false;
+        for candidate in jupyter_path_candidates(remote_path) {
+            let mut response = client.get(jupyter_url(connection, &format!("files/{candidate}")))
+                .header("X-Colab-Runtime-Proxy-Token", &connection.token).send()
+                .map_err(|_| "Falha de rede ao baixar o artefato")?;
+            if response.status() == reqwest::StatusCode::NOT_FOUND { continue; }
+            if !response.status().is_success() {
+                return Err(format!("O Jupyter recusou o artefato (HTTP {})", response.status().as_u16()));
+            }
+            let mut output = File::create(&temporary).map_err(|_| "Não foi possível salvar o artefato temporário")?;
+            std::io::copy(&mut response, &mut output).map_err(|_| "Download do artefato interrompido")?;
+            found = true;
+            break;
         }
-        output
-            .write_all(&chunk)
-            .map_err(|_| "Falha ao salvar o artefato local.".to_string())?;
-        offset += length;
-    }
-    if fs::metadata(local_path)
-        .map_err(|_| "Não foi possível validar o artefato local.".to_string())?
-        .len() != size
-    {
-        return Err("O artefato local ficou incompleto.".into());
-    }
-    Ok(())
+        if !found { return Err("O Jupyter não disponibilizou o artefato pela rota binária /files".into()); }
+        if fs::metadata(&temporary).map_err(|_| "Artefato local indisponível")?.len() != size
+            || crate::video::sha256(&temporary)? != digest {
+            return Err("Integridade SHA-256 do artefato recebido não confirmada".into());
+        }
+        fs::rename(&temporary, local_path).map_err(|_| "Não foi possível publicar o artefato local".to_string())?;
+        Ok(())
+    })();
+    if result.is_err() { let _ = fs::remove_file(&temporary); }
+    result
 }
 
 fn download_labeled_video(connection: &ConnectionInfo, remote_output: &str, directory: &Path, job_id: &str) -> CommandResult<PathBuf> {
@@ -2056,7 +2174,7 @@ fn download_labeled_video(connection: &ConnectionInfo, remote_output: &str, dire
     if manifest["available"].as_bool() != Some(true) {
         return Err(manifest["error"].as_str().unwrap_or("O vídeo do DeepLabCut não foi gerado").chars().take(1500).collect());
     }
-    if manifest["filename"].as_str() != Some("dlc_labeled.mp4") || ![Some("deeplabcut_raw_h5"),Some("behavetracker-keypoint-rcnn-v1")].contains(&manifest["source"].as_str()) {
+    if manifest["filename"].as_str() != Some("dlc_labeled.mp4") || ![Some("deeplabcut_raw_h5"),Some("behavetracker-keypoint-rcnn-v1"),Some("behavetracker-hybrid-df-v2")].contains(&manifest["source"].as_str()) {
         return Err("Origem do vídeo de resultado não reconhecida".into());
     }
     let bytes = manifest["sizeBytes"].as_u64().filter(|size| *size > 0 && *size <= MAX_VIDEO_SIZE as u64).ok_or("Tamanho inválido do vídeo rotulado")?;
@@ -2088,42 +2206,122 @@ if not Path({csv:?}+'.complete').is_file():
 "#,source=include_str!("../python/custom_model.py"),geometry=include_str!("../python/arena.py"),arena=serde_json::to_string(&arena).unwrap(),range=serde_json::to_string(&range).unwrap())
 }
 
-fn hybrid_bundle_paths(app: &AppHandle) -> CommandResult<Vec<(String, String)>> {
-    let mut roots = Vec::new();
-    let mut add_root = |root: PathBuf| {
-        if !roots.iter().any(|candidate| candidate == &root) {
-            roots.push(root);
-        }
-    };
-    if let Ok(root) = std::env::current_dir() {
-        for candidate in root.ancestors() {
-            add_root(candidate.to_path_buf());
-        }
-    }
-    if let Ok(executable) = std::env::current_exe() {
-        if let Some(parent) = executable.parent() {
-            for candidate in parent.ancestors() {
-                add_root(candidate.to_path_buf());
-            }
-        }
-    }
-    if let Ok(root) = app.path().resource_dir() {
-        add_root(root.clone());
-        add_root(root.join("models"));
-    }
-    if let Ok(root) = app.path().app_data_dir() {
-        add_root(root.clone());
-        add_root(root.join("models"));
-    }
-    HYBRID_BUNDLE_FILES.iter().map(|(filename, expected)| {
-        let path = roots.iter().map(|root| root.join(filename)).find(|path| path.is_file())
-            .ok_or_else(|| format!("Arquivo do bundle D+F ausente: {filename}"))?;
-        let digest = crate::video::sha256(&path)?;
-        if digest != *expected {
-            return Err(format!("SHA-256 inesperado no bundle D+F: {filename}"));
+fn validate_hybrid_directory(root: &Path, bundle_id: &str) -> CommandResult<Vec<(String, String)>> {
+    hybrid_bundle_files(bundle_id)?.iter().map(|(filename, size, expected)| {
+        let path = root.join(filename);
+        let metadata = fs::metadata(&path).map_err(|_| format!("Arquivo do bundle {bundle_id} ausente: {filename}"))?;
+        if metadata.len() != *size || crate::video::sha256(&path)? != *expected {
+            return Err(format!("Integridade inválida no bundle {bundle_id}: {filename}"));
         }
         Ok((filename.to_string(), path.to_string_lossy().into_owned()))
     }).collect()
+}
+
+fn hybrid_bundle_paths(app: &AppHandle, bundle_id: &str) -> CommandResult<Vec<(String, String)>> {
+    hybrid_bundle_files(bundle_id)?;
+    let packaged = app.path().resource_dir().ok().map(|root| root.join("models").join(bundle_id));
+    let installed = app.path().app_data_dir().map_err(|_| "Diretório do app indisponível")?.join("models").join(bundle_id);
+    let mut roots = Vec::new();
+    if bundle_id == "wistar_df_v2" { roots.extend(packaged.clone()); }
+    roots.push(installed);
+    if bundle_id != "wistar_df_v2" { roots.extend(packaged); }
+    roots.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("models").join(bundle_id));
+    let mut invalid = None;
+    for root in roots {
+        if root.is_dir() {
+            match validate_hybrid_directory(&root, bundle_id) {
+                Ok(files) => return Ok(files),
+                Err(error) => invalid = Some(error),
+            }
+        }
+    }
+    if let Some(error) = invalid { return Err(error); }
+    Err(format!("Bundle {bundle_id} ausente. Instale os três arquivos verificados antes de enviar o vídeo."))
+}
+
+#[tauri::command]
+pub async fn hybrid_bundle_status(app: AppHandle, bundle_id: String) -> CommandResult<Value> {
+    tauri::async_runtime::spawn_blocking(move || {
+        hybrid_bundle_files(&bundle_id)?;
+        match hybrid_bundle_paths(&app, &bundle_id) {
+            Ok(_) => Ok(json!({"bundleId": bundle_id, "installed": true, "error": null})),
+            Err(error) => Ok(json!({"bundleId": bundle_id, "installed": false, "error": error})),
+        }
+    }).await.map_err(|_| "Falha ao verificar o bundle em segundo plano".to_string())?
+}
+
+#[tauri::command]
+pub async fn hybrid_bundle_available(app: AppHandle, bundle_id: String) -> CommandResult<Value> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let files = hybrid_bundle_files(&bundle_id)?;
+        let packaged = app.path().resource_dir().ok().map(|root| root.join("models").join(&bundle_id));
+        let installed = app.path().app_data_dir().map_err(|_| "Diretório do app indisponível")?.join("models").join(&bundle_id);
+        let mut roots = Vec::new();
+        if bundle_id == "wistar_df_v2" { roots.extend(packaged.clone()); }
+        roots.push(installed);
+        if bundle_id != "wistar_df_v2" { roots.extend(packaged); }
+        roots.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("models").join(&bundle_id));
+        let available = roots.iter().any(|root| files.iter().all(|(filename, size, _)| {
+            fs::metadata(root.join(filename)).is_ok_and(|metadata| metadata.is_file() && metadata.len() == *size)
+        }));
+        Ok(json!({"bundleId": bundle_id, "installed": available, "error": if available { None } else { Some("Arquivos do modelo ausentes ou incompletos. Instale o bundle antes de continuar.") }}))
+    }).await.map_err(|_| "Falha ao localizar o bundle em segundo plano".to_string())?
+}
+
+#[tauri::command]
+pub async fn import_hybrid_bundle(app: AppHandle, bundle_id: String, source_directory: String) -> CommandResult<Value> {
+    tauri::async_runtime::spawn_blocking(move || import_hybrid_bundle_blocking(&app, &bundle_id, &source_directory))
+        .await.map_err(|_| "Falha ao importar o bundle em segundo plano".to_string())?
+}
+
+fn import_hybrid_bundle_blocking(app: &AppHandle, bundle_id: &str, source_directory: &str) -> CommandResult<Value> {
+    hybrid_bundle_files(&bundle_id)?;
+    let source = Path::new(&source_directory);
+    validate_hybrid_directory(source, &bundle_id)?;
+    let destination = app.path().app_data_dir().map_err(|_| "Diretório do app indisponível")?
+        .join("models").join(&bundle_id);
+    fs::create_dir_all(&destination).map_err(|_| "Não foi possível criar a pasta dos modelos")?;
+    for (filename, _, _) in hybrid_bundle_files(&bundle_id)? {
+        let temporary = destination.join(format!("{filename}.partial"));
+        fs::copy(source.join(filename), &temporary).map_err(|_| format!("Não foi possível copiar {filename}"))?;
+        if let Err(error) = validate_hybrid_file(&temporary, filename, &bundle_id) {
+            let _ = fs::remove_file(&temporary);
+            return Err(error);
+        }
+        let installed = destination.join(filename);
+        if installed.is_file() && validate_hybrid_file(&installed, filename, &bundle_id).is_ok() {
+            fs::remove_file(&temporary).map_err(|_| format!("Não foi possível limpar {filename}"))?;
+            continue;
+        }
+        if installed.exists() { fs::remove_file(&installed).map_err(|_| format!("Não foi possível substituir {filename}"))?; }
+        fs::rename(&temporary, &installed).map_err(|_| format!("Não foi possível instalar {filename}"))?;
+    }
+    validate_hybrid_directory(&destination, &bundle_id)?;
+    Ok(json!({"bundleId": bundle_id, "installed": true, "error": null}))
+}
+
+fn validate_hybrid_file(path: &Path, filename: &str, bundle_id: &str) -> CommandResult<()> {
+    let (_, size, expected) = hybrid_bundle_files(bundle_id)?.into_iter()
+        .find(|(name, _, _)| *name == filename).ok_or("Arquivo do bundle desconhecido")?;
+    if fs::metadata(path).map_err(|_| "Arquivo do bundle ausente")?.len() != size
+        || crate::video::sha256(path)? != expected {
+        return Err(format!("Integridade inválida no bundle {bundle_id}: {filename}"));
+    }
+    Ok(())
+}
+
+fn release_model_task(filename: &str) -> Option<&'static str> {
+    match filename {
+        "best_detector.pth" => Some("model_detector"),
+        "snapshot-hrnet_w32-001.pt" => Some("model_hrnet"),
+        "pytorch_config.yaml" => Some("model_config"),
+        _ => None,
+    }
+}
+
+fn release_model_code(filename: &str, destination: &str, size: u64, digest: &str) -> String {
+    let url = format!("{WISTAR_V2_RELEASE}/{filename}");
+    format!("{}\nfetch_model({url:?}, {destination:?}, {size}, {digest:?})\n", include_str!("../python/model_delivery.py"))
 }
 
 fn upload_hybrid_bundle(
@@ -2134,14 +2332,12 @@ fn upload_hybrid_bundle(
     remote_directory: &str,
     bundle_id: Option<&str>,
 ) -> Result<Option<String>, AnalysisFailure> {
-    if bundle_id != Some(HYBRID_BUNDLE_ID) {
-        return Err("Bundle D+F não reconhecido.".into());
-    }
-    let files = hybrid_bundle_paths(app)?;
+    let bundle_id = bundle_id.ok_or("Bundle D+F não informado.")?;
+    let files = hybrid_bundle_paths(app, bundle_id)?;
     let parent = remote_directory.rsplit_once('/').map(|(value, _)| value)
         .ok_or("Pasta remota inválida")?;
-    let remote_root = format!("{parent}/models/{HYBRID_BUNDLE_ID}");
-    let remote_root_absolute = format!("/content/behavetracker/models/{HYBRID_BUNDLE_ID}");
+    let remote_root = format!("{parent}/models/{bundle_id}");
+    let remote_root_absolute = format!("/content/behavetracker/models/{bundle_id}");
     let mkdir_code = format!(
         "from pathlib import Path\nPath({remote_root_absolute:?}).mkdir(parents=True, exist_ok=True)\nprint('BEHAVETRACKER_HYBRID_DIR_READY')"
     );
@@ -2159,22 +2355,72 @@ fn upload_hybrid_bundle(
     {
         return Err("O Colab não conseguiu preparar a pasta remota do bundle D+F.".into());
     }
+    let mut upload_connection = connection.clone();
+    let mut release_available = bundle_id == "wistar_df_v2";
     for (filename, path) in files {
         let local = Path::new(&path);
         let size = fs::metadata(local).map_err(|_| format!("Arquivo do bundle indisponível: {filename}"))?.len() as i64;
         let digest = crate::video::sha256(local)?;
         let remote = format!("{remote_root}/{filename}");
-        let destination = format!("/content/behavetracker/models/{HYBRID_BUNDLE_ID}/{filename}");
+        let destination = format!("/content/behavetracker/models/{bundle_id}/{filename}");
         let cache_check = format!(
             "from pathlib import Path\nimport hashlib\np=Path({destination:?})\nh=hashlib.sha256()\nif p.is_file():\n    with p.open('rb') as f:\n        for b in iter(lambda:f.read(1048576),b''): h.update(b)\nprint('BEHAVETRACKER_HYBRID_CACHED' if p.is_file() and h.hexdigest()=={digest:?} else 'BEHAVETRACKER_HYBRID_MISSING')"
         );
         let response = execute_job_code(app, job, &google_access_token(app, PROFILE_ID)?, session, &cache_check)?;
         if !response["stdout"].as_str().unwrap_or("").contains("BEHAVETRACKER_HYBRID_CACHED") {
-            upload_video(app, job, connection, local, &remote, size)?;
+            if release_available {
+                let task = release_model_task(&filename).ok_or("Arquivo desconhecido na release do modelo")?;
+                update_job(app, job, "running", "uploading", 20,
+                    &format!("Baixando {filename} da release versionada diretamente no Colab"))?;
+                let code = release_model_code(&filename, &destination, size as u64, &digest);
+                match run_background_task(app, job, session, &format!("/content/behavetracker/{job}"), task, &code) {
+                    Ok(()) => {
+                        verify_remote_file(app, job, session, &destination, &digest)?;
+                        update_job(app, job, "running", "uploading", 20,
+                            &format!("{filename} baixado e validado no Colab · SHA-256 confirmado"))?;
+                        continue;
+                    }
+                    Err(error) if error.preserve_session => return Err(error),
+                    Err(error) => {
+                        release_available = false;
+                        update_job(app, job, "running", "uploading", 20,
+                            &format!("Download da release indisponível para {filename} ({}) · usando o envio local", error.message.chars().take(180).collect::<String>()))?;
+                    }
+                }
+            }
+            update_job(app, job, "running", "uploading", 20,
+                &format!("Enviando {filename} do bundle {bundle_id} ao Colab"))?;
+            let mut retried = false;
+            loop {
+                match upload_video(app, job, &upload_connection, local, &remote, size) {
+                    Ok(()) => break,
+                    Err(error) if !retried && error.contains("HTTP 404") => {
+                        retried = true;
+                        update_job(app, job, "running", "uploading", 20,
+                            &format!("A rota do Jupyter falhou durante {filename}; renovando a conexão da mesma GPU"))?;
+                        let runtime_name = session.split("/sessions/").next().ok_or("Sessão Colab inválida")?;
+                        let token = google_access_token(app, PROFILE_ID)?;
+                        let refreshed = get_runtime(&api_client()?, &token, runtime_name)?;
+                        let fresh_connection = refreshed.connection_info
+                            .ok_or("O runtime não forneceu uma nova conexão para o upload")?;
+                        let workspace = format!("/content/behavetracker/{job}");
+                        let mapped = resolve_jupyter_workspace(&fresh_connection, &workspace, job)?;
+                        if mapped != remote_directory {
+                            return Err("A rota do Jupyter mudou durante o upload. O job foi preservado sem enviar o vídeo; tente novamente.".into());
+                        }
+                        let ready = execute_job_code(app, job, &token, session, &mkdir_code)?;
+                        if !ready["stdout"].as_str().unwrap_or("").contains("BEHAVETRACKER_HYBRID_DIR_READY") {
+                            return Err("O runtime não confirmou a pasta do bundle após renovar a conexão.".into());
+                        }
+                        upload_connection = fresh_connection;
+                    }
+                    Err(error) => return Err(format!("Falha no upload de {filename} do bundle {bundle_id}: {error}").into()),
+                }
+            }
             verify_remote_file(app, job, session, &destination, &digest)?;
         }
     }
-    Ok(Some(format!("/content/behavetracker/models/{HYBRID_BUNDLE_ID}")))
+    Ok(Some(format!("/content/behavetracker/models/{bundle_id}")))
 }
 
 fn prepare_hybrid_environment(app: &AppHandle, job: &str, session: &str, directory: &str) -> Result<(), AnalysisFailure> {
@@ -2186,7 +2432,8 @@ fn prepare_hybrid_environment(app: &AppHandle, job: &str, session: &str, directo
     Ok(())
 }
 
-fn hybrid_code(video: &str, output: &str, csv: &str, arena: Option<&AnalysisArena>, models: &str) -> String {
+fn hybrid_code(video: &str, output: &str, csv: &str, arena: Option<&AnalysisArena>, models: &str, bundle_id: &str) -> String {
+    let files = hybrid_bundle_files(bundle_id).expect("bundle validado antes da execução");
     let arena_literal = match serde_json::to_string(&arena).unwrap() {
         value if value == "null" => "None".to_string(),
         value => format!("json.loads({value:?})"),
@@ -2196,8 +2443,18 @@ fn hybrid_code(video: &str, output: &str, csv: &str, arena: Option<&AnalysisAren
         .replace("__OUTPUT__", &serde_json::to_string(output).unwrap())
         .replace("__CSV__", &serde_json::to_string(csv).unwrap())
         .replace("__MODELS__", &serde_json::to_string(models).unwrap())
+        .replace("__MODEL_BUNDLE_ID__", &serde_json::to_string(bundle_id).unwrap())
+        .replace("__DETECTOR_SHA256__", &format!("{:?}", files[0].2))
+        .replace("__POSE_SHA256__", &format!("{:?}", files[1].2))
+        .replace("__CONFIG_SHA256__", &format!("{:?}", files[2].2))
         .replace("__ARENA__", &arena_literal);
-    format!("import runpy\nfrom pathlib import Path\np=Path({output:?})/'hybrid_pipeline.py'\np.parent.mkdir(parents=True, exist_ok=True)\np.write_text({source:?},encoding='utf-8')\nrunpy.run_path(str(p), run_name='__main__')\n")
+    let detector_source = include_str!("../python/hybrid/detector_wistar.py");
+    format!("import runpy,sys\nfrom pathlib import Path\np=Path({output:?})/'hybrid_pipeline.py'\np.parent.mkdir(parents=True, exist_ok=True)\nh=p.parent/'hybrid'\nh.mkdir(exist_ok=True)\n(h/'__init__.py').write_text('')\n(h/'detector_wistar.py').write_text({detector_source:?},encoding='utf-8')\np.write_text({source:?},encoding='utf-8')\nsys.path.insert(0,str(p.parent))\nrunpy.run_path(str(p), run_name='__main__')\n")
+}
+fn hybrid_render_code(video: &str, output: &str, arena: Option<&AnalysisArena>) -> String {
+    let source = include_str!("../python/hybrid_render.py");
+    let geometry = serde_json::to_string(&arena).expect("arena serializável");
+    format!("import json,runpy\nfrom pathlib import Path\np=Path({output:?})/'hybrid_render.py'\np.write_text({source:?},encoding='utf-8')\nrunpy.run_path(str(p))['render']({video:?},{output:?},json.loads({geometry:?}))\n")
 }
 fn custom_environment_code()->String {"import torch,torchvision,cv2\nfrom PIL import Image\nif not torch.cuda.is_available(): raise RuntimeError('CUDA não está disponível no runtime. Selecione uma sessão GPU.')\ntorchvision.ops.nms(torch.zeros((0,4),device='cuda'),torch.zeros(0,device='cuda'),0.5)\nprint('BEHAVETRACKER_CUSTOM_ENV_OK '+torch.__version__+' '+torchvision.__version__)".into()}
 fn prepare_custom_environment(app:&AppHandle,job:&str,session:&str,directory:&str)->Result<(),AnalysisFailure>{
@@ -2239,7 +2496,7 @@ pub(crate) fn start_training(app:AppHandle,experiment_id:String,job_id:String,da
 }
 fn run_training(app:AppHandle,job:&str,dataset:&Path,digest:&str,epochs:u32)->CommandResult<()> {
     update_job(&app,job,"running","runtime",10,"Localizando GPU elegível para treinamento experimental")?;
-    let token=google_access_token(&app,PROFILE_ID)?;let(runtime,reason)=choose_or_create_runtime(&token,&AnalysisWorkload{width:1280,height:720,duration_sec:0.},false)?;
+    let token=google_access_token(&app,PROFILE_ID)?;let(runtime,reason)=choose_or_create_runtime(&token,&AnalysisWorkload{width:1280,height:720,duration_sec:0.},false,&mut |message| update_job(&app,job,"running","runtime",10,message))?;
     update_job(&app,job,"running","runtime",12,&reason)?;
     let connection=runtime.connection_info.clone().ok_or("Runtime não informou conexão Jupyter")?;
     let session=format!("{}/sessions/behavetracker-{}",runtime.name,job.split('-').next().unwrap_or("train"));
@@ -2298,6 +2555,7 @@ fn run_analysis(
     engine_id: String,
     model_bundle_id: Option<String>,
 ) -> CommandResult<()> {
+    let preparation_started = Instant::now();
     prepare_tables(&app)?;
     update_job(&app, &job_id, "running", "authorizing", 2, "Preparando o vídeo local sem reduzir resolução ou FPS")?;
     let upload_id = if let Some(range) = &diagnostic {
@@ -2335,6 +2593,7 @@ fn run_analysis(
     if ready == 0 || sha256.is_none() {
         return Err("Finalize o envio local do vídeo antes de iniciar a análise.".into());
     }
+    record_timing(&app, &job_id, "preparo local do job", preparation_started);
 
     update_job(
         &app,
@@ -2357,6 +2616,7 @@ fn run_analysis(
         &access_token,
         &runtime_workload,
         diagnostic.is_none() && engine_id == "superanimal_video_adapt_b_legacy",
+        &mut |message| update_job(&app, &job_id, "running", "runtime", 10, message),
     )?;
     update_job(&app, &job_id, "running", "runtime", 12, &selection_message)?;
     if runtime.name.is_empty() {
@@ -2426,11 +2686,13 @@ fn run_analysis(
         )?;
         let remote_directory =
             resolve_jupyter_workspace(&connection, &absolute_directory, &job_id)?;
+        let models_started = Instant::now();
         let hybrid_models = if engine_id == "wistar_superanimal_hybrid_v1" {
             upload_hybrid_bundle(&app, &job_id, &connection, &session, &remote_directory, model_bundle_id.as_deref())?
         } else {
             None
         };
+        if hybrid_models.is_some() { record_timing(&app, &job_id, "modelos", models_started); }
         update_job(
             &app,
             &job_id,
@@ -2443,14 +2705,14 @@ fn run_analysis(
             "{remote_directory}/input{}",
             safe_extension(&original_filename)
         );
-        upload_video(
-            &app,
-            &job_id,
-            &connection,
-            Path::new(&local_path),
-            &remote_video,
-            size,
-        )?;
+        let video_digest = sha256.as_deref().ok_or("SHA-256 do vídeo indisponível")?;
+        let video_started = Instant::now();
+        if reuse_cached_video(&app, &job_id, &session, &absolute_video, video_digest)? {
+            update_job(&app, &job_id, "running", "uploading", 45,
+                "Vídeo idêntico encontrado e conferido no runtime · reutilizando sem upload")?;
+        } else {
+            upload_video(&app, &job_id, &connection, Path::new(&local_path), &remote_video, size)?;
+        }
         let custom_model=ensure_remote_model(&app,&job_id,&session,&connection,&remote_directory,&absolute_directory)?;
         update_job(
             &app,
@@ -2464,7 +2726,7 @@ fn run_analysis(
             "import hashlib\nfrom pathlib import Path\np=Path({:?})\nif not p.is_file():\n    raise RuntimeError('O runtime perdeu o vídeo após o envio. A sessão pode ter reiniciado. Inicie a análise novamente.')\nif p.stat().st_size != {}:\n    raise RuntimeError('O vídeo recebido está incompleto ou foi alterado: tamanho diferente do original.')\nh=hashlib.sha256()\nwith p.open('rb') as f:\n    for b in iter(lambda:f.read(1048576), b''): h.update(b)\nif h.hexdigest() != {:?}:\n    raise RuntimeError('O vídeo recebido não corresponde ao original: SHA-256 diferente.')\nprint('BEHAVETRACKER_VIDEO_OK')",
             absolute_video,
             size,
-            sha256.unwrap_or_default()
+            video_digest
         );
         let verified = execute_job_code(&app, &job_id, &access_token, &session, &verification)?;
         if !verified
@@ -2475,6 +2737,8 @@ fn run_analysis(
         {
             return Err("O Colab não confirmou a integridade do vídeo enviado.".into());
         }
+        let _ = cache_verified_video(&app, &job_id, &session, &absolute_video, video_digest);
+        record_timing(&app, &job_id, "vídeo até SHA-256 remoto", video_started);
         update_job(
             &app,
             &job_id,
@@ -2508,12 +2772,14 @@ fn run_analysis(
                 &format!("{remote_output}/canonical_pose.csv"),
                 arena.as_ref(),
                 hybrid_models.as_deref().ok_or("Bundle D+F não enviado")?,
+                model_bundle_id.as_deref().ok_or("Bundle D+F não informado")?,
             )
         } else if let Some(model)=&custom_model {custom_code(&absolute_video,model,&remote_output,&remote_csv,arena.as_ref(),diagnostic.as_ref())} else if let Some(range) = &diagnostic {
             diagnostic_code(&absolute_video, &remote_output, &remote_csv, arena.as_ref(), range)
         } else {
             inference_code(&absolute_video, &remote_output, &remote_csv, arena.as_ref())
         };
+        let inference_started = Instant::now();
         run_background_task(
             &app,
             &job_id,
@@ -2522,6 +2788,7 @@ fn run_analysis(
             "inference",
             &code,
         )?;
+        record_timing(&app, &job_id, "inferência", inference_started);
         update_job(
             &app,
             &job_id,
@@ -2543,11 +2810,13 @@ fn run_analysis(
         let refreshed_connection = refreshed_runtime.connection_info.ok_or_else(|| {
             "O runtime não renovou os dados de conexão para o download.".to_string()
         })?;
+        let download_started = Instant::now();
         if engine_id == "wistar_superanimal_hybrid_v1" {
             download_remote_artifact(
                 &app,
                 &job_id,
                 &session,
+                &refreshed_connection,
                 &format!("{remote_output}/canonical_pose.csv"),
                 &result_path,
             )?;
@@ -2572,11 +2841,13 @@ fn run_analysis(
                     &app,
                     &job_id,
                     &session,
+                    &refreshed_connection,
                     &format!("{remote_output}/{artifact}"),
                     &artifact_path,
                 )?;
             }
         }
+        record_timing(&app, &job_id, "artefatos", download_started);
         open_database(&app)?
             .execute(
                 "UPDATE colab_jobs SET result_path = ?2 WHERE job_id = ?1",
@@ -2584,14 +2855,30 @@ fn run_analysis(
             )
             .map_err(|_| "Não foi possível registrar o resultado do job.".to_string())?;
         if engine_id == "wistar_superanimal_hybrid_v1" {
-            update_job(
-                &app,
-                &job_id,
-                "succeeded",
-                "completed",
-                100,
-                "Rastreamento D+F concluído · poses, detecções, QC e manifesto disponíveis",
-            )?;
+            update_job(&app, &job_id, "running", "rendering", 94, "Poses D+F disponíveis · gerando vídeo de inspeção")?;
+            let render_started = Instant::now();
+            let render = hybrid_render_code(&absolute_video, &remote_output, arena.as_ref());
+            let video_result = match run_background_task(&app, &job_id, &session, &absolute_directory, "render", &render) {
+                Ok(_) => {
+                    (|| -> CommandResult<PathBuf> {
+                        let token = google_access_token(&app, PROFILE_ID)?;
+                        let refreshed = get_runtime(&api_client()?, &token, &runtime.name)
+                            .map_err(|error| format!("{error:?}"))?;
+                        let connection = refreshed.connection_info.ok_or("O runtime não renovou a conexão para receber o vídeo D+F")?;
+                        download_labeled_video(&connection, &format!("{remote_directory}/output"), &result_directory, &job_id)
+                    })()
+                },
+                Err(error) => Err(format!("Falha ao renderizar o vídeo D+F: {error:?}")),
+            };
+            let (video_path, video_error) = match video_result {
+                Ok(path) => (Some(path.to_string_lossy().into_owned()), None),
+                Err(error) => (None, Some(error)),
+            };
+            record_timing(&app, &job_id, "render e vídeo rotulado", render_started);
+            open_database(&app)?.execute("INSERT OR REPLACE INTO colab_job_artifacts (job_id,labeled_video_path,video_error) VALUES (?1,?2,?3)",
+                params![&job_id, video_path, video_error]).map_err(|_| "Não foi possível registrar o vídeo D+F")?;
+            update_job(&app, &job_id, "succeeded", "completed", 100,
+                if video_error.is_none() { "Rastreamento D+F concluído · vídeo disponível" } else { "Poses D+F disponíveis · vídeo indisponível; consulte o aviso" })?;
             return Ok(());
         }
         if diagnostic.is_some() {
@@ -2654,9 +2941,8 @@ pub fn start_colab_analysis(
         if request.engine_id != "wistar_superanimal_hybrid_v1" {
             return Err("Motor de análise não reconhecido.".into());
         }
-        if request.model_bundle_id.as_deref() != Some(HYBRID_BUNDLE_ID) {
-            return Err("O pipeline D+F requer o bundle wistar_df_v1 validado.".into());
-        }
+        let bundle_id = request.model_bundle_id.as_deref().ok_or("Bundle D+F não informado.")?;
+        hybrid_bundle_paths(&app, bundle_id)?;
     }
     if request.diagnostic.is_some() {
         return Err("O teste de rastreamento foi removido. Use Analisar no Colab para processar o vídeo completo.".into());
@@ -2697,7 +2983,7 @@ pub fn start_colab_analysis(
         return Ok(active);
     }
     let job_id = new_uuid_v4();
-    // Versões experimentais antigas permanecem no disco, mas novas análises usam SuperAnimal.
+    // A seleção do bundle pertence ao job e permanece no registro da geometria.
     let selected_model: Option<(String, PathBuf, String)> = None;
     let transaction = connection
         .unchecked_transaction()
@@ -2940,8 +3226,9 @@ pub fn recover_interrupted_jobs(app: &AppHandle) -> CommandResult<()> {
 mod tests {
     use super::{
         background_launch_code, background_poll_code, background_report, execute_with_recovery,
-        inference_code, job_events, monitor_background_with, new_uuid_v4, parse_mcp_payload,
-        preferred_runtime, preferred_spec, prepare_environment_with, read_sse_reply,
+        inference_code, is_assignment_capacity_error, job_events, monitor_background_with,
+        new_uuid_v4, parse_mcp_payload, preferred_runtime, preferred_spec,
+        prepare_environment_with, read_sse_reply, runtime_attempt_specs,
         record_job_update, resolve_jupyter_workspace, safe_extension, supports_adaptation_gpu, workspace_gpu, download_labeled_video, AnalysisArena,
         AnalysisFailure, AnalysisWorkload, ConnectionInfo, McpFailure, Runtime, RuntimeSpec,
         RuntimeSpecKey, MAX_EXECUTION_ATTEMPTS,
@@ -2953,6 +3240,49 @@ mod tests {
         net::TcpListener,
         thread,
     };
+
+    #[test]
+    fn hybrid_bundle_ids_keep_distinct_detector_hashes() {
+        let v1 = super::hybrid_bundle_files("wistar_df_v1").unwrap();
+        let v2 = super::hybrid_bundle_files("wistar_df_v2").unwrap();
+        assert_ne!(v1[0].2, v2[0].2);
+        assert_eq!(&v1[1..], &v2[1..]);
+        assert!(super::hybrid_bundle_files("other").is_err());
+    }
+
+    #[test]
+    fn release_model_script_uses_pinned_asset_and_expected_integrity() {
+        let (name, size, digest) = super::hybrid_bundle_files("wistar_df_v2").unwrap()[0];
+        let source = super::release_model_code(name, "/content/behavetracker/models/wistar_df_v2/best_detector.pth", size, digest);
+        assert!(source.contains("/releases/download/models-wistar-df-v2-r1/best_detector.pth"));
+        assert!(source.contains(digest));
+        assert!(source.contains(&size.to_string()));
+        assert_eq!(super::release_model_task(name), Some("model_detector"));
+        assert_eq!(super::release_model_task("unknown"), None);
+        use std::process::{Command, Stdio};
+        let mut child = Command::new("python3").arg("-c").arg("import ast,sys; ast.parse(sys.stdin.read())")
+            .stdin(Stdio::piped()).spawn().unwrap();
+        child.stdin.take().unwrap().write_all(source.as_bytes()).unwrap();
+        assert!(child.wait().unwrap().success());
+    }
+
+    #[test]
+    fn generated_hybrid_scripts_select_bundle_and_parse() {
+        use std::process::{Command, Stdio};
+        for bundle in ["wistar_df_v1", "wistar_df_v2"] {
+            let source = super::hybrid_code("video.mp4", "/tmp/output", "/tmp/output/canonical_pose.csv", None, "/tmp/models", bundle);
+            assert!(source.contains(bundle));
+            let mut child = Command::new("python3").arg("-c").arg("import ast,sys; ast.parse(sys.stdin.read())")
+                .stdin(Stdio::piped()).spawn().unwrap();
+            child.stdin.take().unwrap().write_all(source.as_bytes()).unwrap();
+            assert!(child.wait().unwrap().success());
+        }
+        let render = super::hybrid_render_code("video.mp4", "/tmp/output", None);
+        let mut child = Command::new("python3").arg("-c").arg("import ast,sys; ast.parse(sys.stdin.read())")
+            .stdin(Stdio::piped()).spawn().unwrap();
+        child.stdin.take().unwrap().write_all(render.as_bytes()).unwrap();
+        assert!(child.wait().unwrap().success());
+    }
 
     #[test]
     fn custom_checkpoint_is_published_only_after_integrity_validation(){
@@ -3026,6 +3356,35 @@ mod tests {
             if correct_digest { assert_eq!(std::fs::read(result.unwrap()).unwrap(), video); }
             else { assert!(result.is_err()); assert!(!directory.join("test-job-dlc.mp4").exists()); }
             assert!(!directory.join("test-job-dlc.mp4.partial").exists());
+            server.join().unwrap();
+            std::fs::remove_dir_all(directory).unwrap();
+        }
+    }
+
+    #[test]
+    fn artifact_stream_is_published_only_with_matching_sha256() {
+        use sha2::{Digest, Sha256};
+        let body = b"frame,x,y\n0,1,2\n";
+        for correct_digest in [true, false] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0; 4096];
+                let count = stream.read(&mut request).unwrap();
+                assert!(String::from_utf8_lossy(&request[..count]).contains("/files/behavetracker/job/output/result.csv"));
+                write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).unwrap();
+                stream.write_all(body).unwrap();
+            });
+            let directory = std::env::temp_dir().join(format!("behavetracker-artifact-download-{}", new_uuid_v4()));
+            std::fs::create_dir_all(&directory).unwrap();
+            let local = directory.join("result.csv");
+            let connection = ConnectionInfo { url: format!("http://{address}"), token: "test-proxy-token".into() };
+            let digest = if correct_digest { format!("{:x}", Sha256::digest(body)) } else { "0".repeat(64) };
+            let result = super::publish_verified_artifact(&connection, "behavetracker/job/output/result.csv", &local, body.len() as u64, &digest);
+            assert_eq!(result.is_ok(), correct_digest);
+            assert_eq!(local.exists(), correct_digest);
+            assert!(!directory.join("result.csv.partial").exists());
             server.join().unwrap();
             std::fs::remove_dir_all(directory).unwrap();
         }
@@ -3344,6 +3703,37 @@ mod tests {
         }
         .validate()
         .is_err());
+    }
+
+    #[test]
+    fn retries_only_a_second_eligible_gpu_class_after_assignment_exhaustion() {
+        let workload = AnalysisWorkload::default();
+        let mut a100_highmem = gpu_spec("NVIDIA_A100", true);
+        a100_highmem.key.shape = "SHAPE_HIGHMEM".into();
+        let options = runtime_attempt_specs(vec![
+            gpu_spec("NVIDIA_T4", true),
+            a100_highmem,
+            gpu_spec("NVIDIA_L4", false),
+            gpu_spec("NVIDIA_A100", true),
+            gpu_spec("NVIDIA_H100", true),
+        ], &workload);
+        assert_eq!(options.len(), 2);
+        assert_eq!(options[0].key.accelerator, "NVIDIA_H100");
+        assert_eq!(options[1].key.accelerator, "NVIDIA_A100");
+        assert_eq!(options[1].key.shape, "SHAPE_STANDARD");
+
+        assert!(is_assignment_capacity_error(&json!({
+            "code": 8,
+            "message": "CreateAssignment: generic::resource_exhausted: assignWithRetry: context deadline exceeded"
+        })));
+        assert!(!is_assignment_capacity_error(&json!({
+            "code": 8,
+            "message": "RESOURCE_EXHAUSTED: quota exceeded"
+        })));
+        assert!(!is_assignment_capacity_error(&json!({
+            "code": 9,
+            "message": "FAILED_PRECONDITION: subscription unavailable"
+        })));
     }
 
     #[test]

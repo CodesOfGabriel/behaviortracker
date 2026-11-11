@@ -41,10 +41,14 @@ pub fn run() {
             oauth::delete_google_oauth_config,
             colab::begin_video_staging,
             colab::append_video_staging_chunk,
+            colab::append_video_staging_raw,
             colab::finish_video_staging,
             video::prepare_analysis_video,
             video::check_video_staging,
             colab::start_colab_analysis,
+            colab::hybrid_bundle_status,
+            colab::hybrid_bundle_available,
+            colab::import_hybrid_bundle,
             colab::get_colab_job,
             colab::get_colab_job_log,
             colab::get_colab_job_result,
@@ -53,5 +57,5 @@ pub fn run() {
             colab::list_colab_jobs
         ])
         .run(tauri::generate_context!())
-        .expect("error while running BehaveTracker");
+        .expect("error while running Behavior Tracker");
 }

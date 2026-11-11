@@ -112,6 +112,7 @@ class WorkerTests(unittest.TestCase):
 
     def test_render_has_its_own_worker_and_lock(self):
         self.assertNotEqual(worker.paths(self.directory,"render")["status"], worker.paths(self.directory,"inference")["status"])
+        self.assertNotEqual(worker.paths(self.directory,"model_detector")["status"], worker.paths(self.directory,"model_hrnet")["status"])
         with self.assertRaises(ValueError): worker.paths(self.directory,"../render")
 
     def test_visual_recovery_replaces_old_detector_percentage_in_progress(self):

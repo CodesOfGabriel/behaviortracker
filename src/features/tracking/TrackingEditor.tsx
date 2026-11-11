@@ -7,6 +7,7 @@ import {
   ChevronRight,
   CircleDot,
   CloudCog,
+  Plus,
   Clock3,
   Eye,
   EyeOff,
@@ -33,6 +34,7 @@ import {
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { EditorTabs } from "../../components/ui/EditorTabs";
+import { SelectMenu } from "../../components/ui/SelectMenu";
 import { activeCorrectionEvents, applyCorrections } from "../../lib/corrections";
 import { hasUnassignedCorrections, reviewEvents, selectTrackingReview, trackingSourceKey } from "../../lib/tracking-reviews";
 import { parseCanonicalPoseCsv } from "../../lib/csv";
@@ -48,6 +50,7 @@ import {
   loadColabVideo,
   loadColabJobs,
   checkVideoStaging,
+  getHybridBundleStatus,
   prepareVideo,
   startColabJob,
   waitForColabJob,
@@ -58,8 +61,11 @@ import { loadLocalResult } from "../local/api";
 import { BoxOverlay } from "./BoxOverlay";
 import {
   COLAB_PROFILE_ID,
+  COLAB_STATUS_EVENT,
+  emptyColabSummary,
   isTauriRuntime,
   loadColabSummary,
+  type OAuthProfileSummary,
 } from "../colab/connection";
 
 const statusInfo: Record<PoseStatus, { label: string; tone: "success" | "warning" | "danger" | "neutral" }> = {
@@ -74,6 +80,7 @@ const keypointLabels: Record<string, string> = {
   box_center: "Centro da caixa · referência 2D",
   silhouette_center: "Centroide da silhueta",
   body_center: "Centro corporal",
+  mouse_center: "Centro corporal (HRNet)",
   nose: "Focinho",
   tail_base: "Base da cauda",
   left_ear: "Orelha esquerda",
@@ -124,6 +131,8 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     setAsset,
     trackingData,
     setTrackingData,
+    analysisActivity,
+    setAnalysisActivity,
   } = useAppStore();
   const experiment = getExperiment(experimentId);
   const asset = assets[experimentId];
@@ -145,8 +154,10 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   const [showTrajectory, setShowTrajectory] = useState(true);
   const [csvError, setCsvError] = useState<string | null>(null);
   const [analysisJob, setAnalysisJob] = useState<ColabJob | null>(null);
-  const [analysisMessage, setAnalysisMessage] = useState("");
-  const [analysisStarting, setAnalysisStarting] = useState(false);
+  const analysisStarting = analysisActivity[experimentId]?.starting ?? false;
+  const analysisMessage = analysisActivity[experimentId]?.message ?? "";
+  const analysisError = analysisActivity[experimentId]?.error ?? null;
+  const [colabSummary, setColabSummary] = useState<OAuthProfileSummary>(emptyColabSummary);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("review");
   const [inspectorTab, setInspectorTab] = useState<"points" | "history">("points");
   const [sourceLoading,setSourceLoading]=useState(false);
@@ -157,6 +168,18 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   const [drag, setDrag] = useState<PointDrag | null>(null);
   const dragRef = useRef<PointDrag | null>(null);
   const [correctionMessage, setCorrectionMessage] = useState("");
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let active = true;
+    let revision = 0;
+    const onStatus = (event: Event) => { revision += 1; setColabSummary((event as CustomEvent<OAuthProfileSummary>).detail); };
+    window.addEventListener(COLAB_STATUS_EVENT, onStatus);
+    const requestRevision = ++revision;
+    void loadColabSummary().then((summary) => { if (active && revision === requestRevision) setColabSummary(summary); }).catch(() => {
+      if (active && revision === requestRevision) setColabSummary(emptyColabSummary);
+    });
+    return () => { active = false; window.removeEventListener(COLAB_STATUS_EVENT, onStatus); };
+  }, []);
   const latestResultJob = experiment?.trackingSelection?.engine === "opencv" ? undefined
     : experiment?.trackingSelection?.engine === "colab" ? analysisHistory.find(job => job.jobId === experiment.trackingSelection?.jobId)
     : analysisHistory.find((job) => job.resultsReady || job.status === "succeeded");
@@ -167,7 +190,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     videoRef.current?.pause(); setPlaying(false); dragRef.current=null;setDrag(null);setPlacingPoint(false);setDrawingBox(false);
     setTrackingData(experimentId,samples);
     updateExperiment(experimentId,current=>selectTrackingReview(current,selection,samples));
-    setCurrentTime(samples[0].timestampSec);setSelectedKeypoint(samples.some(s=>s.keypoint==="box_center")?"box_center":samples.some(s=>s.keypoint==="body_center")?"body_center":samples[0].keypoint);
+    setCurrentTime(samples[0].timestampSec);setSelectedKeypoint(samples.some(s=>s.keypoint==="box_center")?"box_center":samples.some(s=>s.keypoint==="mouse_center")?"mouse_center":samples.some(s=>s.keypoint==="body_center")?"body_center":samples[0].keypoint);
     setVideoView("editor");setViewMode("reviewed");setCsvError(null);setCorrectionMessage("Fonte carregada. Cada execução mantém suas próprias correções.");
   },[experimentId,setTrackingData,updateExperiment]);
 
@@ -224,7 +247,6 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
 
   const inputSamples = trackingData[experimentId] ?? [];
   const rawSamples = useMemo(() => inputSamples.map(originalPose), [inputSamples]);
-  const versionC = inputSamples.some((sample) => sample.processingVersion === "dlc-adapted-trajectory-c-1");
   const [placingPoint, setPlacingPoint] = useState(false);
   const sourceEvents = useMemo(() => experiment ? reviewEvents(experiment) : [],[experiment]);
   const correctedSamples = useMemo(
@@ -531,8 +553,13 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   };
 
   const runColabAnalysis = async (selectedFile?: File) => {
+    if (analysisStarting) return;
     if (!isTauriRuntime()) {
       setCsvError("A análise Colab só pode ser iniciada no aplicativo desktop Tauri.");
+      return;
+    }
+    if (!colabSummary.connected) {
+      setCsvError("Conecte sua conta Google Colab antes de iniciar a análise.");
       return;
     }
     const videoFile = selectedFile ?? asset?.file;
@@ -543,15 +570,26 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
       videoFileRef.current?.click();
       return;
     }
-    setAnalysisStarting(true);
-    setWorkspaceTab("runs");
+    setAnalysisActivity(experimentId, { starting: true, message: "Verificando a conexão com o Colab", error: null });
     setAnalysisJob(null);
     setSelectedJobId(null);
     setJobClock(Date.now());
-    setAnalysisMessage("Verificando a conexão com o Colab");
     setCsvError(null);
     const sourceAtStart=sourceRequestRef.current;
     try {
+      const connection = await loadColabSummary();
+      setColabSummary(connection);
+      if (!connection.connected) throw new Error("A Conta Google não está conectada. Abra Google Colab na barra lateral.");
+      if (connection.providerError) throw new Error(connection.providerError);
+      if (connection.eligibleGpuCount < 1) throw new Error("Sua conta não possui um runtime GPU elegível neste momento.");
+      const bundleId = experiment.modelBundleId ?? "wistar_df_v1";
+      if (bundleId !== "wistar_df_v1" && bundleId !== "wistar_df_v2") {
+        throw new Error(`Bundle D+F desconhecido: ${bundleId}`);
+      }
+      if ((experiment.analysisEngine ?? "wistar_superanimal_hybrid_v1") === "wistar_superanimal_hybrid_v1") {
+        const bundle = await getHybridBundleStatus(bundleId);
+        if (!bundle.installed) throw new Error(bundle.error || `Bundle ${bundleId} ausente`);
+      }
       if (preparation && !await checkVideoStaging(experiment.id, preparation.uploadId)) preparation = undefined;
       if (!preparation && !videoFile) {
         setCsvError("O vídeo não está mais no cache. Selecione novamente o original; o experimento e suas correções foram preservados.");
@@ -559,30 +597,23 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
         videoFileRef.current?.click();
         return;
       }
-      const connection = await loadColabSummary();
-      if (!connection.connected) {
-        throw new Error("A Conta Google não está conectada. Abra Google Colab na barra lateral.");
-      }
-      if (connection.providerError) throw new Error(connection.providerError);
-      if (connection.eligibleGpuCount < 1) {
-        throw new Error("Sua conta não possui um runtime GPU elegível neste momento.");
-      }
       updateExperiment(experiment.id, { status: "processing" });
       if (!preparation) {
-        preparation = await prepareVideo(experiment.id, videoFile!, experiment.video, (_progress, message) => setAnalysisMessage(message));
+        preparation = await prepareVideo(experiment.id, videoFile!, experiment.video, (_progress, message) => setAnalysisActivity(experimentId, { message }));
         updateExperiment(experiment.id, { video: { ...experiment.video, preparation } });
       }
-      setAnalysisMessage(preparation.message);
+      setAnalysisActivity(experimentId, { message: preparation.message });
       const started = await startColabJob(experiment.id, preparation.uploadId, {
         width: experiment.video.width,
         height: experiment.video.height,
         durationSec: experiment.video.durationSec,
-      }, experiment.arena, experiment.analysisEngine ?? "wistar_superanimal_hybrid_v1");
+      }, experiment.arena, experiment.analysisEngine ?? "wistar_superanimal_hybrid_v1", bundleId);
       setAnalysisJob(started);
       setAnalysisHistory((jobs) => [started, ...jobs.filter((job) => job.jobId !== started.jobId)]);
+      setWorkspaceTab("runs");
       const completed = await waitForColabJob(started.jobId, (job) => {
         setAnalysisJob(job);
-        setAnalysisMessage(job.message);
+        setAnalysisActivity(experimentId, { message: job.message });
         setAnalysisHistory((jobs) => [job, ...jobs.filter((item) => item.jobId !== job.jobId)]);
       });
       if (completed.status === "failed") {
@@ -591,14 +622,15 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
       }
       const samples = parseCanonicalPoseCsv(await loadColabResult(completed.jobId));
       if(sourceRequestRef.current===sourceAtStart)applySource({engine:"colab",jobId:completed.jobId},samples);
-      else setAnalysisMessage("Execução concluída e salva. A fonte que você está revisando não foi alterada; selecione o novo resultado quando quiser.");
+      else setAnalysisActivity(experimentId, { message: "Execução concluída e salva. A fonte que você está revisando não foi alterada; selecione o novo resultado quando quiser." });
       updateExperiment(experiment.id,current=>({video:{...current.video,preparation},status:"review"}));
     } catch (error) {
       const message = error instanceof Error ? error.message : typeof error === "string" ? error : "Não foi possível executar a análise no Colab.";
       setCsvError(message);
+      setAnalysisActivity(experimentId, { error: message, message });
       updateExperiment(experiment.id, { status: "failed" });
     } finally {
-      setAnalysisStarting(false);
+      setAnalysisActivity(experimentId, { starting: false });
     }
   };
 
@@ -614,6 +646,14 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     ? analysisHistory.find((job) => job.jobId === selectedJobId) ?? currentJob
     : currentJob;
   const analysisBusy = analysisStarting || currentJob?.status === "running" || currentJob?.status === "queued";
+  const hasExecutionRecord = analysisHistory.length > 0 || Boolean(experiment.trackingSelection);
+  const sourceOptions = [
+    ...(!experiment.trackingSelection ? [{ value: "legacy", label: "Revisão anterior" }] : []),
+    ...(experiment.trackingSelection && !analysisHistory.some((job) => `colab:${job.jobId}` === trackingSourceKey(experiment.trackingSelection))
+      ? [{ value: trackingSourceKey(experiment.trackingSelection), label: `Fonte anterior · ${experiment.trackingSelection.engine} · ${experiment.trackingSelection.jobId.slice(0, 8)}` }] : []),
+    ...analysisHistory.filter((job) => job.resultsReady || job.status === "succeeded")
+      .map((job) => ({ value: `colab:${job.jobId}`, label: `Colab · ${job.modelBundleId || "modelo legado"} · ${new Date(job.createdAt).toLocaleString()} · ${job.jobId.slice(0, 8)}` })),
+  ];
   const editorLocked = viewMode === "raw" || videoView === "deeplabcut" || sourceLoading;
   const positionLocked = editorLocked || !currentFrameSample;
   const changeWorkspace = (tab: WorkspaceTab) => {videoRef.current?.pause();setPlaying(false);cancelDrag();setDrawingBox(false);setWorkspaceTab(tab);};
@@ -623,30 +663,30 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     <div className="tracking-page">
       <input ref={videoFileRef} type="file" accept="video/*" className="sr-only" onChange={attachVideoFile} />
       <header className="editor-header">
-        <button className="back-link" onClick={() => navigate({ name: "dashboard" })}><ArrowLeft size={16} /> Experimentos</button>
-        <div className="editor-title"><div><h1>{experiment.title}</h1><p>{experiment.subjectId}{experiment.group ? ` · ${experiment.group}` : ""} · Campo aberto</p></div><Badge tone={rawSamples.length ? "warning" : "neutral"} dot>{rawSamples.length ? "Em revisão" : "Sem tracking"}</Badge></div>
+        <button className="editor-home" onClick={() => navigate({ name: "dashboard" })}><ArrowLeft size={16} /><span><strong>Behavior Tracker</strong><small>Experimentos</small></span></button>
+        <div className="editor-title"><div><h1>{experiment.title}</h1><p>{experiment.subjectId}{experiment.group ? ` · ${experiment.group}` : ""} · Campo aberto · {experiment.modelBundleId || "modelo legado"}</p></div><Badge tone={rawSamples.length ? "warning" : "neutral"} dot>{rawSamples.length ? "Em revisão" : "Sem tracking"}</Badge></div>
+        <div className="editor-context">
+          {isTauriRuntime() && <button type="button" className={`editor-colab-status${colabSummary.connected ? " connected" : ""}`} onClick={() => navigate({ name: "colab" })}>
+            <CloudCog size={16} />{colabSummary.connected ? "Colab conectado" : "Conectar Colab"}
+          </button>}
+          <EditorTabs<WorkspaceTab> id="workspace" label="Áreas do experimento" value={workspaceTab} onChange={changeWorkspace} items={[
+            {id:"review",label:"Revisar vídeo"},
+            ...(hasExecutionRecord ? [{id:"runs" as const,label:"Execuções"}] : []),
+          ]}/>
+          {sourceOptions.length > 1 && <SelectMenu label="Resultado em revisão" value={trackingSourceKey(experiment.trackingSelection)}
+            options={sourceOptions} disabled={sourceLoading} onChange={(value) => void switchSource(value)} />}
+        </div>
         <div className="editor-header-actions">
-          <Button className="analyze-button header-analyze" disabled={analysisBusy} icon={<CloudCog size={16} />} onClick={() => void runColabAnalysis()}>{rawSamples.length ? "Reprocessar no Colab" : "Analisar no Colab"}</Button>
+          <Button className="analyze-button header-analyze" disabled={analysisBusy || !colabSummary.connected} icon={<CloudCog size={16} />} onClick={() => void runColabAnalysis()}>{rawSamples.length ? "Reprocessar no Colab" : "Analisar no Colab"}</Button>
           <Button disabled={!rawSamples.length||sourceLoading} icon={<BarChart3 size={16} />} onClick={() => navigate({ name: "results", experimentId })}>Ver resultados</Button>
+          <Button variant="secondary" icon={<Plus size={16} />} onClick={() => navigate({ name: "new-experiment" })}>Novo experimento</Button>
         </div>
       </header>
-      <div className="tracking-source-bar">
-        <label>Resultado em revisão <select aria-label="Resultado em revisão" value={trackingSourceKey(experiment.trackingSelection)} disabled={sourceLoading}
-          onChange={event=>void switchSource(event.target.value)}>
-          {!experiment.trackingSelection&&<option value="legacy">Revisão anterior</option>}
-          {experiment.trackingSelection&&!analysisHistory.some(job=>`colab:${job.jobId}`===trackingSourceKey(experiment.trackingSelection))&&<option value={trackingSourceKey(experiment.trackingSelection)}>Fonte anterior · {experiment.trackingSelection.engine} · {experiment.trackingSelection.jobId.slice(0,8)}</option>}
-          {analysisHistory.filter(job=>job.resultsReady||job.status==="succeeded").map(job=><option key={job.jobId} value={`colab:${job.jobId}`}>Colab · {new Date(job.createdAt).toLocaleString()} · {job.jobId.slice(0,8)}</option>)}
-        </select></label>
-        <span role="status">{sourceLoading?"Carregando fonte salva…":"Correções separadas por execução · nenhum resultado é apagado ao trocar"}</span>
-        {experiment.legacyReviewSource&&experiment.legacyReviewSource!=="legacy"&&experiment.corrections.some(event=>!event.reviewSource&&["MOVE_POINT","SET_BOX","CONFIRM_POINT","MARK_MISSING"].includes(event.type))&&<Button size="sm" variant="ghost" disabled={sourceLoading} onClick={()=>updateExperiment(experiment.id,{legacyReviewSource:"legacy"})}>Reassociar correções antigas</Button>}
-      </div>
+      {experiment.legacyReviewSource&&experiment.legacyReviewSource!=="legacy"&&experiment.corrections.some(event=>!event.reviewSource&&["MOVE_POINT","SET_BOX","CONFIRM_POINT","MARK_MISSING"].includes(event.type))&&<div className="editor-error"><Button size="sm" variant="ghost" disabled={sourceLoading} onClick={()=>updateExperiment(experiment.id,{legacyReviewSource:"legacy"})}>Reassociar correções antigas</Button></div>}
       {hasUnassignedCorrections(experiment)&&<div className="editor-error">
         <span>Há correções antigas preservadas, mas sem identificação da execução. Elas não serão misturadas ao OpenCV. Selecione o resultado Colab que você corrigiu para associá-las.</span>
         {experiment.trackingSelection?.engine==="colab"&&<Button size="sm" variant="secondary" disabled={sourceLoading} onClick={()=>updateExperiment(experiment.id,{legacyReviewSource:trackingSourceKey(experiment.trackingSelection)})}>Associar correções antigas a este Colab</Button>}
       </div>}
-      <EditorTabs id="workspace" label="Áreas do experimento" value={workspaceTab} onChange={changeWorkspace} items={[
-        {id:"review",label:"Revisar vídeo"},{id:"runs",label:"Execuções"},
-      ]}/>
 
       <div>
       {csvError && csvError !== visibleJob?.error && <div className="editor-error"><AlertCircle size={16} /> {csvError}</div>}
@@ -656,7 +696,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
       </div>
       <section hidden={workspaceTab!=="runs"} role="tabpanel" id="workspace-runs-panel" aria-labelledby="workspace-runs-tab" className="execution-workspace">
         <h2>Execuções no Colab</h2>
-        <AnalysisWorkflow job={visibleJob} preparing={analysisStarting && !currentJob} message={analysisMessage} localError={!visibleJob?csvError:null} elapsedSec={elapsedSec}/>
+        <AnalysisWorkflow job={visibleJob} preparing={analysisStarting && !currentJob} message={analysisMessage} localError={!visibleJob ? analysisError ?? csvError : null} elapsedSec={elapsedSec}/>
         {!analysisHistory.length&&!analysisStarting&&<p>Nenhuma execução registrada. Use “Analisar no Colab” para começar.</p>}
         <div className="analysis-history-list">{analysisHistory.map((job)=><button type="button" className={`analysis-run analysis-run-${job.status}`} key={job.jobId} aria-pressed={visibleJob?.jobId===job.jobId} onClick={()=>setSelectedJobId(job.jobId)}>
           <div className="analysis-run-status">{job.status==="succeeded"?<CheckCircle2 size={16}/>:job.status==="failed"?<AlertCircle size={16}/>:<CloudCog size={16}/>}</div>
@@ -670,10 +710,10 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
           <h2>Processar o vídeo no Google Colab</h2>
           <p>Acompanhe o envio, a GPU alocada e o rastreamento do animal. Cada checkpoint avança após uma confirmação real da execução.</p>
           <AnalysisWorkflow job={visibleJob} preparing={analysisStarting && !currentJob}
-            message={analysisMessage} localError={!visibleJob ? csvError : null} elapsedSec={elapsedSec} />
+            message={analysisMessage} localError={!visibleJob ? analysisError ?? csvError : null} elapsedSec={elapsedSec} />
           {!analysisBusy && (
             <div className="tracking-empty-actions">
-              <Button className="analyze-button" size="lg" icon={<CloudCog size={19} />} onClick={() => void runColabAnalysis()}>
+              <Button className="analyze-button" size="lg" disabled={!colabSummary.connected} icon={<CloudCog size={19} />} onClick={() => void runColabAnalysis()}>
                 Analisar no Colab
               </Button>
             </div>
@@ -694,10 +734,6 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
                 {experiment.trackingSelection?.engine!=="opencv"&&<button className={videoView === "deeplabcut" ? "active" : ""} onClick={() => { cancelDrag();setPlaying(false); setVideoView("deeplabcut"); }}>{latestResultJob?.customModel?"Vídeo do modelo":"Vídeo do DeepLabCut"}</button>}
               </div>
               {videoView === "editor" && <>
-              <div className="segmented-control">
-                <button className={viewMode === "reviewed" ? "active" : ""} onClick={() => {cancelDrag();setViewMode("reviewed");}}>{versionC ? "Versão C · revisável" : "Revisado"}</button>
-                <button className={viewMode === "raw" ? "active" : ""} onClick={() => {cancelDrag();setViewMode("raw");}}>{versionC ? "Teste B · bruto" : "Bruto"}</button>
-              </div>
               <div className="toolbar-spacer" />
               {!asset?.objectUrl&&<Button variant="secondary" size="sm" onClick={()=>{analysisRequestedRef.current=false;videoFileRef.current?.click();}}>Abrir vídeo original</Button>}
               {macroMode&&<Button variant="secondary" size="sm" disabled={positionLocked} icon={<ScanSearch size={15}/>} onClick={()=>{videoRef.current?.pause();setPlaying(false);setDrawingBox(current=>!current);}}>{drawingBox?"Cancelar caixa":"Marcar caixa neste frame"}</Button>}
@@ -711,7 +747,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
               {dlcVideoLoading ? <p role="status">Carregando vídeo salvo no dispositivo…</p> : dlcVideo?.videoUrl ? <>
                 <video key={dlcVideo.jobId} src={dlcVideo.videoUrl} controls playsInline preload="metadata" onError={() => setDlcPlaybackError(true)} />
                 {dlcPlaybackError && <p role="alert">O player não conseguiu reproduzir este MP4. O arquivo continua salvo no dispositivo.</p>}
-              </> : <div className="dlc-video-unavailable"><p>{dlcVideo?.videoError ?? "Este experimento ainda não possui vídeo do DeepLabCut. Faça uma análise no Colab para gerá-lo."}</p><Button className="analyze-button" disabled={analysisBusy} onClick={() => void runColabAnalysis()}>Gerar vídeo no Colab</Button></div>}
+              </> : <div className="dlc-video-unavailable"><p>{dlcVideo?.videoError ?? "Este experimento ainda não possui vídeo do DeepLabCut. Faça uma análise no Colab para gerá-lo."}</p><Button className="analyze-button" disabled={analysisBusy || !colabSummary.connected} onClick={() => void runColabAnalysis()}>Gerar vídeo no Colab</Button></div>}
             </section> : <>
             <div className="video-stage">
               {asset?.objectUrl && (
@@ -751,11 +787,11 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
                     <polygon points={pointsToSvg(experiment.arena.cornersPx)} fill="url(#stage-floor)" stroke="#59645f" strokeWidth="10" />
                   </>
                 )}
-                <polygon points={pointsToSvg(experiment.arena.cornersPx)} fill="none" stroke="#d7f169" strokeOpacity=".75" strokeWidth="3" />
-                {experiment.arena.rimCornersPx && <polygon points={pointsToSvg(experiment.arena.rimCornersPx)} fill="none" stroke="#bb9aff" strokeOpacity=".65" strokeWidth="3" strokeDasharray="12 8" />}
-                <polygon points={pointsToSvg(centerPolygon)} fill="#70d6ad" fillOpacity=".07" stroke="#70d6ad" strokeOpacity=".55" strokeWidth="2" strokeDasharray="10 8" />
-                {showTrajectory && trajectory.map((segment, index) => <polyline key={index} points={pointsToSvg(segment)} fill="none" stroke="#d7f169" strokeWidth="4" strokeOpacity=".75" strokeLinecap="round" strokeLinejoin="round" />)}
-                {showTrajectory && keyframePreview.map((segment, index) => <polyline key={`keyframe-${index}`} points={pointsToSvg(segment)} fill="none" stroke="#bb9aff" strokeWidth="4" strokeDasharray="11 8" strokeOpacity=".9" strokeLinecap="round" strokeLinejoin="round" />)}
+                <polygon points={pointsToSvg(experiment.arena.cornersPx)} fill="none" stroke="#a7adb2" strokeOpacity=".75" strokeWidth="3" />
+                {experiment.arena.rimCornersPx && <polygon points={pointsToSvg(experiment.arena.rimCornersPx)} fill="none" stroke="#f0f0ed" strokeOpacity=".65" strokeWidth="3" strokeDasharray="12 8" />}
+                <polygon points={pointsToSvg(centerPolygon)} fill="#85ae98" fillOpacity=".07" stroke="#85ae98" strokeOpacity=".55" strokeWidth="2" strokeDasharray="10 8" />
+                {showTrajectory && trajectory.map((segment, index) => <polyline key={index} points={pointsToSvg(segment)} fill="none" stroke="#a7adb2" strokeWidth="4" strokeOpacity=".75" strokeLinecap="round" strokeLinejoin="round" />)}
+                {showTrajectory && keyframePreview.map((segment, index) => <polyline key={`keyframe-${index}`} points={pointsToSvg(segment)} fill="none" stroke="#f0f0ed" strokeWidth="4" strokeDasharray="11 8" strokeOpacity=".9" strokeLinecap="round" strokeLinejoin="round" />)}
                 {[["nose", "body_center"], ["body_center", "tail_base"], ["left_ear", "nose"], ["right_ear", "nose"]].map(([a, b]) => {
                   const first = currentPoints.find((sample) => sample.keypoint === a);
                   const second = currentPoints.find((sample) => sample.keypoint === b);
@@ -783,7 +819,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
                       }}
                     >
                       {corrected && <circle r="19" fill="none" stroke="#f7c96b" strokeWidth="3" strokeDasharray="4 4" />}
-                      <circle r={selected ? 12 : 9} fill={sample.source === "recovered" ? "#bb9aff" : sample.status === "valid" ? "#d7f169" : "#f7c96b"} stroke="#153c32" strokeWidth="3" />
+                      <circle r={selected ? 12 : 9} fill={sample.source === "recovered" ? "#f0f0ed" : sample.status === "valid" ? "#a7adb2" : "#f7c96b"} stroke="#242628" strokeWidth="3" />
                       {selected && <text y="-19" textAnchor="middle" fontSize="14" fontWeight="700" fill="#fff">{keypointLabels[sample.keypoint] ?? sample.keypoint}</text>}
                     </g>
                   );
@@ -807,7 +843,10 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
               <button className="transport-button" onClick={() => stepFrame(1)} title="Próximo frame"><ChevronRight size={19} /></button>
               <div className="timecode"><strong>{formatDuration(currentTime)}</strong><span>/ {formatDuration(duration)}</span></div>
               <div className="playback-spacer" />
-              <label className="speed-control"><Gauge size={15} /><select value={speed} onChange={(event) => setSpeed(Number(event.target.value))}><option value={0.25}>0,25×</option><option value={0.5}>0,5×</option><option value={1}>1×</option><option value={2}>2×</option></select></label>
+              <div className="speed-control"><Gauge size={15} /><div className="speed-options" role="group" aria-label="Velocidade de reprodução">
+                {([0.25, 0.5, 1, 2] as const).map((value) => <button key={value} type="button" aria-pressed={speed === value}
+                  onClick={() => setSpeed(value)}>{String(value).replace(".", ",")}×</button>)}
+              </div></div>
             </div>
 
             <div className="timeline-panel">

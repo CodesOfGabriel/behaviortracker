@@ -23,8 +23,8 @@ def validate_frame_contract(frame_map, detections, pose_rows):
     return sizes
 
 
-def prepare_manifest(bundle_directory, source_sha256, video, frame_map, detections, pose_rows):
-    bundle = validate_bundle(bundle_directory)
+def prepare_manifest(bundle_directory, source_sha256, video, frame_map, detections, pose_rows, bundle_id="wistar_df_v1", bundle_manifest=None):
+    bundle = validate_bundle(bundle_directory, bundle_manifest, bundle_id)
     counts = validate_frame_contract(frame_map, detections, pose_rows)
     if not isinstance(source_sha256, str) or len(source_sha256) != 64:
         raise ValueError("SHA-256 do vídeo original inválido")

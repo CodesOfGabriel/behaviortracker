@@ -230,7 +230,7 @@ export function ColabGate() {
               <span><small>Com GPU</small><strong>{summary.eligibleGpuCount}</strong></span>
             </div>
           ) : (
-            <p>Salve as credenciais e autorize o BehaveTracker no navegador. A senha da sua Conta Google nunca passa pelo aplicativo.</p>
+            <p>Salve as credenciais e autorize o Behavior Tracker no navegador. A senha da sua Conta Google nunca passa pelo aplicativo.</p>
           )}
           {summary.providerError && <div className="provider-error"><AlertTriangle size={14} /><span>{summary.providerError}</span></div>}
           <div className="colab-account-actions">
@@ -298,7 +298,7 @@ export function ColabGate() {
           <h2>Gratuidade não é uma garantia</h2>
           <p>
             Uma spec elegível não garante GPU nem alocação. O modo Free também pode restringir interfaces externas.
-            O BehaveTracker deve bloquear com motivo claro em vez de contornar cotas ou iniciar cobrança.
+            O Behavior Tracker deve bloquear com motivo claro em vez de contornar cotas ou iniciar cobrança.
           </p>
           <a href="https://research.google.com/colaboratory/faq.html" target="_blank" rel="noreferrer">
             Consultar FAQ oficial <ExternalLink size={14} />

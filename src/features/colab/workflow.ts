@@ -1,13 +1,13 @@
 import type { ColabJob, ColabJobEvent } from "./analysis";
 
 export const workflowSteps = [
-  { title: "Preparar vídeo", description: "Ler o arquivo neste dispositivo", stages: ["preparing", "queued", "authorizing"] },
-  { title: "Encontrar GPU", description: "Alocar GPU e abrir a sessão", stages: ["runtime", "workspace", "gpu_ready"] },
-  { title: "Enviar vídeo", description: "Transferir para a pasta confirmada", stages: ["uploading"] },
-  { title: "Validar arquivo", description: "Conferir tamanho e integridade", stages: ["verifying", "video_ready"] },
-  { title: "Preparar modelo", description: "Validar detector Wistar, HRNet e CUDA no Colab", stages: ["environment_check", "installing", "environment_ready"] },
-  { title: "Detector + HRNet", description: "Executar D+F e importar os 27 keypoints", stages: ["inference", "training"] },
-  { title: "Receber resultado", description: "Baixar poses; gráficos e vídeo são gerados no app", stages: ["downloading", "rendering", "completed"] },
+  { title: "Preparando vídeo", description: "Leitura do arquivo e conferência dos frames", stages: ["preparing", "queued", "authorizing"] },
+  { title: "Conectando à GPU", description: "Alocação da GPU para análise", stages: ["runtime", "workspace", "gpu_ready"] },
+  { title: "Enviando vídeo", description: "Transferência do arquivo para o ambiente de análise", stages: ["uploading"] },
+  { title: "Validando arquivo", description: "Conferência do tamanho e da integridade", stages: ["verifying", "video_ready"] },
+  { title: "Preparando modelos", description: "Carregamento do detector Wistar e da HRNet na GPU", stages: ["environment_check", "installing", "environment_ready"] },
+  { title: "Detectando animal", description: "Detector Wistar localiza o animal; HRNet-W32 estima 27 pontos anatômicos", stages: ["inference", "training"] },
+  { title: "Preparando resultados", description: "Poses, trajetória e vídeo ficam disponíveis para revisão", stages: ["downloading", "rendering", "completed"] },
 ] as const;
 
 export type CheckpointState = "pending" | "active" | "done" | "failed";
@@ -32,13 +32,13 @@ export function checkpoints(job: ColabJob | null, preparing = false, localError 
       if (job.status !== "failed" && ["gpu_ready", "video_ready", "environment_ready"].includes(job.stage)) state = "done";
     } else if (events.some((event) => stageIndex(event.stage) > index)) state = "done";
     return { ...step, state, event: lastEvent,
-      ...(job?.diagnostic && index === 5 ? { title: "Testar detector e pose", description: "Medir saídas no trecho curto" } : {}),
-      ...(job?.diagnostic && index === 6 ? { title: "Receber diagnóstico", description: "Baixar relatório e pontos brutos" } : {}),
-      ...(job?.training && index === 0 ? { title: "Preparar exemplos", description: "Congelar rótulos e imagens revisados" } : {}),
-      ...(job?.training && index === 2 ? { title: "Enviar exemplos", description: "Transferir somente os frames revisados" } : {}),
-      ...(job?.training && index === 3 ? { title: "Validar dataset", description: "Conferir integridade SHA-256" } : {}),
-      ...(job?.training && index === 5 ? { title: "Treinar nova versão", description: "Ajustar detector e partes do animal" } : {}),
-      ...(job?.training && index === 6 ? { title: "Receber modelo", description: "Salvar pesos e relatório sem ativar" } : {}) };
+      ...(job?.diagnostic && index === 5 ? { title: "Testando detector e pose", description: "Medição das saídas no trecho curto" } : {}),
+      ...(job?.diagnostic && index === 6 ? { title: "Preparando diagnóstico", description: "Relatório e pontos brutos disponíveis para revisão" } : {}),
+      ...(job?.training && index === 0 ? { title: "Preparando exemplos", description: "Consolidação dos rótulos e imagens revisados" } : {}),
+      ...(job?.training && index === 2 ? { title: "Enviando exemplos", description: "Transferência dos frames revisados" } : {}),
+      ...(job?.training && index === 3 ? { title: "Validando dataset", description: "Conferência da integridade SHA-256" } : {}),
+      ...(job?.training && index === 5 ? { title: "Treinando nova versão", description: "Ajuste do detector e dos pontos anatômicos" } : {}),
+      ...(job?.training && index === 6 ? { title: "Preparando modelo", description: "Pesos e relatório salvos sem ativação" } : {}) };
   });
 }
 

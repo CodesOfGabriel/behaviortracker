@@ -96,6 +96,7 @@ export interface Experiment {
   createdAt: string;
   updatedAt: string;
   video: VideoMetadata;
+  calibrationThumbnailDataUrl?: string;
   arena: ArenaConfig;
   referencePoint: string;
   corrections: CorrectionEvent[];
@@ -108,6 +109,7 @@ export interface Experiment {
 export interface VideoAsset {
   objectUrl?: string;
   frameDataUrl?: string;
+  thumbnailDataUrl?: string;
   frameTimeSec?: number;
   file?: File;
 }

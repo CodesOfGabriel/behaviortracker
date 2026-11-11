@@ -1,16 +1,51 @@
-# BehaveTracker
+<p align="center">
+  <img src="public/behavior-tracker-banner.png" alt="Behavior Tracker — análise do comportamento de roedores" height="220">
+</p>
+
+# Behavior Tracker
+
+Desenvolvido por **Gabriel Santos** e **Thiago Vargas**, em parceria entre o **Laboratório Neurocell** e o **NeuroLab da Universidade Federal de Pelotas (UFPel)**.
 
 Aplicativo desktop para analisar um rato por vídeo no teste de campo aberto. O vídeo é enviado ao Google Colab para inferência com DeepLabCut; a revisão dos pontos, a calibração da arena, as métricas e os resultados ficam no dispositivo.
+
+## Detector D+F versionado
+
+Novos experimentos usam `wistar_df_v2` por padrão; `wistar_df_v1` continua disponível para comparação. O motor permanece `wistar_superanimal_hybrid_v1`, com HRNet de 27 pontos em ambos. A referência anatômica inicial dos novos experimentos é `mouse_center`. A máscara v2 usa o polígono do piso e exclui as oclusões; a v1 preserva a união de piso e borda. Cada job registra o ID do bundle e os hashes dos dois checkpoints em `run_manifest.json`.
+
+O instalador inclui os três arquivos do bundle v2: detector, checkpoint HRNet e configuração YAML. Cada instalação os valida por tamanho e SHA-256 antes de usar. O build de distribuição falha se algum arquivo estiver ausente ou alterado. O aplicativo não consulta arquivos de modelos em contas pessoais: cada usuário envia seu próprio vídeo ao runtime Colab da sua conta. O bundle v1 é opcional para comparação e deve ser importado localmente.
+
+O job D+F produz CSV/H5, controle de qualidade e MP4 de inspeção. Se a renderização do MP4 falhar, as poses permanecem disponíveis. Os resultados experimentais dos três vídeos do Colab ainda precisam ser reproduzidos em uma execução real do app com os mesmos vídeos e ROI antes de afirmar equivalência.
+
+O envio local usa blocos binários Tauri de 4 MiB. O bundle v2 é procurado primeiro no cache do runtime; se estiver ausente, o Colab tenta baixar os três arquivos da release `models-wistar-df-v2-r1` diretamente para arquivos temporários e só os publica após conferir tamanho e SHA-256. Se a release estiver indisponível, o aplicativo volta ao envio local pelo proxy do Jupyter. O bundle v1 continua usando envio local. O upload ao Jupyter tenta blocos de 4 MiB e reinicia com 1 MiB após erros de transporte ou do proxy. O vídeo e os modelos são reutilizados no mesmo runtime após validação; um runtime novo precisa obter os arquivos novamente. O histórico do job registra tempos de preparo, modelos, vídeo, inferência e artefatos.
+
+### Publicação do bundle v2
+
+Os arquivos da release são os três pesos/configurações e o `manifest.json` de `models/wistar_df_v2/`. Antes de publicar os checkpoints em uma release pública, confirme o direito de redistribuição de ambos. A release ainda precisa ser publicada para que o download direto seja usado; até lá o envio local permanece funcional. Valide os arquivos com `node scripts/check-release-models.mjs` e publique-os como assets da tag fixa `models-wistar-df-v2-r1` no repositório `CodesOfGabriel/behaviortracker`. Não use a URL `latest`: a tag e os hashes devem corresponder exatamente ao bundle v2.
+
+Com a conta GitHub autenticada e a redistribuição autorizada, a publicação pode ser feita com:
+
+```sh
+node scripts/check-release-models.mjs
+gh release create models-wistar-df-v2-r1 \
+  models/wistar_df_v2/best_detector.pth \
+  models/wistar_df_v2/snapshot-hrnet_w32-001.pt \
+  models/wistar_df_v2/pytorch_config.yaml \
+  models/wistar_df_v2/manifest.json \
+  --repo CodesOfGabriel/behaviortracker \
+  --target main \
+  --title "Pesos Wistar D+F v2" \
+  --notes "Bundle wistar_df_v2. Tamanhos e SHA-256 no asset manifest.json."
+```
 
 ## Fluxo atual
 
 1. Crie um experimento, selecione o vídeo e marque separadamente a borda superior e o chão da arena.
-2. Conecte sua Conta Google na tela **Processamento**. A conta precisa oferecer um runtime A100 ou H100 para a adaptação usada aqui.
+2. Conecte sua Conta Google na tela **Processamento**. O pipeline D+F requer um runtime com CUDA.
 3. Clique em **Analisar no Colab**. O app prepara uma cópia sem perda quando ela é menor e verifica a equivalência dos frames antes do envio. O arquivo original não é alterado.
-4. Acompanhe os checkpoints em **Execuções**. Ao terminar, abra **Revisar vídeo** para inspecionar pontos, corrigir frames e conferir as métricas. O vídeo rotulado mostra caixas do detector e pontos com `likelihood ≥ 0,50`.
+4. Acompanhe os checkpoints em **Execuções**. Ao terminar, abra **Revisar vídeo** para inspecionar pontos, corrigir frames e conferir as métricas. O vídeo D+F mostra caixas do detector e pontos válidos com `likelihood ≥ 0,60`.
 5. Exporte `experiment.json`, `poses_reviewed.csv`, `corrections.jsonl` e `metrics.csv` em **Resultados**.
 
-A inferência usa o SuperAnimal TopViewMouse (`hrnet_w32` e `fasterrcnn_resnet50_fpn_v2`) com `video_adapt=True`, `batch_size=4`, `detector_batch_size=2`, `pseudo_threshold=0.1`, `bbox_threshold=0.9` e uma época para detector e pose. Esses são os parâmetros do Teste B do notebook `Diagnostico_DeepLabCut_Wistar_A100_COMPLETO.ipynb`. O app importa explicitamente o HDF5 gerado **após** a adaptação e recusa a análise quando a contagem de frames não coincide com a do vídeo.
+O motor legado usa o SuperAnimal TopViewMouse (`hrnet_w32` e `fasterrcnn_resnet50_fpn_v2`) com `video_adapt=True`, `batch_size=4`, `detector_batch_size=2`, `pseudo_threshold=0.1`, `bbox_threshold=0.9` e uma época para detector e pose. Esses são os parâmetros do Teste B do notebook `Diagnostico_DeepLabCut_Wistar_A100_COMPLETO.ipynb`. O motor D+F usa o detector Wistar escolhido e a HRNet adaptada, sem executar essa adaptação durante cada job. Ambos recusam resultados com contagem de frames incompatível com o vídeo.
 
 O trajeto da **versão C** parte das coordenadas do Teste B. O centro corporal usa até três pontos estáveis do tronco e da base da cauda, quando disponíveis no modelo. Pontos com `likelihood < 0,60` não entram nesse centro; são necessários pelo menos dois pontos confiáveis para que ele seja válido nas métricas. Um filtro de mediana e desvio absoluto mediano (MAD), em janela de até sete frames válidos e pelo menos cinco, sinaliza picos isolados; um filtro temporal ponderado de três frames reduz oscilações nos trechos válidos. O filtro não preenche lacunas, não usa detecções recuperadas como evidência e preserva as coordenadas brutas do modelo adaptado. No editor e nos resultados, **Versão C · revisável** mostra o trajeto filtrado e eventuais correções humanas; **Teste B · bruto** mostra a referência anterior ao pós-processamento. As métricas e o gráfico acompanham a seleção.
 
@@ -30,3 +65,5 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib
 ```
 
 O app usa Tauri 2, React, TypeScript e Vite. FFmpeg/ffprobe são necessários para preparar e verificar o vídeo. Os comandos de análise local, teste híbrido, teste curto de rastreamento e treino personalizado não estão disponíveis. Dados de execuções anteriores são mantidos para leitura e revisão.
+
+Para montar um instalador, coloque os três pesos v2 validados em `models/wistar_df_v2/` e execute `node scripts/check-release-models.mjs` antes de `npm run tauri build`. O utilitário `scripts/prepare_wistar_df_v2_bundle.py` aceita apenas caminhos locais explícitos (`--detector`, `--hrnet`, `--config`) e gera o manifesto. Os arquivos grandes são ignorados pelo Git; distribua o instalador gerado, que já contém o bundle.

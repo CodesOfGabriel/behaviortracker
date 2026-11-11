@@ -10,6 +10,7 @@ REQUIRED_FILES = (
     "pytorch_config.yaml",
 )
 REQUIRED_BUNDLE_ID = "wistar_df_v1"
+ALLOWED_BUNDLE_IDS = ("wistar_df_v1", "wistar_df_v2")
 
 
 def sha256(path):
@@ -20,7 +21,10 @@ def sha256(path):
     return digest.hexdigest()
 
 
-def validate_bundle(directory, manifest=None):
+def validate_bundle(directory, manifest=None, bundle_id=None):
+    bundle_id = bundle_id or (manifest.get("bundleId") if manifest else REQUIRED_BUNDLE_ID)
+    if bundle_id not in ALLOWED_BUNDLE_IDS:
+        raise ValueError("Bundle D+F incompatível")
     root = Path(directory)
     files = {}
     for filename in REQUIRED_FILES:
@@ -51,10 +55,12 @@ def validate_bundle(directory, manifest=None):
     if bodyparts is not None and len(bodyparts) != 27:
         raise ValueError("A configuração HRNet precisa declarar 27 keypoints")
     if manifest is not None:
-        if manifest.get("bundleId") != REQUIRED_BUNDLE_ID:
+        if manifest.get("bundleId") != bundle_id or manifest.get("keypointCount") != 27:
             raise ValueError("Bundle D+F incompatível")
+        if manifest.get("detectorClasses", ["background", "wistar"]) != ["background", "wistar"]:
+            raise ValueError("Classes do detector incompatíveis")
         for filename, entry in files.items():
-            expected = manifest.get("files", {}).get(filename, {}).get("sha256")
-            if expected and expected != entry["sha256"]:
-                raise ValueError(f"Hash do bundle não confere: {filename}")
-    return {"bundleId": REQUIRED_BUNDLE_ID, "files": files, "keypointCount": len(bodyparts) if bodyparts else None}
+            expected = manifest.get("files", {}).get(filename, {})
+            if expected.get("sha256") != entry["sha256"] or expected.get("sizeBytes") != entry["sizeBytes"]:
+                raise ValueError(f"Hash ou tamanho do bundle não confere: {filename}")
+    return {"bundleId": bundle_id, "files": files, "keypointCount": len(bodyparts) if bodyparts else None}

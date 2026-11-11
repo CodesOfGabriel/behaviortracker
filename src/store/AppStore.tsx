@@ -38,6 +38,8 @@ interface AppStoreValue {
   setAsset: (id: string, asset: VideoAsset) => void;
   trackingData: Record<string, PoseSample[]>;
   setTrackingData: (id: string, samples: PoseSample[]) => void;
+  analysisActivity: Record<string, { starting: boolean; message: string; error: string | null }>;
+  setAnalysisActivity: (id: string, update: Partial<{ starting: boolean; message: string; error: string | null }>) => void;
 }
 
 const AppStoreContext = createContext<AppStoreValue | null>(null);
@@ -47,6 +49,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [experiments, setExperiments] = useState<Experiment[]>(loadExperiments);
   const [assets, setAssets] = useState<Record<string, VideoAsset>>({});
   const [trackingData, setTrackingDataState] = useState<Record<string, PoseSample[]>>({});
+  const [analysisActivity, setAnalysisActivityState] = useState<AppStoreValue["analysisActivity"]>({});
+  const setAnalysisActivity = useCallback((id: string, update: Partial<{ starting: boolean; message: string; error: string | null }>) =>
+    setAnalysisActivityState(current => ({ ...current, [id]: { ...(current[id] ?? { starting: false, message: "", error: null }), ...update } })), []);
   const setTrackingData = useCallback((id: string, samples: PoseSample[]) =>
     setTrackingDataState(current => ({ ...current, [id]: samples })), []);
 
@@ -81,6 +86,17 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     (id: string) => {
       persist(current => current.filter((experiment) => experiment.id !== id));
       setAssets((current) => {
+        if (current[id]?.objectUrl) URL.revokeObjectURL(current[id].objectUrl);
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+      setTrackingDataState((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+      setAnalysisActivityState((current) => {
         const next = { ...current };
         delete next[id];
         return next;
@@ -110,8 +126,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       setAsset: (id, asset) => setAssets((current) => ({ ...current, [id]: asset })),
       trackingData,
       setTrackingData,
+      analysisActivity,
+      setAnalysisActivity,
     }),
-    [route, experiments, saveExperiment, updateExperiment, deleteExperiment, openDemo, assets, trackingData, setTrackingData],
+    [route, experiments, saveExperiment, updateExperiment, deleteExperiment, openDemo, assets, trackingData, setTrackingData, analysisActivity, setAnalysisActivity],
   );
 
   return <AppStoreContext.Provider value={value}>{children}</AppStoreContext.Provider>;

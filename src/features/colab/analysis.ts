@@ -2,6 +2,21 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import type { ArenaConfig, VideoPreparation } from "../../types";
 
 const STAGING_CHUNK_SIZE = 4 * 1024 * 1024;
+export type HybridBundleId = "wistar_df_v1" | "wistar_df_v2";
+export const LATEST_HYBRID_BUNDLE_ID: HybridBundleId = "wistar_df_v2";
+export type HybridBundleStatus = { bundleId: HybridBundleId; installed: boolean; error: string | null };
+
+export function getHybridBundleStatus(bundleId: HybridBundleId) {
+  return invoke<HybridBundleStatus>("hybrid_bundle_status", { bundleId });
+}
+
+export function getHybridBundleAvailability(bundleId: HybridBundleId) {
+  return invoke<HybridBundleStatus>("hybrid_bundle_available", { bundleId });
+}
+
+export function importHybridBundle(bundleId: HybridBundleId, sourceDirectory: string) {
+  return invoke<HybridBundleStatus>("import_hybrid_bundle", { bundleId, sourceDirectory });
+}
 
 export type ColabJob = {
   jobId: string;
@@ -59,10 +74,8 @@ export async function stageVideo(
   while (offset < file.size) {
     const end = Math.min(offset + STAGING_CHUNK_SIZE, file.size);
     const bytes = new Uint8Array(await file.slice(offset, end).arrayBuffer());
-    await invoke<VideoStaging>("append_video_staging_chunk", {
-      uploadId: staging.uploadId,
-      offset,
-      bytes: Array.from(bytes),
+    await invoke<VideoStaging>("append_video_staging_raw", bytes, {
+      headers: { "x-upload-id": staging.uploadId, "x-offset": String(offset) },
     });
     offset = end;
     onProgress(
@@ -77,10 +90,11 @@ export async function stageVideo(
 
 export function startColabJob(experimentId: string, uploadId: string,
   workload: { width: number; height: number; durationSec: number }, arena: ArenaConfig,
-  engineId: "superanimal_video_adapt_b_legacy" | "wistar_superanimal_hybrid_v1" = "wistar_superanimal_hybrid_v1") {
+  engineId: "superanimal_video_adapt_b_legacy" | "wistar_superanimal_hybrid_v1" = "wistar_superanimal_hybrid_v1",
+  modelBundleId: HybridBundleId = LATEST_HYBRID_BUNDLE_ID) {
   return invoke<ColabJob>("start_colab_analysis", {
     request: { experimentId, uploadId, workload, arena: { ...arena, videoWidth: workload.width, videoHeight: workload.height },
-      engineId, ...(engineId === "wistar_superanimal_hybrid_v1" ? { modelBundleId: "wistar_df_v1" } : {}) },
+      engineId, ...(engineId === "wistar_superanimal_hybrid_v1" ? { modelBundleId } : {}) },
   });
 }
 

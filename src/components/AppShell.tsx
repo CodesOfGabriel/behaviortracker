@@ -74,7 +74,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="brand-row">
           <BrandMark />
           <div>
-            <div className="brand-name">BehaveTracker</div>
+            <div className="brand-name">Behavior Tracker</div>
             <div className="brand-caption">Behavioral analysis</div>
           </div>
         </div>
@@ -122,8 +122,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="workspace">
-        <header className="topbar">
-          <div className="mobile-brand"><BrandMark size={30} /><span>BehaveTracker</span></div>
+        {route.name !== "editor" && <header className="topbar">
+          <div className="mobile-brand"><BrandMark size={30} /><span>Behavior Tracker</span></div>
+          <div className="topbar-brand">Behavior Tracker</div>
           <div className="topbar-spacer" />
           <Badge tone="success" dot>Dados locais</Badge>
           <div className="topbar-divider" />
@@ -137,7 +138,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <button className="topbar-new" onClick={() => navigate({ name: "new-experiment" })}>
             <Plus size={17} /> Novo experimento
           </button>
-        </header>
+        </header>}
         <main className="main-content">{children}</main>
       </div>
     </div>

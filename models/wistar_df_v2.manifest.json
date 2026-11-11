@@ -1,0 +1,24 @@
+{
+  "bundleId": "wistar_df_v2",
+  "keypointCount": 27,
+  "detectorArchitecture": "fasterrcnn_resnet50_fpn_v2",
+  "detectorClasses": [
+    "background",
+    "wistar"
+  ],
+  "validationStatus": "experimental; train/validation only; independent test unavailable",
+  "files": {
+    "best_detector.pth": {
+      "sizeBytes": 173392347,
+      "sha256": "211891e0ec5f5b3f56d0f0be5b9255319ce9857284e72e558ccfc9f4ca93eef0"
+    },
+    "snapshot-hrnet_w32-001.pt": {
+      "sizeBytes": 118196193,
+      "sha256": "d81c8f18ba0729263168b96eab3e09b6bc3d0ee194b131fb381d2526266ff215"
+    },
+    "pytorch_config.yaml": {
+      "sizeBytes": 5996,
+      "sha256": "847076c1253f53816155fe247ca1448a13039498d902c2d75b24dac9d800f907"
+    }
+  }
+}

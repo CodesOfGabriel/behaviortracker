@@ -1,7 +1,6 @@
 """Pipeline D+F portado do notebook M, com artefatos compatíveis com o app."""
 
 import csv
-import copy
 import hashlib
 import json
 import math
@@ -19,12 +18,17 @@ from torchvision.transforms.functional import to_tensor
 import deeplabcut.pose_estimation_pytorch as pep
 from deeplabcut.pose_estimation_pytorch.apis.videos import create_df_from_prediction
 from deeplabcut.pose_estimation_pytorch.config import PoseConfig
+from hybrid.detector_wistar import select_detection
 
 
 VIDEO = __VIDEO__
 OUTPUT = Path(__OUTPUT__)
 CSV_PATH = __CSV__
 MODELS = Path(__MODELS__)
+MODEL_BUNDLE_ID = __MODEL_BUNDLE_ID__
+EXPECTED_DETECTOR_SHA256 = __DETECTOR_SHA256__
+EXPECTED_POSE_SHA256 = __POSE_SHA256__
+EXPECTED_CONFIG_SHA256 = __CONFIG_SHA256__
 ARENA = __ARENA__ or {}
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 KEYPOINTS = []
@@ -32,6 +36,7 @@ DETECTOR_THRESHOLD = .30
 BBOX_MARGIN = .12
 FC_THRESHOLD = .60
 LAST_DETECTOR_BATCH_SIZE = 1
+M4_MIN_ROI_OVERLAP = .22
 
 
 def gpu_name():
@@ -82,7 +87,7 @@ def arena_mask(width, height, arena):
     regions = []
     if arena.get("cornersPx"):
         regions.append(polygon(arena["cornersPx"], width, height, "piso"))
-    if arena.get("rimCornersPx"):
+    if MODEL_BUNDLE_ID == "wistar_df_v1" and arena.get("rimCornersPx"):
         regions.append(polygon(arena["rimCornersPx"], width, height, "borda"))
     if regions:
         mask.fill(0)
@@ -91,6 +96,16 @@ def arena_mask(width, height, arena):
     for index, points in enumerate(arena.get("occlusionPolygonsPx", [])):
         cv2.fillPoly(mask, [polygon(points, width, height, f"oclusão {index + 1}")], 0)
     return mask
+
+
+def selection_polygons(width, height, arena):
+    rim = arena.get("rimCornersPx") or arena.get("cornersPx")
+    floor = arena.get("cornersPx")
+    if not rim or not floor:
+        return None, None, None
+    roi = polygon(rim, width, height, "borda")
+    floor_poly = polygon(floor, width, height, "piso")
+    return roi, floor_poly, max(float(cv2.contourArea(roi)), 1.0)
 
 
 def detector():
@@ -115,6 +130,9 @@ def run_detector(video, mask):
     phase(f"Detector Wistar · GPU {gpu_name()} · carregando modelo")
     model = detector()
     rows, contexts = [], []
+    roi_poly, floor_poly, roi_area = selection_polygons(width, height, ARENA)
+    previous_box = None
+    previous_frame = -1
     started = time.monotonic()
     batch_size = detector_batch_size()
     global LAST_DETECTOR_BATCH_SIZE
@@ -124,26 +142,47 @@ def run_detector(video, mask):
     print(f"BEHAVETRACKER_DETECTOR_PROGRESS=0/{total or '?'}", flush=True)
 
     def append_prediction(prediction):
+        nonlocal previous_box, previous_frame
         candidates = [
             (float(score), box.detach().cpu().numpy(), int(label))
             for score, label, box in zip(prediction["scores"], prediction["labels"], prediction["boxes"])
-            if int(label) == 1 and float(score) >= DETECTOR_THRESHOLD
+            if int(label) == 1
         ]
-        selected = max(candidates, default=None, key=lambda value: value[0])
-        if selected is None:
+        frame_index = len(rows)
+        selected = select_detection(
+            [{"score": score, "x1": box[0], "y1": box[1], "x2": box[2], "y2": box[3]}
+             for score, box, _ in candidates],
+            width, height, threshold=DETECTOR_THRESHOLD, margin=BBOX_MARGIN,
+            roi_polygon=roi_poly if MODEL_BUNDLE_ID == "wistar_df_v2" else None,
+            floor_polygon=floor_poly if MODEL_BUNDLE_ID == "wistar_df_v2" else None,
+            previous_box=previous_box if MODEL_BUNDLE_ID == "wistar_df_v2" else None,
+            frame_gap=max(1, frame_index - previous_frame) if previous_box is not None else 1,
+            roi_area=roi_area, roi_overlap_min=M4_MIN_ROI_OVERLAP,
+        )
+        audit = selected["audit"]
+        if not selected["observed"]:
             rows.append({"frame": len(rows), "x": "", "y": "", "w": "", "h": "",
-                         "score": 0.0, "observed": False})
+                         "score": selected["score"] or 0.0, "observed": False,
+                         "selection_rank": "", "roi_overlap": "", "floor_overlap": "",
+                         "anchor_on_floor": False, "candidate_audit": json.dumps(audit)})
             contexts.append({"bboxes": np.empty((0, 4), np.float32)})
             return
-        score, box, _ = selected
-        x1, y1, x2, y2 = box
-        dx, dy = (x2 - x1) * BBOX_MARGIN, (y2 - y1) * BBOX_MARGIN
-        px, py = max(0, x1 - dx), max(0, y1 - dy)
-        qx, qy = min(width, x2 + dx), min(height, y2 + dy)
-        w, h = qx - px, qy - py
+        raw = selected["bboxRaw"]
+        pose_box = selected["bboxPose"]
+        px, py = pose_box["x"], pose_box["y"]
+        qx, qy = px + pose_box["width"], py + pose_box["height"]
+        w, h = pose_box["width"], pose_box["height"]
+        previous_box = (px, py, qx, qy)
+        previous_frame = frame_index
         rows.append({"frame": len(rows), "x": px, "y": py, "w": w, "h": h,
-                     "score": score, "observed": True,
-                     "raw_x1": x1, "raw_y1": y1, "raw_x2": x2, "raw_y2": y2})
+                     "score": selected["score"], "observed": True,
+                     "raw_x1": raw["x"], "raw_y1": raw["y"],
+                     "raw_x2": raw["x"] + raw["width"], "raw_y2": raw["y"] + raw["height"],
+                     "selection_rank": selected["selectionRank"],
+                     "roi_overlap": selected["roiOverlap"],
+                     "floor_overlap": selected["floorOverlap"],
+                     "anchor_on_floor": selected["anchorOnFloor"],
+                     "candidate_audit": json.dumps(audit)})
         contexts.append({"bboxes": np.asarray([[px, py, w, h]], dtype=np.float32)})
 
     with torch.inference_mode():
@@ -216,22 +255,7 @@ def pose_dataframe(video, contexts, count):
         video=iterator, pose_runner=runner, detector_runner=None, robust_nframes=True,
     )
     if len(predictions) != count:
-        if not predictions:
-            raise RuntimeError("DeepLabCut não retornou previsões")
-        if len(predictions) > count:
-            raise RuntimeError(f"DeepLabCut retornou previsões demais: {len(predictions)}/{count}")
-        template = copy.deepcopy(predictions[0])
-        bodyparts = np.asarray(template.get("bodyparts"))
-        if bodyparts.size == 0:
-            raise RuntimeError("DeepLabCut retornou uma previsão sem keypoints")
-        blank = copy.deepcopy(template)
-        blank["bodyparts"] = np.full(bodyparts.shape, np.nan, dtype=np.float32)
-        missing = count - len(predictions)
-        predictions = list(predictions) + [copy.deepcopy(blank) for _ in range(missing)]
-        phase(
-            f"HRNet adaptada · {len(predictions) - missing}/{count} previsões; "
-            f"{missing} frames ausentes preenchidos como baixa confiança"
-        )
+        raise RuntimeError(f"DeepLabCut retornou {len(predictions)}/{count} frames; alinhamento temporal não pode ser confirmado")
     frame_df = create_df_from_prediction(
         predictions=predictions, dlc_scorer="wistar_extdet_hrnet_adaptada",
         multi_animal=True, model_cfg=config, output_path=OUTPUT,
@@ -279,17 +303,20 @@ def export_canonical(frame_df, detections, fps, width, height):
         bbox = (detection["x"], detection["y"], detection["w"], detection["h"]) if detection["observed"] else ("", "", "", "")
         for bodypart in KEYPOINTS:
             x, y, likelihood = column(frame_df, bodypart, "x")[frame], column(frame_df, bodypart, "y")[frame], column(frame_df, bodypart, "likelihood")[frame]
-            valid = all(math.isfinite(value) for value in (x, y, likelihood)) and x >= 0 and y >= 0
+            valid = detection["observed"] and all(math.isfinite(value) for value in (x, y, likelihood)) and x >= 0 and y >= 0
             status = "valid" if valid and likelihood >= FC_THRESHOLD else "low_confidence" if valid else "missing"
             rows.append([frame, frame / fps, "animal_1", bodypart, x if valid else "", y if valid else "",
                          max(0., min(1., likelihood)) if math.isfinite(likelihood) else 0., status,
                          "unknown", bbox[0], bbox[1], bbox[2], bbox[3], "detected"])
     header = ["frame_index", "timestamp_sec", "animal_id", "keypoint", "x_px", "y_px", "likelihood",
               "status", "spatial_region", "bbox_x", "bbox_y", "bbox_width", "bbox_height", "source"]
-    with Path(CSV_PATH).open("w", newline="") as handle:
+    canonical_path = OUTPUT / "canonical_pose.csv"
+    with canonical_path.open("w", newline="") as handle:
         writer = csv.writer(handle)
         writer.writerow(header)
         writer.writerows(rows)
+    if Path(CSV_PATH) != canonical_path:
+        Path(CSV_PATH).write_bytes(canonical_path.read_bytes())
 
 
 def export_quality_and_filtered(frame_df, detections, fps):
@@ -333,12 +360,21 @@ def export_quality_and_filtered(frame_df, detections, fps):
 
 def main():
     phase("Inicializando pipeline D+F")
+    if MODEL_BUNDLE_ID not in ("wistar_df_v1", "wistar_df_v2"):
+        raise RuntimeError("Bundle D+F desconhecido")
+    for filename, expected in (("best_detector.pth", EXPECTED_DETECTOR_SHA256),
+                               ("snapshot-hrnet_w32-001.pt", EXPECTED_POSE_SHA256),
+                               ("pytorch_config.yaml", EXPECTED_CONFIG_SHA256)):
+        if sha256(MODELS / filename) != expected:
+            raise RuntimeError(f"Integridade do modelo remoto inválida: {filename}")
     if DEVICE.type != "cuda":
         raise RuntimeError("Pipeline D+F requer CUDA")
     OUTPUT.mkdir(parents=True, exist_ok=True)
     capture = cv2.VideoCapture(VIDEO)
     width, height = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)), int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
     capture.release()
+    if ARENA and (ARENA.get("videoWidth") != width or ARENA.get("videoHeight") != height):
+        raise RuntimeError("A ROI foi calibrada em uma resolução diferente do vídeo")
     phase("Preparando máscara da arena")
     mask = arena_mask(width, height, ARENA)
     phase("Executando detector Wistar")
@@ -355,11 +391,19 @@ def main():
     phase("Gerando manifesto")
     manifest = {
         "schemaVersion": 1, "pipelineVersion": "hybrid-df-notebook-port-1",
-        "engineId": "wistar_superanimal_hybrid_v1", "modelBundleId": "wistar_df_v1",
+        "engineId": "wistar_superanimal_hybrid_v1", "modelBundleId": MODEL_BUNDLE_ID,
+        "detectorSha256": sha256(MODELS / "best_detector.pth"),
+        "poseCheckpointSha256": sha256(MODELS / "snapshot-hrnet_w32-001.pt"),
         "sourceSha256": sha256(VIDEO), "frameCount": count, "fps": fps,
         "frameWidth": width, "frameHeight": height, "keypointCount": len(KEYPOINTS),
         "keypoints": KEYPOINTS,
         "detectorThreshold": DETECTOR_THRESHOLD, "bboxMargin": BBOX_MARGIN,
+        "detectorSelection": {
+            "roiOverlapMinimum": M4_MIN_ROI_OVERLAP,
+            "minAreaFraction": .0004, "maxAreaFraction": .40,
+            "continuityWeight": .48, "maxJumpFraction": .27,
+            "floorOverlapWeight": .68, "floorAnchorBonus": .25,
+        },
         "detectorBatchSize": LAST_DETECTOR_BATCH_SIZE,
         "poseLikelihoodThreshold": FC_THRESHOLD,
         "artifacts": {"detections": "detections.csv", "poseRawCsv": "pose_raw.csv",

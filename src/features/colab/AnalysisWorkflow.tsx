@@ -16,10 +16,8 @@ export function AnalysisWorkflow({ job, preparing, message, localError, elapsedS
 }) {
   const steps = checkpoints(job, preparing, Boolean(!job && localError));
   const events = job?.events ?? [];
-  const uploadProgress = job?.stage === "uploading"
-    ? Number(job.message.match(/(\d+)%/)?.[1] ?? NaN)
-    : NaN;
-  const compactEvents = events.filter((event) => !/^Enviando vídeo ao Colab · \d+%$/.test(event.message));
+  const progress = job?.status === "succeeded" ? 100 : Math.min(100, Math.max(0, job?.progress ?? 0, ...events.map((event) => event.progress)));
+  const compactEvents = events.filter((event) => event.status === "failed" || !/\d+(?:[.,]\d+)?\s*%/.test(event.message));
   const failed = job?.status === "failed" || (!job && localError);
   const active = preparing || job?.status === "running" || job?.status === "queued";
   const gpu = gpuMessage(events);
@@ -66,8 +64,7 @@ export function AnalysisWorkflow({ job, preparing, message, localError, elapsedS
         <ol className="workflow-checkpoints">
           {steps.map((step, index) => {
             const Icon = icons[index];
-            const liveMessage = step.event?.stage === "environment_ready" || (step.state === "active" && [4, 5, 6].includes(index));
-            const description = index === 1 && gpu ? gpu : liveMessage ? step.event?.message ?? step.description : step.description;
+            const description = index === 1 && gpu ? gpu : step.description;
             return (
               <li key={step.title} className={`checkpoint checkpoint-${step.state}`} aria-current={step.state === "active" ? "step" : undefined}>
                 <div className="checkpoint-path"><span className="checkpoint-icon">{step.state === "done" ? <Check size={20} /> : step.state === "failed" ? <CircleAlert size={20} /> : step.state === "active" ? <LoaderCircle size={20} className="animate-spin" /> : <Icon size={20} />}</span>{index < steps.length - 1 && <ArrowRight size={15} className="checkpoint-arrow" />}</div>
@@ -88,16 +85,15 @@ export function AnalysisWorkflow({ job, preparing, message, localError, elapsedS
       </div>}
       <div className={`workflow-current ${failed ? "workflow-current-error" : ""}`} role="status" aria-live="polite">
         {failed ? <CircleAlert size={17} /> : active ? <LoaderCircle size={17} className="animate-spin" /> : <ScanSearch size={17} />}
-        <span>{job?.error || localError || job?.message || message || "Ao iniciar, cada checkpoint será atualizado com as confirmações do Colab."}</span>
+        <span>{job?.error || localError || (job?.message && !/\d+(?:[.,]\d+)?\s*%/.test(job.message) ? job.message : "Análise em andamento") || message || "As etapas serão atualizadas durante a análise."}</span>
       </div>
-      {Number.isFinite(uploadProgress) && <div className="workflow-upload-progress" aria-label={`Upload do vídeo: ${uploadProgress}%`}>
-        <div className="workflow-upload-header"><span>Upload do vídeo</span><strong>{uploadProgress}%</strong></div>
-        <div className="workflow-upload-track"><span style={{ width: `${Math.min(100, Math.max(0, uploadProgress))}%` }} /></div>
-      </div>}
-      {events.length > 0 ? (
+      {job ? (
         <details className="workflow-log" open>
-          <summary>Diário da execução <span>{compactEvents.length} eventos importantes · progresso exibido acima</span></summary>
-          <ol aria-label="Eventos reais da análise">
+          <summary>Diário da execução</summary>
+          <div className="workflow-progress" role="progressbar" aria-label="Progresso da análise" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
+            <span style={{ width: `${progress}%` }} />
+          </div>
+          {compactEvents.length > 0 && <ol aria-label="Eventos da análise">
             {[...compactEvents].reverse().map((event) => (
               <li key={event.id} className={event.status === "failed" ? "log-failed" : ""}>
                 <time>{new Date(event.createdAt).toLocaleTimeString("pt-BR")}</time>
@@ -105,9 +101,9 @@ export function AnalysisWorkflow({ job, preparing, message, localError, elapsedS
                 <span>{event.message}</span>
               </li>
             ))}
-          </ol>
+          </ol>}
         </details>
-      ) : job && <p className="workflow-legacy-note">Esta execução foi criada antes do registro de checkpoints. Os detalhes aparecerão nas próximas análises.</p>}
+      ) : null}
     </section>
   );
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boxFromPoints, provisionalBoxAt, translateBox } from "./boxes";
+import { boxFromPoints, detectorTrajectory, provisionalBoxAt, translateBox } from "./boxes";
 import { applyCorrections } from "./corrections";
 import { originalPose, metricEligible } from "./pose";
 import { parseCanonicalPoseCsv, poseToCsv } from "./csv";
@@ -10,6 +10,23 @@ const raw:PoseSample={frameIndex:3,timestampSec:.125,keypoint:"box_center",xPx:5
 const edit:CorrectionEvent={id:"box",type:"SET_BOX",frameIndex:3,timestampSec:.125,keypoint:"box_center",source:"manual",createdAt:"now",afterBox:{x:50,y:50,width:40,height:20}};
 
 describe("caixa macro e correções auditáveis",()=>{
+  it("mostra o percurso das caixas mesmo quando o ponto anatômico tem baixa confiança, sem criar pontes",()=>{
+    const frames:PoseSample[]=[0,1,2,3,4].map(frameIndex=>({
+      frameIndex,timestampSec:frameIndex/25,keypoint:"mouse_center",xPx:20,yPx:20,
+      likelihood:.1,status:"low_confidence",source:"detected",
+      bbox:frameIndex===2?undefined:{x:frameIndex*10,y:20,width:20,height:20},
+    }));
+    const track=detectorTrajectory(frames,100,80,5);
+    expect(track).toMatchObject({observedFrames:4,totalFrames:5,coveragePct:80});
+    expect(track.segments).toEqual([
+      [{x:10,y:30},{x:20,y:30}],
+      [{x:40,y:30},{x:50,y:30}],
+    ]);
+    const withPrediction={...frames[2],source:"predicted" as const,bbox:{x:20,y:20,width:20,height:20}};
+    expect(detectorTrajectory([...frames,withPrediction],100,80,5).observedFrames).toBe(4);
+    const manualBox={...frames[2],source:"manual" as const,bbox:{x:20,y:20,width:20,height:20}};
+    expect(detectorTrajectory([...frames,manualBox],100,80,5).observedFrames).toBe(4);
+  });
   it("desenha em qualquer direção e limita a translação à imagem",()=>{
     expect(boxFromPoints({x:100,y:90},{x:50,y:30})).toEqual({x:50,y:30,width:50,height:60});
     expect(translateBox({x:10,y:20,width:30,height:40},{x:1000,y:-200},100,80)).toEqual({x:70,y:0,width:30,height:40});

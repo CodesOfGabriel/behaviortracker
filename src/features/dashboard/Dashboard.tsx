@@ -5,11 +5,12 @@ import {
   Clock3,
   FileVideo,
   FlaskConical,
-  MoreHorizontal,
   Plus,
   ShieldCheck,
   Sparkles,
+  Trash2,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useAppStore } from "../../store/AppStore";
 import { Button } from "../../components/ui/Button";
 import { Badge } from "../../components/ui/Badge";
@@ -36,11 +37,28 @@ const statusTone: Record<ExperimentStatus, "neutral" | "success" | "warning" | "
 
 export function Dashboard() {
   const { experiments, navigate, openDemo, deleteExperiment } = useAppStore();
+  const [pendingDeletion, setPendingDeletion] = useState<{ id: string; title: string } | null>(null);
   const inReview = experiments.filter((experiment) => experiment.status === "review").length;
   const completed = experiments.filter((experiment) => experiment.status === "completed").length;
 
+  useEffect(() => {
+    if (!pendingDeletion) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPendingDeletion(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [pendingDeletion]);
+
+  const confirmDeletion = () => {
+    if (!pendingDeletion) return;
+    deleteExperiment(pendingDeletion.id);
+    setPendingDeletion(null);
+  };
+
   return (
-    <div className="page dashboard-page">
+    <>
+      <div className="page dashboard-page">
       <section className="page-heading dashboard-heading">
         <div>
           <div className="eyebrow">Laboratório local</div>
@@ -96,7 +114,11 @@ export function Dashboard() {
                   className="experiment-row"
                   onClick={() => navigate({ name: "editor", experimentId: experiment.id })}
                 >
-                  <div className="experiment-thumb"><FileVideo size={20} /><span>OFT</span></div>
+                  <div className={`experiment-thumb${experiment.calibrationThumbnailDataUrl ? " has-image" : ""}`}>
+                    {experiment.calibrationThumbnailDataUrl
+                      ? <img src={experiment.calibrationThumbnailDataUrl} alt={`Frame de calibração de ${experiment.title}`} />
+                      : <><FileVideo size={20} /><span>Sem prévia</span></>}
+                  </div>
                   <div className="experiment-main">
                     <div className="experiment-title-row">
                       <h3>{experiment.title}</h3>
@@ -111,14 +133,12 @@ export function Dashboard() {
                   </div>
                   <button
                     className="icon-button"
-                    title="Remover experimento local"
+                    title="Excluir experimento"
                     onClick={(event) => {
                       event.stopPropagation();
-                      if (window.confirm("Remover este experimento local? Essa ação não pode ser desfeita.")) {
-                        deleteExperiment(experiment.id);
-                      }
+                      setPendingDeletion({ id: experiment.id, title: experiment.title });
                     }}
-                  ><MoreHorizontal size={19} /></button>
+                  ><Trash2 size={17} /></button>
                   <ChevronRight size={18} className="row-chevron" />
                 </article>
               ))}
@@ -149,7 +169,36 @@ export function Dashboard() {
           </section>
         </aside>
       </div>
-    </div>
+      </div>
+      {pendingDeletion && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setPendingDeletion(null);
+          }}
+        >
+          <section
+            className="confirm-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-experiment-title"
+            aria-describedby="delete-experiment-description"
+          >
+            <div className="confirm-modal-icon"><Trash2 size={20} /></div>
+            <div>
+              <h2 id="delete-experiment-title">Excluir experimento?</h2>
+              <p id="delete-experiment-description">
+                Tem certeza que deseja excluir <strong>{pendingDeletion.title}</strong>? O experimento será removido da lista local. Arquivos de análise e registros associados ainda podem permanecer no dispositivo.
+              </p>
+            </div>
+            <div className="confirm-modal-actions">
+              <Button variant="secondary" onClick={() => setPendingDeletion(null)}>Cancelar</Button>
+              <Button variant="danger" icon={<Trash2 size={15} />} onClick={confirmDeletion}>Excluir experimento</Button>
+            </div>
+          </section>
+        </div>
+      )}
+    </>
   );
 }
-

@@ -17,7 +17,7 @@ LOG_TAIL_BYTES = 16 * 1024
 
 
 def paths(directory, task):
-    if task not in ("setup", "inference", "render", "training"):
+    if task not in ("setup", "inference", "render", "training", "model_detector", "model_hrnet", "model_config"):
         raise ValueError("Tarefa desconhecida")
     root = Path(directory)
     return {name: root / (task + suffix) for name, suffix in (

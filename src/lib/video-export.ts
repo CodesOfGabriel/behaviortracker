@@ -28,13 +28,25 @@ function frameSamples(samples: PoseSample[]) {
   return grouped;
 }
 
+function estimatedFps(samples: PoseSample[]) {
+  const frames = [...new Map(samples.map(sample => [sample.frameIndex, sample])).values()]
+    .sort((a, b) => a.frameIndex - b.frameIndex);
+  const rates = [];
+  for (let index = 1; index < frames.length; index += 1) {
+    const frameDelta = frames[index].frameIndex - frames[index - 1].frameIndex;
+    const timeDelta = frames[index].timestampSec - frames[index - 1].timestampSec;
+    if (frameDelta > 0 && timeDelta > 0) rates.push(frameDelta / timeDelta);
+  }
+  return rates.length ? rates.sort((a, b) => a - b)[Math.floor(rates.length / 2)] : 30;
+}
+
 function drawPose(context: CanvasRenderingContext2D, samples: PoseSample[]) {
   const points = new Map(samples
     .filter(sample => sample.xPx != null && sample.yPx != null && sample.status !== "missing")
     .map(sample => [sample.keypoint, sample] as const));
   const bbox = samples.find(sample => sample.bbox)?.bbox;
   if (bbox) {
-    context.strokeStyle = "#5ba7ff";
+    context.strokeStyle = "#9fb8a3";
     context.lineWidth = 2;
     context.strokeRect(bbox.x, bbox.y, bbox.width, bbox.height);
   }
@@ -52,7 +64,7 @@ function drawPose(context: CanvasRenderingContext2D, samples: PoseSample[]) {
   }
   for (const sample of points.values()) {
     const weak = sample.likelihood != null && sample.likelihood < .6;
-    context.fillStyle = weak ? "#f3bd62" : "#65a9ff";
+    context.fillStyle = weak ? "#f3bd62" : "#9fb8a3";
     context.beginPath();
     context.arc(sample.xPx!, sample.yPx!, weak ? 3 : 4, 0, Math.PI * 2);
     context.fill();
@@ -80,15 +92,18 @@ export async function exportAnnotatedVideo(
     recorder.onstop = () => resolve(new Blob(chunks, { type: "video/webm" }));
   });
   const byFrame = frameSamples(samples);
-  const source = [...samples].sort((a, b) => a.timestampSec - b.timestampSec);
+  const fps = estimatedFps(samples);
+  const sourceFrames = [...byFrame.keys()].sort((a, b) => a - b);
   const draw = () => {
     context.drawImage(video, 0, 0);
-    drawPolygon(context, arena.cornersPx, "#23c483");
+    drawPolygon(context, arena.cornersPx, "#80aa8b");
     if (arena.rimCornersPx) drawPolygon(context, arena.rimCornersPx, "#f5b942");
-    arena.occlusionPolygonsPx?.forEach(points => drawPolygon(context, points, "#ef5da8"));
-    const frame = source.reduce<PoseSample | undefined>((best, sample) =>
-      !best || Math.abs(sample.timestampSec - video.currentTime) < Math.abs(best.timestampSec - video.currentTime) ? sample : best, undefined);
-    if (frame) drawPose(context, byFrame.get(frame.frameIndex) ?? []);
+    arena.occlusionPolygonsPx?.forEach(points => drawPolygon(context, points, "#c98f83"));
+    const targetFrame = Math.max(0, Math.round(video.currentTime * fps));
+    const frameIndex = sourceFrames.reduce((best, frame) =>
+      Math.abs(frame - targetFrame) < Math.abs(best - targetFrame) ? frame : best,
+      sourceFrames[0] ?? 0);
+    drawPose(context, byFrame.get(frameIndex) ?? []);
     if (!video.paused && !video.ended) requestAnimationFrame(draw);
   };
   video.currentTime = 0;
