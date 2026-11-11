@@ -4,7 +4,7 @@
 
 # Behavior Tracker
 
-Desenvolvido por **Gabriel Santos** e **Thiago Vargas**, em parceria entre o **Laboratório Neurocell** e o **NeuroLab da Universidade Federal de Pelotas (UFPel)**.
+Desenvolvido por **Gabriel Santos** e **Thiago Vargas**, uma parceria entre o **Laboratório Neurocell** e o **NeuroLab da Universidade Federal de Pelotas (UFPel)**.
 
 Aplicativo desktop para analisar um rato por vídeo no teste de campo aberto. O vídeo é enviado ao Google Colab para inferência com DeepLabCut; a revisão dos pontos, a calibração da arena, as métricas e os resultados ficam no dispositivo.
 
@@ -56,6 +56,22 @@ O Teste B anexado gerou 7.356 frames e 82,2% tinham ao menos um dos 27 pontos co
 Build TypeScript, testes locais e contrato da inferência com modelo simulado verificam o fluxo de código. Uma execução completa do app nesta versão com uma conta Colab A100/H100 e um vídeo real ainda precisa ser confirmada. A disponibilidade da GPU e as cotas dependem da conta Google.
 
 ## Desenvolvimento
+
+### Distribuição para outros pesquisadores
+
+Cada instalação usa o diretório de dados do usuário do sistema operacional e autoriza a Conta Google pessoal desse pesquisador no navegador. O token de renovação fica no cofre de credenciais do macOS/Windows/Linux; o SQLite local guarda apenas o estado da conexão. Tokens gravados por versões anteriores no SQLite são migrados para o cofre ao abrir o perfil OAuth, e o campo antigo é apagado após a gravação bem-sucedida. Se uma instalação antiga usava outro Client ID, será necessário reconectar a conta ao abrir a versão distribuída. As credenciais não são compartilhadas entre instalações.
+
+Para gerar um instalador público, crie no Google Cloud um projeto do Behavior Tracker com público **Externo**, configure a tela de consentimento e crie um cliente OAuth do tipo **Aplicativo para computador**. Defina o Client ID desse projeto no ambiente de build:
+
+```sh
+BEHAVETRACKER_GOOGLE_CLIENT_ID='SEU_CLIENT_ID.apps.googleusercontent.com' npm run tauri build
+```
+
+O build de release exige esse ID; ele é integrado ao aplicativo, e o pesquisador não precisa informar credenciais de desenvolvedor. O Client ID identifica o aplicativo, enquanto cada usuário autoriza sua própria conta. Não inclua um Client Secret ou tokens pessoais no instalador. Em builds de desenvolvimento sem o ID integrado, o formulário manual continua disponível para testes locais.
+
+Antes de disponibilizar o instalador a qualquer Conta Google, configure o público OAuth como **Externo** em Google Auth Platform → Público-alvo. Se o projeto atual não permitir essa mudança, crie um projeto público separado e um novo cliente Desktop; nesse caso, gere outro instalador com o novo Client ID. No modo de teste, adicione explicitamente as contas que validarão o fluxo. Configure o nome, o e-mail de suporte, o domínio verificado, a página inicial e a política de privacidade; declare os escopos `openid`, `email` e `https://www.googleapis.com/auth/colaboratory`. Publique em produção e envie a verificação solicitada pelo Google, com justificativa dos escopos e demonstração do fluxo de autorização e análise. Enquanto a verificação não estiver concluída, consulte as restrições exibidas no projeto antes de liberar o instalador ao público. Valide o instalador em computadores limpos com contas diferentes, incluindo fechar e reabrir o aplicativo. A execução no Colab também depende da elegibilidade e da disponibilidade de runtime da conta conectada.
+
+O ZIP macOS gerado sem Developer ID é apenas para testes controlados. Para distribuição macOS sem impedimentos do Gatekeeper, assine o aplicativo com Developer ID e envie-o à notarização da Apple. A distribuição Windows ou Linux requer builds próprios nessas plataformas; o artefato macOS Intel não é compatível com elas.
 
 ```sh
 npm install

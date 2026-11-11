@@ -277,7 +277,7 @@ export function Results({ experimentId }: { experimentId: string }) {
 
       <div className="results-main-grid">
         <section className="panel trajectory-card">
-          <div className="panel-header"><div><h2>Trajetória espacial</h2><p>{displayDetectorTrack ? "Centro geométrico das caixas observadas, sem preencher frames sem detecção." : "Segmentos válidos da referência anatômica com correções aplicadas."}</p></div><Badge>{displayDetectorTrack ? "Caixa do detector" : versionC ? "Versão C" : "Pontos anatômicos"}</Badge></div>
+          <div className="panel-header"><div><h2>Trajetória espacial</h2><p>{displayDetectorTrack ? "Centro geométrico das caixas observadas, sem preencher frames sem detecção." : "Segmentos válidos da referência anatômica ou do centro da caixa, com correções aplicadas."}</p></div><Badge>{displayDetectorTrack ? "Caixa do detector" : versionC ? "Versão C" : "Referência 2D"}</Badge></div>
           {hasDetectorTrack && <div className="trajectory-source-toggle" role="group" aria-label="Origem da trajetória">
             <button type="button" className={displayDetectorTrack ? "active" : ""} aria-pressed={displayDetectorTrack} onClick={() => setTrajectorySource("detector")}>Caixa do detector</button>
             <button type="button" className={!displayDetectorTrack ? "active" : ""} aria-pressed={!displayDetectorTrack} onClick={() => setTrajectorySource("anatomical")}>Ponto anatômico</button>

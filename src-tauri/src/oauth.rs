@@ -22,6 +22,7 @@ const AUTH_TIMEOUT: Duration = Duration::from_secs(180);
 const CLIENT_SECRET_SERVICE: &str = "com.behavetracker.desktop.google-oauth-client";
 const REFRESH_TOKEN_SERVICE: &str = "com.behavetracker.desktop.google-oauth-refresh";
 const OAUTH_STATUS_EVENT: &str = "google-oauth-status";
+const BUNDLED_CLIENT_ID: Option<&str> = option_env!("BEHAVETRACKER_GOOGLE_CLIENT_ID");
 
 pub(crate) type CommandResult<T> = Result<T, String>;
 
@@ -30,6 +31,7 @@ pub(crate) type CommandResult<T> = Result<T, String>;
 pub struct OAuthProfileSummary {
     pub profile_id: String,
     pub client_id: String,
+    pub managed_client: bool,
     pub has_client_secret: bool,
     pub connected: bool,
     pub account_email: Option<String>,
@@ -118,6 +120,36 @@ fn validate_client_secret(client_secret: &str) -> CommandResult<String> {
         return Err("Client secret inválido.".into());
     }
     Ok(value.to_string())
+}
+
+fn bundled_client_id() -> Option<String> {
+    BUNDLED_CLIENT_ID.and_then(|value| validate_client_id(value).ok())
+}
+
+fn token_entry(profile_id: &str) -> CommandResult<Entry> {
+    Entry::new(REFRESH_TOKEN_SERVICE, profile_id)
+        .map_err(|_| "Não foi possível abrir o cofre de credenciais do sistema.".to_string())
+}
+
+fn read_keyring_token(profile_id: &str) -> CommandResult<Option<String>> {
+    match token_entry(profile_id)?.get_password() {
+        Ok(value) if !value.is_empty() => Ok(Some(value)),
+        Ok(_) | Err(keyring::Error::NoEntry) => Ok(None),
+        Err(_) => Err("Não foi possível ler a autorização Google no cofre do sistema.".into()),
+    }
+}
+
+fn save_keyring_token(profile_id: &str, token: &str) -> CommandResult<()> {
+    token_entry(profile_id)?.set_password(token).map_err(|_| {
+        "Não foi possível salvar a autorização Google no cofre do sistema.".to_string()
+    })
+}
+
+fn delete_keyring_token(profile_id: &str) -> CommandResult<()> {
+    match token_entry(profile_id)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(_) => Err("Não foi possível remover a autorização Google do cofre do sistema.".into()),
+    }
 }
 
 pub(crate) fn open_database(app: &AppHandle) -> CommandResult<Connection> {
@@ -219,14 +251,48 @@ fn credentials_from_database(
     app: &AppHandle,
     profile_id: &str,
 ) -> CommandResult<(Option<String>, Option<String>)> {
-    open_database(app)?
+    let connection = open_database(app)?;
+    let (client_secret, legacy_token): (Option<String>, Option<String>) = connection
         .query_row(
             "SELECT client_secret, refresh_token
                FROM google_oauth_profiles WHERE profile_id = ?1",
             params![profile_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
-        .map_err(|_| "As credenciais OAuth não foram encontradas neste dispositivo.".to_string())
+        .map_err(|_| "As credenciais OAuth não foram encontradas neste dispositivo.".to_string())?;
+    let token = read_or_migrate_token(
+        &connection,
+        profile_id,
+        legacy_token,
+        || read_keyring_token(profile_id),
+        |token| save_keyring_token(profile_id, token),
+    )?;
+    Ok((client_secret, token))
+}
+
+fn read_or_migrate_token(
+    connection: &Connection,
+    profile_id: &str,
+    legacy_token: Option<String>,
+    read_token: impl Fn() -> CommandResult<Option<String>>,
+    save_token: impl Fn(&str) -> CommandResult<()>,
+) -> CommandResult<Option<String>> {
+    let token = match read_token()? {
+        Some(token) => Some(token),
+        None => {
+            if let Some(token) = legacy_token.as_deref() {
+                save_token(token)?;
+            }
+            legacy_token
+        }
+    };
+    if token.is_some() {
+        connection.execute(
+            "UPDATE google_oauth_profiles SET refresh_token = NULL, has_refresh_token = 1 WHERE profile_id = ?1",
+            params![profile_id],
+        ).map_err(|_| "Não foi possível concluir a migração da autorização Google.".to_string())?;
+    }
+    Ok(token)
 }
 
 fn publish_connection(app: &AppHandle, summary: &OAuthProfileSummary) {
@@ -240,10 +306,49 @@ fn persist_google_session(
     email: &str,
     refresh_token: Option<&str>,
 ) -> CommandResult<()> {
+    persist_google_session_with_store(
+        connection,
+        profile_id,
+        client_id,
+        email,
+        refresh_token,
+        |token| save_keyring_token(profile_id, token),
+        || Ok(read_keyring_token(profile_id)?.is_some()),
+    )
+}
+
+fn persist_google_session_with_store(
+    connection: &Connection,
+    profile_id: &str,
+    client_id: &str,
+    email: &str,
+    refresh_token: Option<&str>,
+    save_token: impl Fn(&str) -> CommandResult<()>,
+    has_token: impl Fn() -> CommandResult<bool>,
+) -> CommandResult<()> {
+    let matching_profile: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM google_oauth_profiles WHERE profile_id = ?1 AND google_client_id = ?2)",
+            params![profile_id, client_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| "Não foi possível confirmar a configuração OAuth local.".to_string())?;
+    if !matching_profile {
+        return Err("A configuração OAuth mudou durante a conexão. Conecte novamente.".into());
+    }
+    let available_token = if let Some(token) = refresh_token.filter(|token| !token.is_empty()) {
+        save_token(token)?;
+        true
+    } else {
+        has_token()?
+    };
+    if !available_token {
+        return Err("O Google não retornou uma autorização persistente. Conecte novamente.".into());
+    }
     let affected = connection
         .execute(
             "UPDATE google_oauth_profiles
-            SET refresh_token = COALESCE(NULLIF(?4, ''), refresh_token),
+            SET refresh_token = NULL,
                 has_refresh_token = 1,
                 account_email = ?3,
                 provider_error = NULL,
@@ -252,9 +357,8 @@ fn persist_google_session(
                 eligible_gpu_count = 0,
                 connected_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-          WHERE profile_id = ?1 AND google_client_id = ?2
-            AND length(COALESCE(NULLIF(?4, ''), refresh_token, '')) > 0",
-            params![profile_id, client_id, email, refresh_token],
+          WHERE profile_id = ?1 AND google_client_id = ?2",
+            params![profile_id, client_id, email],
         )
         .map_err(|_| "Não foi possível salvar a conexão Google neste dispositivo.".to_string())?;
     if affected != 1 {
@@ -263,9 +367,64 @@ fn persist_google_session(
     Ok(())
 }
 
+fn configure_bundled_client(
+    connection: &Connection,
+    profile_id: &str,
+    client_id: &str,
+    delete_token: impl Fn() -> CommandResult<()>,
+) -> CommandResult<()> {
+    let previous: Option<String> = connection
+        .query_row(
+            "SELECT google_client_id FROM google_oauth_profiles WHERE profile_id = ?1",
+            params![profile_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|_| "Não foi possível ler o cliente OAuth anterior.".to_string())?;
+    match previous {
+        None => {
+            connection.execute(
+                    "INSERT INTO google_oauth_profiles (profile_id, google_client_id) VALUES (?1, ?2)",
+                    params![profile_id, client_id],
+                ).map_err(|_| "Não foi possível configurar o OAuth do aplicativo.".to_string())?;
+        }
+        Some(previous) if previous != client_id => {
+            delete_token()?;
+            connection
+                .execute(
+                    "UPDATE google_oauth_profiles SET google_client_id = ?2,
+                        client_secret = NULL, has_client_secret = 0,
+                        refresh_token = NULL, has_refresh_token = 0,
+                        account_email = NULL, subscription_tier = NULL,
+                        eligible_runtime_count = 0, eligible_gpu_count = 0,
+                        provider_error = NULL, connected_at = NULL,
+                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                      WHERE profile_id = ?1",
+                    params![profile_id, client_id],
+                )
+                .map_err(|_| "Não foi possível ativar o OAuth do aplicativo.".to_string())?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 fn summary_from_database(app: &AppHandle, profile_id: &str) -> CommandResult<OAuthProfileSummary> {
     validate_profile_id(profile_id)?;
     let connection = open_database(app)?;
+    if let Some(client_id) = bundled_client_id() {
+        configure_bundled_client(&connection, profile_id, &client_id, || {
+            delete_keyring_token(profile_id)
+        })?;
+    }
+    let has_profile: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM google_oauth_profiles WHERE profile_id = ?1)",
+            params![profile_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| "Não foi possível ler o perfil Google local.".to_string())?;
+    let token_available = has_profile && credentials_from_database(app, profile_id)?.1.is_some();
     let summary = connection
         .query_row(
             "SELECT profile_id, google_client_id,
@@ -278,13 +437,15 @@ fn summary_from_database(app: &AppHandle, profile_id: &str) -> CommandResult<OAu
             params![profile_id],
             |row| {
                 let has_client_secret: bool = row.get(2)?;
-                let has_refresh_token: bool = row.get(3)?;
+                let _has_refresh_token: bool = row.get(3)?;
                 let account_email: Option<String> = row.get(4)?;
                 Ok(OAuthProfileSummary {
                     profile_id: row.get(0)?,
                     client_id: row.get(1)?,
+                    managed_client: bundled_client_id().as_deref()
+                        == Some(row.get::<_, String>(1)?.as_str()),
                     has_client_secret,
-                    connected: account_email.is_some() && has_refresh_token,
+                    connected: account_email.is_some() && token_available,
                     account_email,
                     subscription_tier: row.get(5)?,
                     eligible_runtime_count: row.get(6)?,
@@ -300,6 +461,7 @@ fn summary_from_database(app: &AppHandle, profile_id: &str) -> CommandResult<OAu
     Ok(summary.unwrap_or_else(|| OAuthProfileSummary {
         profile_id: profile_id.to_string(),
         client_id: String::new(),
+        managed_client: false,
         has_client_secret: false,
         connected: false,
         account_email: None,
@@ -370,6 +532,7 @@ pub fn save_google_oauth_config(
         .map_err(|_| "Não foi possível salvar o Client ID no banco local.".to_string())?;
 
     if client_changed {
+        delete_keyring_token(&profile_id)?;
         connection
             .execute(
                 "UPDATE google_oauth_profiles
@@ -622,13 +785,16 @@ fn restore_legacy_google_session_blocking(
     } else {
         None
     };
+    if let Some(token) = legacy_refresh_token.as_deref() {
+        save_keyring_token(&profile_id, token)?;
+    }
     let connection = open_database(&app)?;
     connection
         .execute(
             "UPDATE google_oauth_profiles
                 SET client_secret = COALESCE(?2, client_secret),
                     has_client_secret = CASE WHEN ?2 IS NULL THEN has_client_secret ELSE 1 END,
-                    refresh_token = COALESCE(?3, refresh_token),
+                    refresh_token = NULL,
                     has_refresh_token = CASE WHEN ?3 IS NULL THEN has_refresh_token ELSE 1 END,
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
               WHERE profile_id = ?1",
@@ -917,6 +1083,7 @@ pub async fn disconnect_google_account(
         if let Some(refresh_token) = refresh_token {
             revoke_refresh_token(refresh_token);
         }
+        delete_keyring_token(&profile_for_task)?;
         let connection = open_database(&app_for_task)?;
         connection
             .execute(
@@ -949,6 +1116,7 @@ pub async fn delete_google_oauth_config(app: AppHandle, profile_id: String) -> C
         if let Some(refresh_token) = refresh_token {
             revoke_refresh_token(refresh_token);
         }
+        delete_keyring_token(&profile_id)?;
         let connection = open_database(&app)?;
         connection
             .execute(
@@ -973,9 +1141,9 @@ mod tests {
     };
 
     use super::{
-        migrate_credential_state, persist_google_session, send_browser_response,
-        token_error_message, validate_client_id, validate_client_secret, validate_profile_id,
-        wait_for_authorization_code,
+        configure_bundled_client, migrate_credential_state, persist_google_session_with_store,
+        read_or_migrate_token, send_browser_response, token_error_message, validate_client_id,
+        validate_client_secret, validate_profile_id, wait_for_authorization_code,
     };
 
     #[test]
@@ -1051,55 +1219,133 @@ mod tests {
     }
 
     #[test]
-    fn saves_identity_and_token_together_and_preserves_them_on_migration() {
+    fn saves_identity_without_writing_the_refresh_token_to_sqlite() {
         let connection = test_connection();
-        persist_google_session(
+        let saved_token = std::cell::RefCell::new(None::<String>);
+        persist_google_session_with_store(
             &connection,
             "local-default",
             "client.apps.googleusercontent.com",
             "user@example.com",
             Some("test-refresh-token"),
+            |token| {
+                *saved_token.borrow_mut() = Some(token.to_string());
+                Ok(())
+            },
+            || Ok(saved_token.borrow().is_some()),
         )
         .unwrap();
         migrate_credential_state(&connection).unwrap();
-        let saved: (String, String, bool) = connection
+        let saved: (String, Option<String>, bool) = connection
             .query_row(
                 "SELECT account_email, refresh_token, has_refresh_token FROM google_oauth_profiles",
                 [],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .unwrap();
-        assert_eq!(
-            saved,
-            ("user@example.com".into(), "test-refresh-token".into(), true)
-        );
-        persist_google_session(
+        assert_eq!(saved, ("user@example.com".into(), None, true));
+        assert_eq!(saved_token.borrow().as_deref(), Some("test-refresh-token"));
+        persist_google_session_with_store(
             &connection,
             "local-default",
             "client.apps.googleusercontent.com",
             "user@example.com",
             None,
+            |_| Ok(()),
+            || Ok(saved_token.borrow().is_some()),
         )
         .unwrap();
     }
 
     #[test]
+    fn migrates_legacy_token_only_after_secure_storage_succeeds() {
+        let connection = test_connection();
+        connection.execute(
+            "UPDATE google_oauth_profiles SET refresh_token = 'legacy-token' WHERE profile_id = 'local-default'",
+            [],
+        ).unwrap();
+        assert!(read_or_migrate_token(
+            &connection,
+            "local-default",
+            Some("legacy-token".into()),
+            || Ok(None),
+            |_| Err("cofre indisponível".into()),
+        )
+        .is_err());
+        let retained: Option<String> = connection.query_row(
+            "SELECT refresh_token FROM google_oauth_profiles WHERE profile_id = 'local-default'",
+            [], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(retained.as_deref(), Some("legacy-token"));
+        let migrated = read_or_migrate_token(
+            &connection,
+            "local-default",
+            retained,
+            || Ok(None),
+            |token| {
+                assert_eq!(token, "legacy-token");
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(migrated.as_deref(), Some("legacy-token"));
+        let cleared: Option<String> = connection.query_row(
+            "SELECT refresh_token FROM google_oauth_profiles WHERE profile_id = 'local-default'",
+            [], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(cleared, None);
+    }
+
+    #[test]
+    fn bundled_client_replaces_a_different_local_client_and_requires_reconnection() {
+        let connection = test_connection();
+        connection.execute(
+            "UPDATE google_oauth_profiles SET account_email = 'user@example.com', refresh_token = 'old-token' WHERE profile_id = 'local-default'",
+            [],
+        ).unwrap();
+        let deleted = std::cell::Cell::new(false);
+        configure_bundled_client(
+            &connection,
+            "local-default",
+            "official.apps.googleusercontent.com",
+            || {
+                deleted.set(true);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(deleted.get());
+        let state: (String, Option<String>, Option<String>) = connection.query_row(
+            "SELECT google_client_id, account_email, refresh_token FROM google_oauth_profiles WHERE profile_id = 'local-default'",
+            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).unwrap();
+        assert_eq!(
+            state,
+            ("official.apps.googleusercontent.com".into(), None, None)
+        );
+    }
+
+    #[test]
     fn does_not_claim_connected_without_a_token_or_for_a_changed_client() {
         let connection = test_connection();
-        assert!(persist_google_session(
+        assert!(persist_google_session_with_store(
             &connection,
             "local-default",
             "client.apps.googleusercontent.com",
             "user@example.com",
-            None
+            None,
+            |_| Ok(()),
+            || Ok(false),
         )
         .is_err());
-        assert!(persist_google_session(
+        assert!(persist_google_session_with_store(
             &connection,
             "local-default",
             "another.apps.googleusercontent.com",
             "user@example.com",
-            Some("test-refresh-token")
+            Some("test-refresh-token"),
+            |_| Ok(()),
+            || Ok(true),
         )
         .is_err());
         let connected: bool = connection.query_row(

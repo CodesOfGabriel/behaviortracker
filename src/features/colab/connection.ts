@@ -6,6 +6,7 @@ export const COLAB_STATUS_EVENT = "behavetracker:colab-status";
 export type OAuthProfileSummary = {
   profileId: string;
   clientId: string;
+  managedClient: boolean;
   hasClientSecret: boolean;
   connected: boolean;
   accountEmail: string | null;
@@ -19,6 +20,7 @@ export type OAuthProfileSummary = {
 export const emptyColabSummary: OAuthProfileSummary = {
   profileId: COLAB_PROFILE_ID,
   clientId: "",
+  managedClient: false,
   hasClientSecret: false,
   connected: false,
   accountEmail: null,

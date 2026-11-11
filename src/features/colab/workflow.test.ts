@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ColabJob, ColabJobEvent } from "./analysis";
-import { checkpoints, gpuMessage } from "./workflow";
+import { checkpoints, displayAnalysisMessage, gpuMessage, preparingNewAnalysis } from "./workflow";
 
 function event(id: number, stage: string, message = stage): ColabJobEvent {
   return { id, stage, message, progress: 0, status: "running", createdAt: "2026-11-06T12:00:00Z" };
@@ -13,6 +13,17 @@ function job(overrides: Partial<ColabJob>): ColabJob {
 }
 
 describe("checkpoints da análise", () => {
+  it("mostra a preparação de um novo job mesmo após uma execução interrompida", () => {
+    const previous = job({ status: "failed", message: "O aplicativo fechou" });
+    expect(preparingNewAnalysis(true, null, [previous])).toBe(true);
+    expect(preparingNewAnalysis(true, job({ stage: "uploading" }), [previous])).toBe(false);
+    expect(preparingNewAnalysis(true, null, [job({ status: "running" })])).toBe(false);
+  });
+
+  it("apresenta mensagens históricas sem o codinome do pipeline", () => {
+    expect(displayAnalysisMessage("Executando pipeline D+F · detector Wistar")).toBe("Executando pipeline · detector Wistar");
+    expect(displayAnalysisMessage("D+F: Detector Wistar · lote 16")).toBe("Detector Wistar · lote 16");
+  });
   it("mostra a etapa ativa e a GPU realmente confirmada", () => {
     const events = [event(1, "runtime"), event(2, "gpu_ready", "Tesla T4 encontrada · sessão pronta"), event(3, "uploading")];
     const steps = checkpoints(job({ stage: "uploading", events }));

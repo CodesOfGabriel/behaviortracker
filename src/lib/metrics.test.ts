@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { calculateOftMetrics } from "./metrics";
+import { referencePoseSamples } from "./pose";
 import type { ArenaConfig, PoseSample, PoseStatus } from "../types";
 
 const arena: ArenaConfig = {
@@ -58,6 +59,37 @@ describe("métricas OFT", () => {
     expect(result.centerPctClassifiable).toBeCloseTo(40, 8);
   });
 
+  it("SCI-009: usa o centro da caixa quando não há pontos anatômicos", () => {
+    const tracked = [
+      sample(0, 0, null, null, "missing"),
+      sample(1, 1, null, null, "missing"),
+    ].map((pose, index) => ({
+      ...pose,
+      keypoint: "nose",
+      bbox: { x: index === 0 ? 25 : 0, y: index === 0 ? 25 : 0, width: 10, height: 10 },
+    }));
+    const reference = referencePoseSamples(tracked, "box_center");
+    const result = calculateOftMetrics(reference, arena, { maxPairGapSec: 2 });
+    expect(reference.map((point) => [point.xPx, point.yPx])).toEqual([[30, 30], [5, 5]]);
+    expect(result.centerTimeSec).toBe(1);
+    expect(result.peripheralTimeSec).toBe(0);
+    expect(result.unknownTimeSec).toBe(0);
+  });
+
+  it("SCI-010: ignora ponto anatômico de baixa confiança quando a caixa existe", () => {
+    const tracked = [
+      { ...sample(0, 0, 30, 30), likelihood: 0.2, status: "low_confidence" as const,
+        bbox: { x: 25, y: 25, width: 10, height: 10 } },
+      { ...sample(1, 1, 5, 5), likelihood: 0.2, status: "low_confidence" as const,
+        bbox: { x: 0, y: 0, width: 10, height: 10 } },
+    ];
+    const reference = referencePoseSamples(tracked, "body_center");
+    const result = calculateOftMetrics(reference, arena, { maxPairGapSec: 2 });
+    expect(reference.map((point) => [point.xPx, point.yPx])).toEqual([[30, 30], [5, 5]]);
+    expect(result.centerTimeSec).toBe(1);
+    expect(result.unknownTimeSec).toBe(0);
+  });
+
   it("SCI-007: não classifica intervalos longos nem pontos recuperados ainda não confirmados", () => {
     const result = calculateOftMetrics([sample(0, 0, 30, 30), sample(1, 3, 31, 30)], arena);
     expect(result.unknownTimeSec).toBe(3);
@@ -98,4 +130,3 @@ describe("métricas OFT", () => {
     expect(result.centerLatencySec).toBeCloseTo(1, 8);
   });
 });
-

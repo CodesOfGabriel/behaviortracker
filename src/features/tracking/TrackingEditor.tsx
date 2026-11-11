@@ -57,6 +57,7 @@ import {
   type ColabJob,
 } from "../colab/analysis";
 import { AnalysisWorkflow } from "../colab/AnalysisWorkflow";
+import { displayAnalysisMessage, preparingNewAnalysis } from "../colab/workflow";
 import { loadLocalResult } from "../local/api";
 import { BoxOverlay } from "./BoxOverlay";
 import {
@@ -584,7 +585,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
       if (connection.eligibleGpuCount < 1) throw new Error("Sua conta não possui um runtime GPU elegível neste momento.");
       const bundleId = experiment.modelBundleId ?? "wistar_df_v1";
       if (bundleId !== "wistar_df_v1" && bundleId !== "wistar_df_v2") {
-        throw new Error(`Bundle D+F desconhecido: ${bundleId}`);
+        throw new Error(`Modelo de análise desconhecido: ${bundleId}`);
       }
       if ((experiment.analysisEngine ?? "wistar_superanimal_hybrid_v1") === "wistar_superanimal_hybrid_v1") {
         const bundle = await getHybridBundleStatus(bundleId);
@@ -642,7 +643,8 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   const currentJob = analysisJob
     ? analysisHistory.find((job) => job.jobId === analysisJob.jobId) ?? analysisJob
     : analysisHistory[0] ?? null;
-  const visibleJob = selectedJobId
+  const preparingAnalysis = preparingNewAnalysis(analysisStarting, analysisJob, analysisHistory);
+  const visibleJob = preparingAnalysis ? null : selectedJobId
     ? analysisHistory.find((job) => job.jobId === selectedJobId) ?? currentJob
     : currentJob;
   const analysisBusy = analysisStarting || currentJob?.status === "running" || currentJob?.status === "queued";
@@ -696,11 +698,11 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
       </div>
       <section hidden={workspaceTab!=="runs"} role="tabpanel" id="workspace-runs-panel" aria-labelledby="workspace-runs-tab" className="execution-workspace">
         <h2>Execuções no Colab</h2>
-        <AnalysisWorkflow job={visibleJob} preparing={analysisStarting && !currentJob} message={analysisMessage} localError={!visibleJob ? analysisError ?? csvError : null} elapsedSec={elapsedSec}/>
+        <AnalysisWorkflow job={visibleJob} preparing={preparingAnalysis} message={analysisMessage} localError={!visibleJob ? analysisError ?? csvError : null} elapsedSec={elapsedSec}/>
         {!analysisHistory.length&&!analysisStarting&&<p>Nenhuma execução registrada. Use “Analisar no Colab” para começar.</p>}
         <div className="analysis-history-list">{analysisHistory.map((job)=><button type="button" className={`analysis-run analysis-run-${job.status}`} key={job.jobId} aria-pressed={visibleJob?.jobId===job.jobId} onClick={()=>setSelectedJobId(job.jobId)}>
           <div className="analysis-run-status">{job.status==="succeeded"?<CheckCircle2 size={16}/>:job.status==="failed"?<AlertCircle size={16}/>:<CloudCog size={16}/>}</div>
-          <div><strong>{jobStatusLabel(job)}</strong><span>{job.error||job.message}</span></div><time><Clock3 size={13}/>{formatDuration(jobElapsedSeconds(job,jobClock))}</time>
+          <div><strong>{jobStatusLabel(job)}</strong><span>{displayAnalysisMessage(job.error||job.message)}</span></div><time><Clock3 size={13}/>{formatDuration(jobElapsedSeconds(job,jobClock))}</time>
         </button>)}</div>
       </section>
 
@@ -709,7 +711,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
           <div className="tracking-empty-visual"><ScanSearch size={40} /><span /></div>
           <h2>Processar o vídeo no Google Colab</h2>
           <p>Acompanhe o envio, a GPU alocada e o rastreamento do animal. Cada checkpoint avança após uma confirmação real da execução.</p>
-          <AnalysisWorkflow job={visibleJob} preparing={analysisStarting && !currentJob}
+          <AnalysisWorkflow job={visibleJob} preparing={preparingAnalysis}
             message={analysisMessage} localError={!visibleJob ? analysisError ?? csvError : null} elapsedSec={elapsedSec} />
           {!analysisBusy && (
             <div className="tracking-empty-actions">

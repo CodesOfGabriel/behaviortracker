@@ -5,7 +5,9 @@ export function metricEligible(sample: PoseSample | undefined) {
   return drawablePose(sample) && sample.status === "valid"
     && sample.spatialRegion !== "outside"
     && sample.source !== "predicted" && sample.source !== "recovered"
-    && (sample.source === "manual" || (sample.source === "segmented" ? ["silhouette_centroid", "box_center"].includes(sample.metricReference ?? "") && sample.referenceApproved === true && sample.spatialRegion === "floor" : sample.likelihood >= .6));
+    && (sample.source === "manual"
+      || (sample.source !== "segmented" && sample.metricReference === "box_center" && sample.bbox != null)
+      || (sample.source === "segmented" ? ["silhouette_centroid", "box_center"].includes(sample.metricReference ?? "") && sample.referenceApproved === true && sample.spatialRegion === "floor" : sample.likelihood >= .6));
 }
 
 export function originalPose(sample: PoseSample): PoseSample {
@@ -32,13 +34,35 @@ export function inferredFps(samples: PoseSample[], fallback: number | null = nul
 export function referencePoseSamples(samples: PoseSample[], keypoint: string): PoseSample[] {
   const frames = new Map<number, PoseSample>();
   const points = new Map<number, PoseSample>();
+  const frameSamples = new Map<number, PoseSample[]>();
   for (const sample of samples) {
-    frames.set(sample.frameIndex, sample);
+    if (!frames.has(sample.frameIndex)) frames.set(sample.frameIndex, sample);
+    frameSamples.set(sample.frameIndex, [...(frameSamples.get(sample.frameIndex) ?? []), sample]);
     if (sample.keypoint === keypoint) points.set(sample.frameIndex, sample);
   }
-  return [...frames.values()].map((frame) => points.get(frame.frameIndex) ?? {
-    frameIndex: frame.frameIndex, timestampSec: frame.timestampSec, keypoint,
-    xPx: null, yPx: null, likelihood: 0, status: "missing" as const, source: "detected" as const,
+  return [...frames.values()].map((frame) => {
+    const point = points.get(frame.frameIndex);
+    if (point && metricEligible(point)) return point;
+    const boxSample = frameSamples.get(frame.frameIndex)?.find((sample) => sample.bbox);
+    const box = boxSample?.bbox;
+    if (box) {
+      return {
+        ...frame,
+        keypoint,
+        xPx: box.x + box.width / 2,
+        yPx: box.y + box.height / 2,
+        bbox: box,
+        likelihood: boxSample.likelihood,
+        status: "valid" as const,
+        source: "detected" as const,
+        metricReference: "box_center" as const,
+        spatialRegion: "unknown" as const,
+      };
+    }
+    return {
+      frameIndex: frame.frameIndex, timestampSec: frame.timestampSec, keypoint,
+      xPx: null, yPx: null, likelihood: 0, status: "missing" as const, source: "detected" as const,
+    };
   }).sort((a, b) => a.timestampSec - b.timestampSec || a.frameIndex - b.frameIndex);
 }
 

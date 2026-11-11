@@ -12,6 +12,14 @@ export const workflowSteps = [
 
 export type CheckpointState = "pending" | "active" | "done" | "failed";
 
+export function preparingNewAnalysis(starting: boolean, liveJob: ColabJob | null, history: ColabJob[]) {
+  return starting && !liveJob && !history.some((job) => job.status === "running" || job.status === "queued");
+}
+
+export function displayAnalysisMessage(message: string) {
+  return message.replace(/D\+F:\s*/g, "").replace(/\s+D\+F\b/g, "");
+}
+
 export function stageIndex(stage: string) {
   return workflowSteps.findIndex((step) => (step.stages as readonly string[]).includes(stage));
 }

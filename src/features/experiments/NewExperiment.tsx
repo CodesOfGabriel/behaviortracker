@@ -594,7 +594,7 @@ export function NewExperiment() {
                 <div><span>Sujeito</span><strong>{subjectId}</strong><small>{group || "Sem grupo informado"}</small></div>
                 <div><span>Vídeo</span><strong>{video.filename}</strong><small>{formatDuration(video.durationSec)} · {video.width} × {video.height}</small></div>
                 <div><span>Arena</span><strong>{arena.widthCm} × {arena.heightCm} cm</strong><small>Borda + chão confirmados · centro: {Math.round(arena.centerAreaFraction * 100)}% do piso</small></div>
-                <div><span>Modelo de análise</span><strong>Wistar D+F · versão atual</strong><small>Referência anatômica: mouse_center</small></div>
+                <div><span>Modelo de análise</span><strong>Detector Wistar + HRNet · versão atual</strong><small>Referência anatômica: mouse_center</small></div>
               </div>
               <div className="review-contract"><div><Badge tone="info">Geometria 2D</Badge><h3>Dados que serão preservados</h3></div><ul><li><Check size={15} /> Metadados do vídeo e sistema de coordenadas</li><li><Check size={15} /> Oito vértices: borda e chão na resolução original</li><li><Check size={15} /> Recorte com paredes para o modelo; medidas físicas apenas no chão</li><li><Check size={15} /> Dados brutos e pontos visíveis, sem preenchimento de partes ocultas</li></ul></div>
             </div>

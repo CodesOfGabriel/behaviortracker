@@ -359,16 +359,16 @@ def export_quality_and_filtered(frame_df, detections, fps):
 
 
 def main():
-    phase("Inicializando pipeline D+F")
+    phase("Inicializando pipeline de rastreamento")
     if MODEL_BUNDLE_ID not in ("wistar_df_v1", "wistar_df_v2"):
-        raise RuntimeError("Bundle D+F desconhecido")
+        raise RuntimeError("Modelo de análise desconhecido")
     for filename, expected in (("best_detector.pth", EXPECTED_DETECTOR_SHA256),
                                ("snapshot-hrnet_w32-001.pt", EXPECTED_POSE_SHA256),
                                ("pytorch_config.yaml", EXPECTED_CONFIG_SHA256)):
         if sha256(MODELS / filename) != expected:
             raise RuntimeError(f"Integridade do modelo remoto inválida: {filename}")
     if DEVICE.type != "cuda":
-        raise RuntimeError("Pipeline D+F requer CUDA")
+        raise RuntimeError("O rastreamento requer CUDA")
     OUTPUT.mkdir(parents=True, exist_ok=True)
     capture = cv2.VideoCapture(VIDEO)
     width, height = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)), int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -412,7 +412,7 @@ def main():
     }
     (OUTPUT / "run_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     (OUTPUT / "canonical_pose.csv.complete").write_text("ok", encoding="utf-8")
-    phase("Pipeline D+F concluído")
+    phase("Pipeline de rastreamento concluído")
 
 
 if __name__ == "__main__":

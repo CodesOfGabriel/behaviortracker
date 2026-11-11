@@ -136,7 +136,7 @@ export function ColabGate() {
   const headingBadge = summary.connected
     ? <Badge tone="success" dot>Conta conectada</Badge>
     : configured
-      ? <Badge tone="info" dot>Credenciais salvas</Badge>
+      ? <Badge tone="info" dot>Pronto para conectar</Badge>
       : <Badge tone="warning" dot>Configuração necessária</Badge>;
 
   return (
@@ -145,7 +145,7 @@ export function ColabGate() {
         <div>
           <div className="eyebrow">Processamento remoto</div>
           <h1>Google Colab</h1>
-          <p>Configure o OAuth do projeto Google e valide a elegibilidade desta conta.</p>
+          <p>Conecte sua Conta Google para analisar vídeos no seu próprio runtime Colab.</p>
         </div>
         {headingBadge}
       </section>
@@ -164,12 +164,12 @@ export function ColabGate() {
         <div className="colab-config-heading">
           <div className="colab-hero-icon"><CloudCog size={32} /></div>
           <div>
-            <div className="section-title-row"><h2>Credenciais OAuth</h2><Badge>Perfil local</Badge></div>
-            <p>Use um cliente OAuth 2.0 do tipo <strong>Desktop app</strong> criado no Google Cloud.</p>
+            <div className="section-title-row"><h2>{summary.managedClient ? "Acesso Google" : "Credenciais OAuth"}</h2><Badge>Perfil local</Badge></div>
+            <p>{summary.managedClient ? "A autorização da sua conta fica salva neste computador." : "Para desenvolvimento, informe um cliente OAuth 2.0 do tipo Desktop app."}</p>
           </div>
         </div>
 
-        <form className="colab-credentials-form" onSubmit={saveCredentials}>
+        {!summary.managedClient && <form className="colab-credentials-form" onSubmit={saveCredentials}>
           <label>
             <span>Client ID <b>*</b></span>
             <input
@@ -210,7 +210,7 @@ export function ColabGate() {
               </Button>
             )}
           </div>
-        </form>
+        </form>}
 
         {error && <div className="colab-feedback error" role="alert"><AlertTriangle size={15} /><span>{error}</span></div>}
         {notice && <div className="colab-feedback success" role="status"><Check size={15} /><span>{notice}</span></div>}
@@ -230,7 +230,7 @@ export function ColabGate() {
               <span><small>Com GPU</small><strong>{summary.eligibleGpuCount}</strong></span>
             </div>
           ) : (
-            <p>Salve as credenciais e autorize o Behavior Tracker no navegador. A senha da sua Conta Google nunca passa pelo aplicativo.</p>
+            <p>Autorize o Behavior Tracker no navegador. A senha da sua Conta Google nunca passa pelo aplicativo.</p>
           )}
           {summary.providerError && <div className="provider-error"><AlertTriangle size={14} /><span>{summary.providerError}</span></div>}
           <div className="colab-account-actions">
@@ -244,7 +244,7 @@ export function ColabGate() {
                 >
                   Conectar conta Google
                 </Button>
-                <Button
+                {!summary.managedClient && <Button
                   disabled={!desktopRuntime || !configured || activeAction !== null}
                   icon={<RefreshCw size={16} />}
                   loading={activeAction === "restore"}
@@ -252,7 +252,7 @@ export function ColabGate() {
                   variant="secondary"
                 >
                   Recuperar conexão anterior
-                </Button>
+                </Button>}
               </>
             ) : (
               <>
@@ -278,7 +278,7 @@ export function ColabGate() {
             )}
           </div>
           {activeAction === "connect" && <p role="status">Conclua a autorização no navegador. A conexão será confirmada após salvar a sessão.</p>}
-          {!summary.connected && <small>A recuperação pode pedir permissão do macOS para ler as credenciais antigas. Depois de salvas no app, as análises usam a conexão local.</small>}
+          {!summary.connected && <small>O vídeo é processado no runtime Colab da conta conectada. A autorização é guardada no cofre de credenciais deste computador.</small>}
         </div>
       </section>
 

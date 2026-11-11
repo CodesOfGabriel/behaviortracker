@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { formatDuration } from "../../lib/format";
 import type { ColabJob } from "./analysis";
 import { loadColabLog } from "./analysis";
-import { checkpoints, gpuMessage } from "./workflow";
+import { checkpoints, displayAnalysisMessage, gpuMessage } from "./workflow";
 
 const icons = [FileVideo, Cpu, UploadCloud, ShieldCheck, WandSparkles, ScanSearch, CloudDownload];
 
@@ -85,7 +85,7 @@ export function AnalysisWorkflow({ job, preparing, message, localError, elapsedS
       </div>}
       <div className={`workflow-current ${failed ? "workflow-current-error" : ""}`} role="status" aria-live="polite">
         {failed ? <CircleAlert size={17} /> : active ? <LoaderCircle size={17} className="animate-spin" /> : <ScanSearch size={17} />}
-        <span>{job?.error || localError || (job?.message && !/\d+(?:[.,]\d+)?\s*%/.test(job.message) ? job.message : "Análise em andamento") || message || "As etapas serão atualizadas durante a análise."}</span>
+        <span>{displayAnalysisMessage(job?.error || localError || (job?.message && !/\d+(?:[.,]\d+)?\s*%/.test(job.message) ? job.message : null) || message || (job ? "Análise em andamento" : "As etapas serão atualizadas durante a análise."))}</span>
       </div>
       {job ? (
         <details className="workflow-log" open>
@@ -98,7 +98,7 @@ export function AnalysisWorkflow({ job, preparing, message, localError, elapsedS
               <li key={event.id} className={event.status === "failed" ? "log-failed" : ""}>
                 <time>{new Date(event.createdAt).toLocaleTimeString("pt-BR")}</time>
                 <span className="log-dot" />
-                <span>{event.message}</span>
+                <span>{displayAnalysisMessage(event.message)}</span>
               </li>
             ))}
           </ol>}

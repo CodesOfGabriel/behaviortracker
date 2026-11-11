@@ -32,6 +32,7 @@ export function hasUnassignedCorrections(experiment: Experiment) {
 }
 
 export function preferredReference(samples: PoseSample[]) {
+  if (samples.some(sample => sample.bbox)) return "box_center";
   return ["box_center", "silhouette_center", "body_center", "mouse_center"].find(key => samples.some(sample => sample.keypoint === key)) ?? samples[0]?.keypoint ?? "body_center";
 }
 

@@ -38,7 +38,7 @@ fn hybrid_bundle_files(bundle_id: &str) -> CommandResult<[(&'static str, u64, &'
     let detector = match bundle_id {
         "wistar_df_v1" => ("best_detector.pth", 173406835, "efc08b431067384e46acee488a4d9173d3cf9c1b5c9158dc0606e7371a51dbc2"),
         "wistar_df_v2" => ("best_detector.pth", 173392347, "211891e0ec5f5b3f56d0f0be5b9255319ce9857284e72e558ccfc9f4ca93eef0"),
-        _ => return Err("Bundle D+F não reconhecido.".into()),
+        _ => return Err("Modelo de análise não reconhecido.".into()),
     };
     Ok([detector, HYBRID_COMMON_FILES[0], HYBRID_COMMON_FILES[1]])
 }
@@ -2332,7 +2332,7 @@ fn upload_hybrid_bundle(
     remote_directory: &str,
     bundle_id: Option<&str>,
 ) -> Result<Option<String>, AnalysisFailure> {
-    let bundle_id = bundle_id.ok_or("Bundle D+F não informado.")?;
+    let bundle_id = bundle_id.ok_or("Modelo de análise não informado.")?;
     let files = hybrid_bundle_paths(app, bundle_id)?;
     let parent = remote_directory.rsplit_once('/').map(|(value, _)| value)
         .ok_or("Pasta remota inválida")?;
@@ -2353,7 +2353,7 @@ fn upload_hybrid_bundle(
         .unwrap_or("")
         .contains("BEHAVETRACKER_HYBRID_DIR_READY")
     {
-        return Err("O Colab não conseguiu preparar a pasta remota do bundle D+F.".into());
+        return Err("O Colab não conseguiu preparar a pasta remota do modelo.".into());
     }
     let mut upload_connection = connection.clone();
     let mut release_available = bundle_id == "wistar_df_v2";
@@ -2424,11 +2424,11 @@ fn upload_hybrid_bundle(
 }
 
 fn prepare_hybrid_environment(app: &AppHandle, job: &str, session: &str, directory: &str) -> Result<(), AnalysisFailure> {
-    update_job(app, job, "running", "environment_check", 52, "Validando PyTorch, TorchVision, DeepLabCut e CUDA para D+F")?;
+    update_job(app, job, "running", "environment_check", 52, "Validando PyTorch, TorchVision, DeepLabCut e CUDA para o rastreamento")?;
     run_background_task(app, job, session, directory, "setup", &format!(
-        "import importlib.util,subprocess,sys\nif importlib.util.find_spec('deeplabcut') is None:\n    subprocess.check_call([sys.executable,'-m','pip','install','-q','--pre','deeplabcut[modelzoo]>=3.0,<4'])\nimport torch,torchvision\nif not torch.cuda.is_available(): raise RuntimeError('CUDA não está disponível para o pipeline D+F')\ntorchvision.ops.nms(torch.zeros((0,4),device='cuda'),torch.zeros(0,device='cuda'),0.5)\nimport deeplabcut\nimport deeplabcut.pose_estimation_pytorch as pep\nfrom deeplabcut.pose_estimation_pytorch.config import PoseConfig\nfrom deeplabcut.pose_estimation_pytorch.apis.videos import create_df_from_prediction\nrequired=['get_pose_inference_runner','VideoIterator','video_inference']\nmissing=[name for name in required if not hasattr(pep,name)]\nif missing: raise RuntimeError('API DLC ausente: '+', '.join(missing))\nprint('BEHAVETRACKER_HYBRID_ENV_OK '+torch.__version__+' '+torchvision.__version__+' '+deeplabcut.__version__)"
+        "import importlib.util,subprocess,sys\nif importlib.util.find_spec('deeplabcut') is None:\n    subprocess.check_call([sys.executable,'-m','pip','install','-q','--pre','deeplabcut[modelzoo]>=3.0,<4'])\nimport torch,torchvision\nif not torch.cuda.is_available(): raise RuntimeError('CUDA não está disponível para o rastreamento')\ntorchvision.ops.nms(torch.zeros((0,4),device='cuda'),torch.zeros(0,device='cuda'),0.5)\nimport deeplabcut\nimport deeplabcut.pose_estimation_pytorch as pep\nfrom deeplabcut.pose_estimation_pytorch.config import PoseConfig\nfrom deeplabcut.pose_estimation_pytorch.apis.videos import create_df_from_prediction\nrequired=['get_pose_inference_runner','VideoIterator','video_inference']\nmissing=[name for name in required if not hasattr(pep,name)]\nif missing: raise RuntimeError('API DLC ausente: '+', '.join(missing))\nprint('BEHAVETRACKER_HYBRID_ENV_OK '+torch.__version__+' '+torchvision.__version__+' '+deeplabcut.__version__)"
     ))?;
-    update_job(app, job, "running", "environment_ready", 60, "Ambiente D+F validado")?;
+    update_job(app, job, "running", "environment_ready", 60, "Ambiente de rastreamento validado")?;
     Ok(())
 }
 
@@ -2756,7 +2756,7 @@ fn run_analysis(
             "running",
             "inference",
             65,
-            if engine_id == "wistar_superanimal_hybrid_v1" { "Executando pipeline D+F · detector Wistar + HRNet adaptada · resultados experimentais" } else if custom_model.is_some(){"Executando modelo personalizado experimental · confiança anatômica não calibrada; revise as posições"} else if diagnostic.is_some() { "Diagnóstico curto · medindo detector e pose separadamente, sem recuperação ou adaptação" } else if arena
+            if engine_id == "wistar_superanimal_hybrid_v1" { "Executando pipeline · detector Wistar + HRNet adaptada · resultados experimentais" } else if custom_model.is_some(){"Executando modelo personalizado experimental · confiança anatômica não calibrada; revise as posições"} else if diagnostic.is_some() { "Diagnóstico curto · medindo detector e pose separadamente, sem recuperação ou adaptação" } else if arena
                 .as_ref()
                 .is_some_and(|geometry| geometry.rim_corners_px.is_some())
             {
@@ -2771,8 +2771,8 @@ fn run_analysis(
                 &remote_output,
                 &format!("{remote_output}/canonical_pose.csv"),
                 arena.as_ref(),
-                hybrid_models.as_deref().ok_or("Bundle D+F não enviado")?,
-                model_bundle_id.as_deref().ok_or("Bundle D+F não informado")?,
+                hybrid_models.as_deref().ok_or("Modelo de análise não enviado")?,
+                model_bundle_id.as_deref().ok_or("Modelo de análise não informado")?,
             )
         } else if let Some(model)=&custom_model {custom_code(&absolute_video,model,&remote_output,&remote_csv,arena.as_ref(),diagnostic.as_ref())} else if let Some(range) = &diagnostic {
             diagnostic_code(&absolute_video, &remote_output, &remote_csv, arena.as_ref(), range)
@@ -2855,7 +2855,7 @@ fn run_analysis(
             )
             .map_err(|_| "Não foi possível registrar o resultado do job.".to_string())?;
         if engine_id == "wistar_superanimal_hybrid_v1" {
-            update_job(&app, &job_id, "running", "rendering", 94, "Poses D+F disponíveis · gerando vídeo de inspeção")?;
+            update_job(&app, &job_id, "running", "rendering", 94, "Poses disponíveis · gerando vídeo de inspeção")?;
             let render_started = Instant::now();
             let render = hybrid_render_code(&absolute_video, &remote_output, arena.as_ref());
             let video_result = match run_background_task(&app, &job_id, &session, &absolute_directory, "render", &render) {
@@ -2864,11 +2864,11 @@ fn run_analysis(
                         let token = google_access_token(&app, PROFILE_ID)?;
                         let refreshed = get_runtime(&api_client()?, &token, &runtime.name)
                             .map_err(|error| format!("{error:?}"))?;
-                        let connection = refreshed.connection_info.ok_or("O runtime não renovou a conexão para receber o vídeo D+F")?;
+                        let connection = refreshed.connection_info.ok_or("O runtime não renovou a conexão para receber o vídeo de inspeção")?;
                         download_labeled_video(&connection, &format!("{remote_directory}/output"), &result_directory, &job_id)
                     })()
                 },
-                Err(error) => Err(format!("Falha ao renderizar o vídeo D+F: {error:?}")),
+                Err(error) => Err(format!("Falha ao renderizar o vídeo de inspeção: {error:?}")),
             };
             let (video_path, video_error) = match video_result {
                 Ok(path) => (Some(path.to_string_lossy().into_owned()), None),
@@ -2876,9 +2876,9 @@ fn run_analysis(
             };
             record_timing(&app, &job_id, "render e vídeo rotulado", render_started);
             open_database(&app)?.execute("INSERT OR REPLACE INTO colab_job_artifacts (job_id,labeled_video_path,video_error) VALUES (?1,?2,?3)",
-                params![&job_id, video_path, video_error]).map_err(|_| "Não foi possível registrar o vídeo D+F")?;
+                params![&job_id, video_path, video_error]).map_err(|_| "Não foi possível registrar o vídeo de inspeção")?;
             update_job(&app, &job_id, "succeeded", "completed", 100,
-                if video_error.is_none() { "Rastreamento D+F concluído · vídeo disponível" } else { "Poses D+F disponíveis · vídeo indisponível; consulte o aviso" })?;
+                if video_error.is_none() { "Rastreamento concluído · vídeo disponível" } else { "Poses disponíveis · vídeo indisponível; consulte o aviso" })?;
             return Ok(());
         }
         if diagnostic.is_some() {
@@ -2941,7 +2941,7 @@ pub fn start_colab_analysis(
         if request.engine_id != "wistar_superanimal_hybrid_v1" {
             return Err("Motor de análise não reconhecido.".into());
         }
-        let bundle_id = request.model_bundle_id.as_deref().ok_or("Bundle D+F não informado.")?;
+        let bundle_id = request.model_bundle_id.as_deref().ok_or("Modelo de análise não informado.")?;
         hybrid_bundle_paths(&app, bundle_id)?;
     }
     if request.diagnostic.is_some() {
