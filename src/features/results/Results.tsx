@@ -4,6 +4,7 @@ import {
   Check,
   CheckCircle2,
   Clock3,
+  CloudCog,
   Download,
   Footprints,
   Gauge,
@@ -27,9 +28,10 @@ import { calculateOftMetrics, METRIC_POLICY } from "../../lib/metrics";
 import { metricEligible, originalPose, referencePoseSamples, trajectorySegments } from "../../lib/pose";
 import { formatDuration } from "../../lib/format";
 import { useAppStore } from "../../store/AppStore";
-import { exportAnnotatedVideo } from "../../lib/video-export";
 import { loadColabVideo } from "../colab/analysis";
 import { isTauriRuntime } from "../colab/connection";
+import { AnalysisWorkflow } from "../colab/AnalysisWorkflow";
+import { useAnalysis } from "./useAnalysis";
 import type { OftMetrics } from "../../types";
 
 function metricValue(value: number | null, suffix: string, digits = 1) {
@@ -56,17 +58,19 @@ function metricsCsv(metrics: OftMetrics) {
 }
 
 export function Results({ experimentId }: { experimentId: string }) {
-  const { getExperiment, navigate, trackingData, updateExperiment, assets } = useAppStore();
+  const { getExperiment, navigate, trackingData, updateExperiment } = useAppStore();
+  const analysis = useAnalysis(experimentId);
   const experiment = getExperiment(experimentId);
   const [trajectorySource, setTrajectorySource] = useState<"detector" | "anatomical">("detector");
   const [showExport, setShowExport] = useState(false);
-  const [exportingVideo, setExportingVideo] = useState(false);
   const [videoExportError, setVideoExportError] = useState<string | null>(null);
   const [modelVideo, setModelVideo] = useState<{ jobId: string; videoUrl: string | null; videoError: string | null } | null>(null);
   const [modelVideoLoading, setModelVideoLoading] = useState(false);
   const [modelVideoPlaybackError, setModelVideoPlaybackError] = useState(false);
   const [modelVideoRefresh, setModelVideoRefresh] = useState(0);
   const selectedColabJobId = experiment?.trackingSelection?.engine === "colab" ? experiment.trackingSelection.jobId : null;
+  const selectedColabStage = analysis.history.find((job) => job.jobId === selectedColabJobId);
+  const selectedVideoStage = `${selectedColabStage?.status}:${selectedColabStage?.stage}`;
   const activeModelVideo = modelVideo?.jobId === selectedColabJobId ? modelVideo : null;
 
   useEffect(() => {
@@ -85,7 +89,7 @@ export function Results({ experimentId }: { experimentId: string }) {
       })
       .finally(() => { if (!cancelled) setModelVideoLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedColabJobId, modelVideoRefresh]);
+  }, [selectedColabJobId, selectedVideoStage, modelVideoRefresh]);
   const inputSamples = trackingData[experimentId] ?? [];
   const versionC = inputSamples.some((sample) => sample.processingVersion === "dlc-adapted-trajectory-c-1");
   const events = useMemo(() => experiment ? reviewEvents(experiment) : [], [experiment]);
@@ -121,7 +125,26 @@ export function Results({ experimentId }: { experimentId: string }) {
   }
   if (!metrics) {
     return (
-      <div className="page not-found"><h1>Não há tracking para calcular</h1><p>Processe o vídeo no Colab antes de abrir os resultados.</p><Button onClick={() => navigate({ name: "editor", experimentId })}>Abrir editor</Button></div>
+      <div className="page results-page">
+        <input ref={analysis.fileRef} type="file" accept="video/*" className="sr-only" onChange={analysis.attachFile} />
+        <button className="back-link" onClick={() => navigate({ name: "dashboard" })}><ArrowLeft size={16} /> Experimentos</button>
+        <section className="page-heading results-heading">
+          <div><div className="eyebrow">Análise Completa · Open Field Test</div><h1>{experiment.title}</h1><p>{experiment.subjectId} · Aguardando resultado do tracking</p></div>
+          <div className="results-actions">
+            <Button variant="secondary" icon={<CloudCog size={16} />} onClick={() => navigate({ name: "colab" })}>{analysis.summary.connected ? "Colab conectado" : "Conectar Colab"}</Button>
+            <Button disabled={analysis.busy || analysis.loadingResult || !analysis.summary.connected} onClick={() => void analysis.run()}>{analysis.busy ? "Processando…" : "Analisar no Colab"}</Button>
+          </div>
+        </section>
+        {analysis.error && <div className="validation-box invalid"><AlertTriangle size={16} />{analysis.error}</div>}
+        <AnalysisWorkflow job={analysis.activeJob} preparing={analysis.busy && !analysis.activeJob} message={analysis.message}
+          localError={analysis.error} elapsedSec={analysis.elapsedSec} />
+        {analysis.loadingResult && <p role="status">Carregando resultado salvo…</p>}
+        {analysis.history.length > 0 && <div className="analysis-history-list">{analysis.history.map((job) =>
+          <button type="button" className={`analysis-run analysis-run-${job.status}`} key={job.jobId}
+            onClick={() => { analysis.setSelectedHistoryId(job.jobId); if (job.resultsReady || job.status === "succeeded") void analysis.selectSource({ engine: "colab", jobId: job.jobId }); }}>
+            <div><strong>{job.modelBundleId || "Colab"}</strong><small>{new Date(job.createdAt).toLocaleString("pt-BR")} · {job.status}</small></div>
+          </button>)}</div>}
+      </div>
     );
   }
 
@@ -174,52 +197,59 @@ export function Results({ experimentId }: { experimentId: string }) {
     downloadText("corrections.jsonl", experiment.corrections.map((event) => JSON.stringify(event)).join("\n"), "application/x-ndjson");
   };
 
-  const exportVideo = async () => {
-    const file = assets[experiment.id]?.file;
-    if (!file) return;
-    setExportingVideo(true);
+  const exportColabVideo = async () => {
+    if (!activeModelVideo?.videoUrl) return;
     setVideoExportError(null);
-    const url = URL.createObjectURL(file);
     try {
-      const video = document.createElement("video");
-      video.src = url;
-      video.muted = true;
-      video.preload = "auto";
-      await new Promise<void>((resolve, reject) => {
-        video.onloadedmetadata = () => resolve();
-        video.onerror = () => reject(new Error("Não foi possível abrir o vídeo original."));
-      });
-      await exportAnnotatedVideo(video, reviewedSamples, experiment.arena, `${experiment.id}-revisado.webm`);
+      const response = await fetch(activeModelVideo.videoUrl);
+      if (!response.ok) throw new Error("O MP4 salvo não pôde ser lido.");
+      const url = URL.createObjectURL(await response.blob());
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${experiment.id}-analise-colab.mp4`;
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (error) {
-      setVideoExportError(error instanceof Error ? error.message : "Não foi possível gerar o vídeo revisado.");
-    } finally {
-      URL.revokeObjectURL(url);
-      setExportingVideo(false);
+      setVideoExportError(error instanceof Error ? error.message : "Não foi possível exportar o MP4 da análise.");
     }
   };
 
   return (
     <div className="page results-page">
-      <button className="back-link" onClick={() => navigate({ name: "editor", experimentId })}><ArrowLeft size={16} /> Voltar ao editor</button>
+      <input ref={analysis.fileRef} type="file" accept="video/*" className="sr-only" onChange={analysis.attachFile} />
+      <button className="back-link" onClick={() => navigate({ name: "dashboard" })}><ArrowLeft size={16} /> Experimentos</button>
       <section className="page-heading results-heading">
         <div>
-          <div className="eyebrow">Resultados · Open Field Test</div>
+          <div className="eyebrow">Análise Completa · Open Field Test</div>
           <h1>{experiment.title}</h1>
           <p>{experiment.subjectId}{experiment.group ? ` · ${experiment.group}` : ""} · Método {METRIC_POLICY.version}</p>
         </div>
         <div className="results-actions">
+          <Button variant="secondary" icon={<CloudCog size={16} />} onClick={() => navigate({ name: "colab" })}>{analysis.summary.connected ? "Colab conectado" : "Conectar Colab"}</Button>
+          <Button variant="secondary" disabled={analysis.busy || !analysis.summary.connected} onClick={() => void analysis.run()}>{analysis.busy ? "Processando…" : "Reprocessar"}</Button>
           <Button variant="secondary" icon={<Download size={16} />} onClick={() => setShowExport((current) => !current)}>Exportar</Button>
-          <Button variant="secondary" disabled={exportingVideo || !assets[experiment.id]?.file} onClick={() => void exportVideo()}>
-            {exportingVideo ? "Gerando vídeo…" : "Vídeo revisado"}
-          </Button>
-          <Button icon={<Check size={16} />} onClick={() => updateExperiment(experiment.id, { status: "completed" })}>Concluir revisão</Button>
+          <Button icon={<Check size={16} />} disabled={analysis.busy} onClick={() => updateExperiment(experiment.id, { status: "completed" })}>Concluir análise</Button>
         </div>
       </section>
+      {analysis.error && <div className="validation-box invalid"><AlertTriangle size={16} />{analysis.error}</div>}
+      {analysis.busy && <AnalysisWorkflow job={analysis.activeJob} preparing={!analysis.activeJob} message={analysis.message}
+        localError={analysis.error} elapsedSec={analysis.elapsedSec} />}
+      {analysis.history.filter((job) => job.resultsReady || job.status === "succeeded").length > 1 &&
+        <label className="results-source-select">Execução exibida
+          <select value={experiment.trackingSelection?.engine === "colab" ? experiment.trackingSelection.jobId : ""}
+            onChange={(event) => void analysis.selectSource({ engine: "colab", jobId: event.target.value })}>
+            {experiment.trackingSelection?.engine !== "colab" && <option value="">Resultado atual</option>}
+            {experiment.trackingSelection?.engine === "colab" && !analysis.history.some((job) => job.jobId === experiment.trackingSelection?.jobId)
+              && <option value={experiment.trackingSelection.jobId}>Execução atual · {experiment.trackingSelection.jobId.slice(0, 8)}</option>}
+            {analysis.history.filter((job) => job.resultsReady || job.status === "succeeded").map((job) =>
+              <option key={job.jobId} value={job.jobId}>{job.modelBundleId || "Colab"} · {new Date(job.createdAt).toLocaleString("pt-BR")}</option>)}
+          </select>
+        </label>}
       {videoExportError && <div className="validation-box invalid"><AlertTriangle size={16} />{videoExportError}</div>}
 
       {showExport && (
         <section className="export-drawer panel">
-          <div><PackageOpen size={22} /><div><h2>Exportações reprodutíveis</h2><p>Arquivos identificam a revisão; o vídeo não é incluído automaticamente.</p></div></div>
+          <div><PackageOpen size={22} /><div><h2>Exportações reprodutíveis</h2><p>Os arquivos identificam a execução e as correções históricas.</p></div></div>
           <div className="export-buttons">
             <Button size="sm" variant="secondary" onClick={exportExperiment}>experiment.json</Button>
             <Button size="sm" variant="secondary" onClick={() => downloadText("poses_raw.csv", poseToCsv(rawSamples), "text/csv")}>poses_raw.csv</Button>
@@ -248,11 +278,13 @@ export function Results({ experimentId }: { experimentId: string }) {
         <section className="results-video-section" aria-label="Vídeo com pontos anatômicos da análise Colab">
           <div className="results-video-heading">
             <div>
-              <h2>Vídeo da análise com pontos anatômicos</h2>
-              <p>Marcação bruta da execução Colab selecionada. Correções feitas no editor não aparecem neste vídeo.</p>
+              <h2>Vídeo {experiment.analysisEngine === "wistar_superanimal_hybrid_v1" ? "científico" : "exportado"} da análise</h2>
+              <p>MP4 do Colab para esta execução. {experiment.analysisEngine === "wistar_superanimal_hybrid_v1" && "O gráfico, quando presente, usa o mouse_center bruto do modelo. "}As métricas abaixo incluem eventuais correções antigas desta execução.</p>
             </div>
             <Button size="sm" variant="secondary" icon={<RefreshCw size={15} />} disabled={modelVideoLoading}
-              onClick={() => setModelVideoRefresh((value) => value + 1)}>Atualizar vídeo</Button>
+              onClick={() => setModelVideoRefresh((value) => value + 1)}>Recarregar</Button>
+            {activeModelVideo?.videoUrl && <Button size="sm" variant="secondary" icon={<Download size={15} />}
+              onClick={() => void exportColabVideo()}>Baixar MP4</Button>}
           </div>
           <div className="dlc-video-panel results-video-player">
             {modelVideoLoading ? <p className="results-video-message" role="status">Carregando vídeo salvo no dispositivo…</p>
@@ -261,9 +293,9 @@ export function Results({ experimentId }: { experimentId: string }) {
                   <video key={activeModelVideo.jobId} src={activeModelVideo.videoUrl} controls playsInline preload="metadata"
                     aria-label="Vídeo da análise Colab com pontos anatômicos"
                     onError={() => setModelVideoPlaybackError(true)} />
-                  {modelVideoPlaybackError && <p className="results-video-message" role="alert">O player não conseguiu reproduzir este MP4. Abra a execução no editor para conferir as poses.</p>}
+                  {modelVideoPlaybackError && <p className="results-video-message" role="alert">O player não conseguiu reproduzir este MP4. As métricas da execução continuam disponíveis abaixo.</p>}
                 </>
-              ) : <p className="results-video-message" role="status">{activeModelVideo?.videoError ?? "Esta análise ainda não disponibilizou um vídeo com pontos. Atualize após a renderização terminar ou consulte o diário da execução no editor."}</p>}
+              ) : <p className="results-video-message" role="status">{activeModelVideo?.videoError ?? "Esta análise ainda não disponibilizou um vídeo. Recarregue após a renderização terminar ou consulte o diário da execução."}</p>}
           </div>
         </section>
       )}
@@ -326,7 +358,7 @@ export function Results({ experimentId }: { experimentId: string }) {
       {metrics.coveragePct < 90 && (
         <div className="coverage-warning"><AlertTriangle size={18} /><div><strong>Tempo válido para métricas abaixo de 90%</strong><span>{hasDetectorTrack ? "O detector acompanhou o animal, mas o ponto anatômico escolhido teve baixa confiança em muitos frames. As métricas permanecem parciais; revise os pontos antes de comparar grupos." : "Resultados são parciais. Revise pontos ausentes antes de comparar grupos."}</span></div></div>
       )}
-      {experiment.status === "completed" && <div className="completed-toast"><CheckCircle2 size={17} /> Revisão marcada como concluída neste dispositivo.</div>}
+      {experiment.status === "completed" && <div className="completed-toast"><CheckCircle2 size={17} /> Análise marcada como concluída neste dispositivo.</div>}
     </div>
   );
 }

@@ -4,20 +4,16 @@ import {
   AlertTriangle,
   Check,
   CloudCog,
-  Cpu,
-  Database,
-  ExternalLink,
   KeyRound,
-  LockKeyhole,
   RefreshCw,
   Save,
-  ShieldAlert,
   Trash2,
   Unplug,
   UserRound,
 } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
+import { useAppStore, type ResearcherProfile } from "../../store/AppStore";
 import {
   COLAB_PROFILE_ID,
   COLAB_STATUS_EVENT,
@@ -35,6 +31,9 @@ function errorMessage(error: unknown) {
 }
 
 export function ColabGate() {
+  const { researcherProfile, saveResearcherProfile } = useAppStore();
+  const [researcher, setResearcher] = useState<ResearcherProfile>(researcherProfile);
+  const [researcherNotice, setResearcherNotice] = useState<string | null>(null);
   const desktopRuntime = useMemo(isTauriRuntime, []);
   const [summary, setSummary] = useState<OAuthProfileSummary>(emptyColabSummary);
   const [clientId, setClientId] = useState("");
@@ -44,7 +43,20 @@ export function ColabGate() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const configured = Boolean(summary.clientId);
-  const eligibilityKnown = Boolean(summary.connected && summary.subscriptionTier && !summary.providerError);
+
+  function saveResearcher(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!researcher.name.trim() || !researcher.laboratory.trim() || !researcher.university.trim()) {
+      setResearcherNotice("Preencha nome, laboratório e universidade.");
+      return;
+    }
+    try {
+      saveResearcherProfile(researcher);
+      setResearcherNotice("Dados do pesquisador salvos neste dispositivo.");
+    } catch (saveError) {
+      setResearcherNotice(errorMessage(saveError));
+    }
+  }
 
   useEffect(() => {
     if (!desktopRuntime) return;
@@ -145,7 +157,7 @@ export function ColabGate() {
         <div>
           <div className="eyebrow">Processamento remoto</div>
           <h1>Google Colab</h1>
-          <p>Conecte sua Conta Google para analisar vídeos no seu próprio runtime Colab.</p>
+          <p>Identifique o pesquisador e conecte a conta usada para processar os vídeos.</p>
         </div>
         {headingBadge}
       </section>
@@ -160,77 +172,30 @@ export function ColabGate() {
         </div>
       )}
 
-      <section className="colab-config panel">
-        <div className="colab-config-heading">
-          <div className="colab-hero-icon"><CloudCog size={32} /></div>
-          <div>
-            <div className="section-title-row"><h2>{summary.managedClient ? "Acesso Google" : "Credenciais OAuth"}</h2><Badge>Perfil local</Badge></div>
-            <p>{summary.managedClient ? "A autorização da sua conta fica salva neste computador." : "Para desenvolvimento, informe um cliente OAuth 2.0 do tipo Desktop app."}</p>
-          </div>
+      <section className="panel researcher-card">
+        <div className="colab-section-heading">
+          <div className="colab-account-icon"><UserRound size={22} /></div>
+          <div><h2>Dados do pesquisador</h2><p>Identificação salva neste dispositivo.</p></div>
         </div>
-
-        {!summary.managedClient && <form className="colab-credentials-form" onSubmit={saveCredentials}>
-          <label>
-            <span>Client ID <b>*</b></span>
-            <input
-              autoComplete="off"
-              disabled={!desktopRuntime || activeAction !== null}
-              onChange={(event) => {
-                clientIdEditedRef.current = true;
-                setClientId(event.target.value);
-              }}
-              placeholder="000000000000-abc.apps.googleusercontent.com"
-              spellCheck={false}
-              value={clientId}
-            />
-          </label>
-          <div className="credential-storage-note">
-            <Database size={15} />
-            <span>A configuração fica salva neste dispositivo. Se você já conectou antes da atualização, use <strong>Recuperar conexão anterior</strong> uma vez para aproveitar suas credenciais salvas.</span>
-          </div>
-
-          <div className="credential-actions">
-            <Button
-              disabled={!desktopRuntime || !clientId.trim() || activeAction !== null}
-              icon={<Save size={16} />}
-              loading={activeAction === "save"}
-              type="submit"
-            >
-              Salvar credenciais
-            </Button>
-            {configured && (
-              <Button
-                disabled={!desktopRuntime || activeAction !== null}
-                icon={<Trash2 size={15} />}
-                onClick={() => void deleteConfiguration()}
-                variant="ghost"
-                type="button"
-              >
-                Remover configuração
-              </Button>
-            )}
-          </div>
-        </form>}
-
-        {error && <div className="colab-feedback error" role="alert"><AlertTriangle size={15} /><span>{error}</span></div>}
-        {notice && <div className="colab-feedback success" role="status"><Check size={15} /><span>{notice}</span></div>}
+        <form className="researcher-form" onSubmit={saveResearcher}>
+          <label><span>Nome completo</span><input autoComplete="name" maxLength={120} onChange={(event) => { setResearcher({ ...researcher, name: event.target.value }); setResearcherNotice(null); }} placeholder="Nome do pesquisador" required value={researcher.name} /></label>
+          <label><span>Laboratório</span><input maxLength={120} onChange={(event) => { setResearcher({ ...researcher, laboratory: event.target.value }); setResearcherNotice(null); }} placeholder="Nome do laboratório" required value={researcher.laboratory} /></label>
+          <label><span>Universidade</span><input maxLength={120} onChange={(event) => { setResearcher({ ...researcher, university: event.target.value }); setResearcherNotice(null); }} placeholder="Nome da universidade" required value={researcher.university} /></label>
+          <div className="researcher-actions"><Button icon={<Save size={16} />} type="submit">Salvar dados</Button>{researcherNotice && <span role="status">{researcherNotice}</span>}</div>
+        </form>
       </section>
 
       <section className="colab-hero panel">
-        <div className="colab-account-icon"><UserRound size={25} /></div>
+        <div className="colab-account-icon"><CloudCog size={25} /></div>
         <div className="colab-hero-content">
           <div className="section-title-row">
-            <h2>{summary.connected ? summary.accountEmail : "Conta Google não conectada"}</h2>
+            <h2>Conexão Google Colab</h2>
             <Badge tone={summary.connected ? "success" : "neutral"}>{summary.connected ? "Conectada" : "Desconectada"}</Badge>
           </div>
           {summary.connected ? (
-            <div className="colab-account-stats">
-              <span><small>Assinatura</small><strong>{summary.subscriptionTier ?? "Não consultada"}</strong></span>
-              <span><small>Runtimes elegíveis</small><strong>{summary.eligibleRuntimeCount}</strong></span>
-              <span><small>Com GPU</small><strong>{summary.eligibleGpuCount}</strong></span>
-            </div>
+            <p><strong>{summary.accountEmail}</strong><br />{summary.eligibleGpuCount > 0 ? `${summary.eligibleGpuCount} opção(ões) de runtime com GPU identificada(s); a alocação depende do Colab` : "GPU ainda não confirmada para esta conta"}</p>
           ) : (
-            <p>Autorize o Behavior Tracker no navegador. A senha da sua Conta Google nunca passa pelo aplicativo.</p>
+            <p>Conecte a conta Google que será usada no Colab.</p>
           )}
           {summary.providerError && <div className="provider-error"><AlertTriangle size={14} /><span>{summary.providerError}</span></div>}
           <div className="colab-account-actions">
@@ -263,7 +228,7 @@ export function ColabGate() {
                   onClick={() => void runAction("check", "check_colab_eligibility", { profileId: COLAB_PROFILE_ID }, "Elegibilidade atualizada.")}
                   variant="secondary"
                 >
-                  Verificar elegibilidade
+                  Atualizar disponibilidade
                 </Button>
                 <Button
                   disabled={!desktopRuntime || activeAction !== null}
@@ -278,41 +243,23 @@ export function ColabGate() {
             )}
           </div>
           {activeAction === "connect" && <p role="status">Conclua a autorização no navegador. A conexão será confirmada após salvar a sessão.</p>}
-          {!summary.connected && <small>O vídeo é processado no runtime Colab da conta conectada. A autorização é guardada no cofre de credenciais deste computador.</small>}
+          {!summary.connected && !configured && <small>Configure o acesso Google em “Configuração avançada” para habilitar a conexão.</small>}
+          {error && <div className="colab-feedback error" role="alert"><AlertTriangle size={15} /><span>{error}</span></div>}
+          {notice && <div className="colab-feedback success" role="status"><Check size={15} /><span>{notice}</span></div>}
         </div>
       </section>
 
-      <div className="colab-grid">
-        <section className="panel readiness-card">
-          <div className="panel-header compact"><div><h2>Checklist de habilitação</h2><p>Nenhum item é presumido pelo aplicativo.</p></div></div>
-          <ul className="readiness-list">
-            <li className="done"><Check size={15} /><div><strong>Editor local</strong><span>Disponível sem conta Google</span></div></li>
-            <li className={summary.connected ? "done" : undefined}>{summary.connected ? <Check size={15} /> : <LockKeyhole size={15} />}<div><strong>OAuth 2.0 + PKCE</strong><span>{summary.connected ? "Autorização persistente neste dispositivo" : configured ? "Pronto para conectar sua Conta Google" : "Cliente ainda não configurado"}</span></div></li>
-            <li className={eligibilityKnown ? "done" : undefined}>{eligibilityKnown ? <Check size={15} /> : <Cpu size={15} />}<div><strong>Elegibilidade da conta</strong><span>{eligibilityKnown ? `${summary.eligibleRuntimeCount} runtime(s) elegível(is) consultado(s)` : "Subscription e runtime specs ainda não confirmados"}</span></div></li>
-            <li><ShieldAlert size={15} /><div><strong>Permissão de uso</strong><span>Execução externa e cenário Free ainda exigem o gate P0</span></div></li>
-          </ul>
-        </section>
-
-        <section className="panel provider-card">
-          <div className="provider-card-top"><AlertTriangle size={20} /><Badge tone="warning">Importante</Badge></div>
-          <h2>Gratuidade não é uma garantia</h2>
-          <p>
-            Uma spec elegível não garante GPU nem alocação. O modo Free também pode restringir interfaces externas.
-            O Behavior Tracker deve bloquear com motivo claro em vez de contornar cotas ou iniciar cobrança.
-          </p>
-          <a href="https://research.google.com/colaboratory/faq.html" target="_blank" rel="noreferrer">
-            Consultar FAQ oficial <ExternalLink size={14} />
-          </a>
-        </section>
-      </div>
-
-      <section className="panel local-capabilities">
-        <div><h2>O que funciona sem Colab</h2><p>O núcleo científico permanece local e independente do provedor.</p></div>
-        <div className="capability-pills">
-          <span>Calibração da arena</span><span>Importação CSV</span><span>Timeline de QC</span>
-          <span>Correções manuais</span><span>Métricas OFT</span><span>Exportações</span>
-        </div>
-      </section>
+      {!summary.managedClient && <details className="panel colab-advanced">
+        <summary>Configuração avançada do acesso Google</summary>
+        <p>Informe um Client ID OAuth 2.0 do tipo aplicativo para computador.</p>
+        <form className="colab-credentials-form" onSubmit={saveCredentials}>
+          <label><span>Client ID</span><input autoComplete="off" disabled={!desktopRuntime || activeAction !== null} onChange={(event) => { clientIdEditedRef.current = true; setClientId(event.target.value); }} placeholder="000000000000-abc.apps.googleusercontent.com" spellCheck={false} value={clientId} /></label>
+          <div className="credential-actions">
+            <Button disabled={!desktopRuntime || !clientId.trim() || activeAction !== null} icon={<Save size={16} />} loading={activeAction === "save"} type="submit">Salvar acesso</Button>
+            {configured && <Button disabled={!desktopRuntime || activeAction !== null} icon={<Trash2 size={15} />} onClick={() => void deleteConfiguration()} type="button" variant="ghost">Remover configuração</Button>}
+          </div>
+        </form>
+      </details>}
     </div>
   );
 }

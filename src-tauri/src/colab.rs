@@ -2892,7 +2892,7 @@ fn run_analysis(
             return Ok(());
         }
         download_result(&refreshed_connection, &format!("{remote_directory}/output/analysis_profile.json"), &result_directory.join(format!("{job_id}-profile.json")))?;
-        update_job(&app, &job_id, "running", "rendering", 94, "Poses disponíveis para revisão · gerando o vídeo rotulado em tarefa separada")?;
+        update_job(&app, &job_id, "running", "rendering", 94, "Poses disponíveis · gerando o vídeo rotulado em tarefa separada")?;
         let render=if custom_model.is_some(){format!("import runpy\nfrom pathlib import Path\nrunpy.run_path(str(Path({remote_output:?})/'custom_model.py'))['render_custom']({remote_output:?})")}else{render_code(&remote_output)};
         run_background_task(&app, &job_id, &session, &absolute_directory, "render", &render)?;
         let video_token = google_access_token(&app, PROFILE_ID)?;
@@ -2912,7 +2912,7 @@ fn run_analysis(
             "succeeded",
             "completed",
             100,
-            if video_error.is_none() { "Rastreamento concluído · vídeo do modelo disponível" } else { "Poses recebidas · vídeo rotulado indisponível; consulte o aviso no editor" },
+            if video_error.is_none() { "Rastreamento concluído · vídeo do modelo disponível" } else { "Poses recebidas · vídeo rotulado indisponível; consulte o aviso na Análise Completa" },
         )?;
         Ok(())
     })();
@@ -3142,7 +3142,7 @@ pub fn get_colab_job_video(app: AppHandle, job_id: String) -> CommandResult<Valu
     let artifact: Option<(Option<String>, Option<String>)> = connection.query_row(
         "SELECT labeled_video_path,video_error FROM colab_job_artifacts WHERE job_id = ?1", [&job_id], |row| Ok((row.get(0)?, row.get(1)?)))
         .optional().map_err(|_| "Não foi possível consultar o vídeo local")?;
-    let absent = if status == "running" || status == "queued" { "O vídeo rotulado ainda está sendo preparado. As poses já recebidas podem ser revisadas no editor." }
+    let absent = if status == "running" || status == "queued" { "O vídeo rotulado ainda está sendo preparado. As poses recebidas aparecem na Análise Completa." }
         else if status == "failed" { "A execução foi interrompida antes de disponibilizar o vídeo. As poses recebidas foram preservadas; consulte o diário." }
         else { "Esta execução não possui vídeo rotulado. Reprocesse no Colab para gerá-lo." };
     let (mut path, mut error) = artifact.unwrap_or((None, Some(absent.into())));

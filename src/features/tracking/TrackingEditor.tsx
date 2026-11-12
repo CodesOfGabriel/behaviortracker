@@ -47,7 +47,6 @@ import { useAppStore } from "../../store/AppStore";
 import type { BoundingBox, CorrectionEvent, Point, PoseSample, PoseStatus, TrackingSelection } from "../../types";
 import {
   loadColabResult,
-  loadColabVideo,
   loadColabJobs,
   checkVideoStaging,
   getHybridBundleStatus,
@@ -148,10 +147,6 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
   const [speed, setSpeed] = useState(1);
   const [selectedKeypoint, setSelectedKeypoint] = useState("body_center");
   const [viewMode, setViewMode] = useState<"raw" | "reviewed">("reviewed");
-  const [videoView, setVideoView] = useState<"editor" | "deeplabcut">("editor");
-  const [dlcVideo, setDlcVideo] = useState<{ jobId: string; videoUrl: string | null; videoError: string | null } | null>(null);
-  const [dlcVideoLoading, setDlcVideoLoading] = useState(false);
-  const [dlcPlaybackError, setDlcPlaybackError] = useState(false);
   const [showTrajectory, setShowTrajectory] = useState(true);
   const [csvError, setCsvError] = useState<string | null>(null);
   const [analysisJob, setAnalysisJob] = useState<ColabJob | null>(null);
@@ -185,25 +180,14 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     : experiment?.trackingSelection?.engine === "colab" ? analysisHistory.find(job => job.jobId === experiment.trackingSelection?.jobId)
     : analysisHistory.find((job) => job.resultsReady || job.status === "succeeded");
   const latestSuccessfulJobId = latestResultJob?.jobId;
-  const latestResultStage = `${latestResultJob?.stage}:${latestResultJob?.status}`;
   const applySource = useCallback((selection:TrackingSelection,samples:PoseSample[]) => {
     if (!samples.length) throw new Error("A execução não contém frames para revisão.");
     videoRef.current?.pause(); setPlaying(false); dragRef.current=null;setDrag(null);setPlacingPoint(false);setDrawingBox(false);
     setTrackingData(experimentId,samples);
     updateExperiment(experimentId,current=>selectTrackingReview(current,selection,samples));
     setCurrentTime(samples[0].timestampSec);setSelectedKeypoint(samples.some(s=>s.keypoint==="box_center")?"box_center":samples.some(s=>s.keypoint==="mouse_center")?"mouse_center":samples.some(s=>s.keypoint==="body_center")?"body_center":samples[0].keypoint);
-    setVideoView("editor");setViewMode("reviewed");setCsvError(null);setCorrectionMessage("Fonte carregada. Cada execução mantém suas próprias correções.");
+    setViewMode("reviewed");setCsvError(null);setCorrectionMessage("Fonte carregada. Cada execução mantém suas próprias correções.");
   },[experimentId,setTrackingData,updateExperiment]);
-
-  useEffect(() => {
-    if (!latestSuccessfulJobId || !isTauriRuntime()) {setDlcVideo(null);return;}
-    let cancelled = false;
-    setDlcVideo(null); setDlcVideoLoading(true); setDlcPlaybackError(false);
-    void loadColabVideo(latestSuccessfulJobId).then((video) => { if (!cancelled) setDlcVideo(video); })
-      .catch((error) => { if (!cancelled) setDlcVideo({ jobId: latestSuccessfulJobId, videoUrl: null, videoError: typeof error === "string" ? error : "Não foi possível abrir o vídeo do DeepLabCut." }); })
-      .finally(() => { if (!cancelled) setDlcVideoLoading(false); });
-    return () => { cancelled = true; };
-  }, [latestSuccessfulJobId, latestResultStage]);
 
   useEffect(() => {
     if (!experiment || trackingData[experimentId]) return;
@@ -359,13 +343,13 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [playing, speed, duration, asset?.objectUrl, workspaceTab, videoView]);
+  }, [playing, speed, duration, asset?.objectUrl, workspaceTab]);
 
   // Atualiza a sobreposição quando o frame é apresentado, não só no timeupdate
   // (que pode disparar várias centenas de milissegundos depois).
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !video.requestVideoFrameCallback || workspaceTab !== "review" || videoView !== "editor") return;
+    if (!video || !video.requestVideoFrameCallback || workspaceTab !== "review") return;
     let active = true;
     let callbackId = 0;
     const onFrame: VideoFrameRequestCallback = (_now, metadata) => {
@@ -379,13 +363,12 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     };
     callbackId = video.requestVideoFrameCallback(onFrame);
     return () => { active = false; video.cancelVideoFrameCallback(callbackId); };
-  }, [asset?.objectUrl, workspaceTab, videoView, rawSamples.length]);
+  }, [asset?.objectUrl, workspaceTab, rawSamples.length]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (workspaceTab !== "review") return;
       if (event.defaultPrevented || dragRef.current || drawingBox || sourceLoading) return;
-      if (videoView === "deeplabcut") return;
       if ((event.target as HTMLElement)?.closest("input, textarea, select, button, [role=tablist]")) return;
       if (event.code === "Space") {
         event.preventDefault();
@@ -656,7 +639,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     ...analysisHistory.filter((job) => job.resultsReady || job.status === "succeeded")
       .map((job) => ({ value: `colab:${job.jobId}`, label: `Colab · ${job.modelBundleId || "modelo legado"} · ${new Date(job.createdAt).toLocaleString()} · ${job.jobId.slice(0, 8)}` })),
   ];
-  const editorLocked = viewMode === "raw" || videoView === "deeplabcut" || sourceLoading;
+  const editorLocked = viewMode === "raw" || sourceLoading;
   const positionLocked = editorLocked || !currentFrameSample;
   const changeWorkspace = (tab: WorkspaceTab) => {videoRef.current?.pause();setPlaying(false);cancelDrag();setDrawingBox(false);setWorkspaceTab(tab);};
   const elapsedSec = visibleJob ? jobElapsedSeconds(visibleJob, jobClock) : 0;
@@ -680,7 +663,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
         </div>
         <div className="editor-header-actions">
           <Button className="analyze-button header-analyze" disabled={analysisBusy || !colabSummary.connected} icon={<CloudCog size={16} />} onClick={() => void runColabAnalysis()}>{rawSamples.length ? "Reprocessar no Colab" : "Analisar no Colab"}</Button>
-          <Button disabled={!rawSamples.length||sourceLoading} icon={<BarChart3 size={16} />} onClick={() => navigate({ name: "results", experimentId })}>Ver resultados</Button>
+          <Button disabled={!rawSamples.length||sourceLoading} icon={<BarChart3 size={16} />} onClick={() => navigate({ name: "results", experimentId })}>Análise Completa</Button>
           <Button variant="secondary" icon={<Plus size={16} />} onClick={() => navigate({ name: "new-experiment" })}>Novo experimento</Button>
         </div>
       </header>
@@ -731,26 +714,12 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
         <div className="editor-workspace" role="tabpanel" id={`workspace-${workspaceTab}-panel`} aria-labelledby={`workspace-${workspaceTab}-tab`}>
           <section className="video-column">
             <div className="video-toolbar">
-              <div className="segmented-control video-source-tabs" aria-label="Fonte do vídeo">
-                <button className={videoView === "editor" ? "active" : ""} onClick={() => { cancelDrag();setPlaying(false); setVideoView("editor"); }}>Editor</button>
-                {experiment.trackingSelection?.engine!=="opencv"&&<button className={videoView === "deeplabcut" ? "active" : ""} onClick={() => { cancelDrag();setPlaying(false); setVideoView("deeplabcut"); }}>{latestResultJob?.customModel?"Vídeo do modelo":"Vídeo do DeepLabCut"}</button>}
-              </div>
-              {videoView === "editor" && <>
               <div className="toolbar-spacer" />
               {!asset?.objectUrl&&<Button variant="secondary" size="sm" onClick={()=>{analysisRequestedRef.current=false;videoFileRef.current?.click();}}>Abrir vídeo original</Button>}
               {macroMode&&<Button variant="secondary" size="sm" disabled={positionLocked} icon={<ScanSearch size={15}/>} onClick={()=>{videoRef.current?.pause();setPlaying(false);setDrawingBox(current=>!current);}}>{drawingBox?"Cancelar caixa":"Marcar caixa neste frame"}</Button>}
               <button className={cn("tool-toggle", showTrajectory && "active")} onClick={() => setShowTrajectory((current) => !current)}>{showTrajectory ? <Eye size={16} /> : <EyeOff size={16} />} Trajetória</button>
               <Button variant="secondary" size="sm" icon={<SkipForward size={15} />} onClick={nextIssue}>Próximo problema</Button>
-              </>}
             </div>
-
-            {videoView === "deeplabcut" ? <section className="dlc-video-panel" aria-label="Vídeo rotulado pelo DeepLabCut">
-              <div className="dlc-video-description"><strong>{latestResultJob?.customModel?"Saída do modelo personalizado experimental":"DeepLabCut adaptado ao vídeo"} · sem correções do editor</strong><p>{latestResultJob?.customModel?"Pontos experimentais com confiança anatômica não calibrada; não são prova de posição nem visibilidade.":"Caixas do detector e pontos com score ≥ 0,50 para inspeção. As métricas exigem centro corporal confiável com ao menos dois pontos e score ≥ 0,60."} A compressão desta prévia é apenas para reprodução e não altera as poses.</p></div>
-              {dlcVideoLoading ? <p role="status">Carregando vídeo salvo no dispositivo…</p> : dlcVideo?.videoUrl ? <>
-                <video key={dlcVideo.jobId} src={dlcVideo.videoUrl} controls playsInline preload="metadata" onError={() => setDlcPlaybackError(true)} />
-                {dlcPlaybackError && <p role="alert">O player não conseguiu reproduzir este MP4. O arquivo continua salvo no dispositivo.</p>}
-              </> : <div className="dlc-video-unavailable"><p>{dlcVideo?.videoError ?? "Este experimento ainda não possui vídeo do DeepLabCut. Faça uma análise no Colab para gerá-lo."}</p><Button className="analyze-button" disabled={analysisBusy || !colabSummary.connected} onClick={() => void runColabAnalysis()}>Gerar vídeo no Colab</Button></div>}
-            </section> : <>
             <div className="video-stage">
               {asset?.objectUrl && (
                 <video
@@ -882,16 +851,9 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
               <div><span>Trajeto: <strong>{keypointLabels[referenceKeypoint]??referenceKeypoint}</strong></span><span>Distância revisada <strong>{reviewedMetrics?.distanceCm==null?"Não mensurável":`${reviewedMetrics.distanceCm.toFixed(1)} cm`}</strong></span><span>Cobertura válida <strong>{(reviewedMetrics?.coveragePct??0).toFixed(1)}%</strong></span></div>
               {correctionMessage&&<p role="status">{correctionMessage}</p>}
             </div>
-            </>}
           </section>
 
-          <aside className="inspector-panel" data-mode={videoView}>
-            {videoView === "deeplabcut" && <section className="inspector-section dlc-inspector-note">
-              <div className="inspector-label">Inspeção da saída do Colab</div>
-              <p>Este player mostra os pontos do H5 bruto desenhados pelo DeepLabCut. Use os controles do vídeo para reproduzir, pausar e ampliar.</p>
-              <p>As métricas e correções pertencem ao editor. Nenhuma correção manual é aplicada a este MP4.</p>
-              <Button variant="secondary" size="sm" onClick={() => setVideoView("editor")}>Voltar para edição</Button>
-            </section>}
+          <aside className="inspector-panel">
             <div hidden={workspaceTab!=="review"}>
             <EditorTabs id="inspector" label="Inspeção do tracking" value={inspectorTab} onChange={setInspectorTab} items={[{id:"points",label:"Correção"},{id:"history",label:"Histórico"}]}/>
             <div hidden={inspectorTab!=="points"} role="tabpanel" id="inspector-points-panel" aria-labelledby="inspector-points-tab">

@@ -26,12 +26,13 @@ import { cn } from "../lib/format";
 
 function isActive(routeName: string, current: string) {
   if (routeName === "dashboard") return current === "dashboard";
-  if (routeName === "experiments") return ["new-experiment", "editor", "results"].includes(current);
+  if (routeName === "experiments") return ["new-experiment", "results"].includes(current);
   return current === routeName;
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
-  const { route, navigate } = useAppStore();
+  const { route, navigate, researcherProfile } = useAppStore();
+  const researcherInitials = researcherProfile.name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join("") || "P";
   const [colabSummary, setColabSummary] = useState<OAuthProfileSummary>(emptyColabSummary);
 
   useEffect(() => {
@@ -107,7 +108,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="sidebar-card-title">MVP científico</div>
           <p>Analise no Colab com A100/H100 e revise os pontos antes de interpretar as métricas.</p>
           <button onClick={() => navigate({ name: "colab" })}>
-            Ver limitações <ChevronRight size={14} />
+            Configurar Colab <ChevronRight size={14} />
           </button>
         </div>
 
@@ -115,14 +116,14 @@ export function AppShell({ children }: { children: ReactNode }) {
           <button><CircleHelp size={17} /> Ajuda e método</button>
           <button><Settings size={17} /> Preferências</button>
           <div className="local-profile">
-            <div className="profile-avatar">GS</div>
-            <div><strong>Operador local</strong><span>Dados neste dispositivo</span></div>
+            <div className="profile-avatar">{researcherInitials}</div>
+            <div title={researcherProfile.university}><strong>{researcherProfile.name || "Pesquisador local"}</strong><span>{researcherProfile.laboratory || "Dados neste dispositivo"}</span></div>
           </div>
         </div>
       </aside>
 
       <div className="workspace">
-        {route.name !== "editor" && <header className="topbar">
+        <header className="topbar">
           <div className="mobile-brand"><BrandMark size={30} /><span>Behavior Tracker</span></div>
           <div className="topbar-brand">Behavior Tracker</div>
           <div className="topbar-spacer" />
@@ -138,7 +139,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <button className="topbar-new" onClick={() => navigate({ name: "new-experiment" })}>
             <Plus size={17} /> Novo experimento
           </button>
-        </header>}
+        </header>
         <main className="main-content">{children}</main>
       </div>
     </div>

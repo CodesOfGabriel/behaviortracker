@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { makeDemoExperiment } from "./demo-data";
-import { reviewEvents, selectTrackingReview, hasUnassignedCorrections } from "./tracking-reviews";
+import { reviewEvents, selectTrackingReview, hasUnassignedCorrections, preferredReference } from "./tracking-reviews";
 import { applyCorrections } from "./corrections";
 import type { CorrectionEvent, Experiment, PoseSample } from "../types";
 
@@ -11,6 +11,12 @@ const local={engine:"opencv" as const,jobId:"local"};
 const select=(exp:Experiment,selection:typeof colab|typeof local,samples=[point])=>({...exp,...selectTrackingReview(exp,selection,samples)});
 
 describe("revisões isoladas por fonte e execução",()=>{
+  it("prefere o centro anatômico Wistar mesmo quando há caixa do detector",()=>{
+    const samples=[{...point,keypoint:"mouse_center",bbox:{x:2,y:4,width:20,height:30}},
+      {...point,keypoint:"nose",bbox:{x:2,y:4,width:20,height:30}}];
+    expect(preferredReference(samples)).toBe("mouse_center");
+    expect(selectTrackingReview(makeDemoExperiment(),colab,samples).referencePoint).toBe("mouse_center");
+  });
   it("preserva as marcações do Colab ao selecionar local, voltar e recarregar o projeto",()=>{
     const initial={...makeDemoExperiment(),corrections:[move],referencePoint:"body_center"};
     const original=select(initial,colab);

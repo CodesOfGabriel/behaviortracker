@@ -32,8 +32,10 @@ export function hasUnassignedCorrections(experiment: Experiment) {
 }
 
 export function preferredReference(samples: PoseSample[]) {
+  const anatomical = ["mouse_center", "body_center"].find(key => samples.some(sample => sample.keypoint === key));
+  if (anatomical) return anatomical;
   if (samples.some(sample => sample.bbox)) return "box_center";
-  return ["box_center", "silhouette_center", "body_center", "mouse_center"].find(key => samples.some(sample => sample.keypoint === key)) ?? samples[0]?.keypoint ?? "body_center";
+  return ["box_center", "silhouette_center"].find(key => samples.some(sample => sample.keypoint === key)) ?? samples[0]?.keypoint ?? "body_center";
 }
 
 /** Não altera/apaga eventos. Congela a revisão anterior antes de trocar os dados exibidos. */

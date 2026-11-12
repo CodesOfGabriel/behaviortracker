@@ -3,6 +3,29 @@ import type { AppRoute, Experiment, PoseSample, VideoAsset } from "../types";
 import { makeDemoExperiment, makeDemoPose } from "../lib/demo-data";
 
 const STORAGE_KEY = "behavetracker.experiments.v1";
+const RESEARCHER_KEY = "behavetracker.researcher.v1";
+
+export interface ResearcherProfile {
+  name: string;
+  laboratory: string;
+  university: string;
+}
+
+const EMPTY_RESEARCHER: ResearcherProfile = { name: "", laboratory: "", university: "" };
+
+function loadResearcherProfile(): ResearcherProfile {
+  try {
+    const saved = JSON.parse(localStorage.getItem(RESEARCHER_KEY) ?? "null");
+    if (!saved || typeof saved !== "object") return EMPTY_RESEARCHER;
+    return {
+      name: typeof saved.name === "string" ? saved.name : "",
+      laboratory: typeof saved.laboratory === "string" ? saved.laboratory : "",
+      university: typeof saved.university === "string" ? saved.university : "",
+    };
+  } catch {
+    return EMPTY_RESEARCHER;
+  }
+}
 
 function migrateExperiment(experiment: Experiment): Experiment {
   return {
@@ -26,6 +49,8 @@ function loadExperiments(): Experiment[] {
 }
 
 interface AppStoreValue {
+  researcherProfile: ResearcherProfile;
+  saveResearcherProfile: (profile: ResearcherProfile) => void;
   route: AppRoute;
   navigate: (route: AppRoute) => void;
   experiments: Experiment[];
@@ -47,6 +72,16 @@ const AppStoreContext = createContext<AppStoreValue | null>(null);
 export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [route, setRoute] = useState<AppRoute>({ name: "dashboard" });
   const [experiments, setExperiments] = useState<Experiment[]>(loadExperiments);
+  const [researcherProfile, setResearcherProfile] = useState<ResearcherProfile>(loadResearcherProfile);
+  const saveResearcherProfile = useCallback((profile: ResearcherProfile) => {
+    const next = {
+      name: profile.name.trim(),
+      laboratory: profile.laboratory.trim(),
+      university: profile.university.trim(),
+    };
+    localStorage.setItem(RESEARCHER_KEY, JSON.stringify(next));
+    setResearcherProfile(next);
+  }, []);
   const [assets, setAssets] = useState<Record<string, VideoAsset>>({});
   const [trackingData, setTrackingDataState] = useState<Record<string, PoseSample[]>>({});
   const [analysisActivity, setAnalysisActivityState] = useState<AppStoreValue["analysisActivity"]>({});
@@ -109,11 +144,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     const demo = makeDemoExperiment();
     saveExperiment(demo);
     setTrackingDataState((current) => ({ ...current, [demo.id]: makeDemoPose(demo) }));
-    setRoute({ name: "editor", experimentId: demo.id });
+    setRoute({ name: "results", experimentId: demo.id });
   }, [saveExperiment]);
 
   const value = useMemo<AppStoreValue>(
     () => ({
+      researcherProfile,
+      saveResearcherProfile,
       route,
       navigate: setRoute,
       experiments,
@@ -129,7 +166,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       analysisActivity,
       setAnalysisActivity,
     }),
-    [route, experiments, saveExperiment, updateExperiment, deleteExperiment, openDemo, assets, trackingData, setTrackingData, analysisActivity, setAnalysisActivity],
+    [researcherProfile, saveResearcherProfile, route, experiments, saveExperiment, updateExperiment, deleteExperiment, openDemo, assets, trackingData, setTrackingData, analysisActivity, setAnalysisActivity],
   );
 
   return <AppStoreContext.Provider value={value}>{children}</AppStoreContext.Provider>;

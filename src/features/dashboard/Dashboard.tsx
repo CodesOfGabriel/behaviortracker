@@ -20,7 +20,7 @@ import type { ExperimentStatus } from "../../types";
 const statusLabels: Record<ExperimentStatus, string> = {
   draft: "Rascunho",
   processing: "Processando",
-  review: "Revisão necessária",
+  review: "Resultado disponível",
   completed: "Concluído",
   blocked: "Bloqueado",
   failed: "Falhou",
@@ -38,7 +38,7 @@ const statusTone: Record<ExperimentStatus, "neutral" | "success" | "warning" | "
 export function Dashboard() {
   const { experiments, navigate, openDemo, deleteExperiment } = useAppStore();
   const [pendingDeletion, setPendingDeletion] = useState<{ id: string; title: string } | null>(null);
-  const inReview = experiments.filter((experiment) => experiment.status === "review").length;
+  const available = experiments.filter((experiment) => experiment.status === "review").length;
   const completed = experiments.filter((experiment) => experiment.status === "completed").length;
 
   useEffect(() => {
@@ -63,7 +63,7 @@ export function Dashboard() {
         <div>
           <div className="eyebrow">Laboratório local</div>
           <h1>Seus experimentos</h1>
-          <p>Prepare, revise e documente análises de campo aberto com rastreabilidade.</p>
+          <p>Prepare e documente análises de campo aberto com rastreabilidade.</p>
         </div>
         <Button size="lg" icon={<Plus size={18} />} onClick={() => navigate({ name: "new-experiment" })}>
           Novo experimento
@@ -78,13 +78,13 @@ export function Dashboard() {
         </article>
         <article className="stat-card">
           <div className="stat-icon stat-icon-amber"><Clock3 size={20} /></div>
-          <div><span>Aguardando revisão</span><strong>{inReview}</strong></div>
-          <small>{inReview ? "verifique os trechos sinalizados" : "nenhuma pendência"}</small>
+          <div><span>Resultados disponíveis</span><strong>{available}</strong></div>
+          <small>{available ? "abra a Análise Completa" : "nenhum resultado"}</small>
         </article>
         <article className="stat-card">
           <div className="stat-icon stat-icon-blue"><CheckCircle2 size={20} /></div>
           <div><span>Análises concluídas</span><strong>{completed}</strong></div>
-          <small>com revisão registrada</small>
+          <small>neste dispositivo</small>
         </article>
       </section>
 
@@ -112,7 +112,7 @@ export function Dashboard() {
                 <article
                   key={experiment.id}
                   className="experiment-row"
-                  onClick={() => navigate({ name: "editor", experimentId: experiment.id })}
+                  onClick={() => navigate({ name: "results", experimentId: experiment.id })}
                 >
                   <div className={`experiment-thumb${experiment.calibrationThumbnailDataUrl ? " has-image" : ""}`}>
                     {experiment.calibrationThumbnailDataUrl
@@ -156,7 +156,7 @@ export function Dashboard() {
               {[
                 ["01", "Configure", "Vídeo, sujeito e protocolo"],
                 ["02", "Calibre", "Quatro vértices e dimensões"],
-                ["03", "Revise", "Tracking, flags e correções"],
+                ["03", "Analise", "Tracking e métricas"],
                 ["04", "Exporte", "Métricas e proveniência"],
               ].map(([number, title, description]) => (
                 <li key={number}><span>{number}</span><div><strong>{title}</strong><small>{description}</small></div></li>

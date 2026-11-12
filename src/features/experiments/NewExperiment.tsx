@@ -414,7 +414,7 @@ export function NewExperiment() {
       corrections: [],
     };
     saveExperiment(experiment, asset);
-    navigate({ name: "editor", experimentId: id });
+    navigate({ name: "results", experimentId: id });
   };
 
   if (!protocolSelected) {
@@ -605,7 +605,7 @@ export function NewExperiment() {
             {step < 3 ? (
               <Button disabled={!canContinue} loading={checkingBundle} onClick={() => void continueWizard()}>Continuar <ArrowRight size={17} /></Button>
             ) : (
-              <Button disabled={Boolean(arenaError) || !regionsConfirmed} onClick={createExperiment} icon={<Check size={17} />}>Criar e abrir editor</Button>
+              <Button disabled={Boolean(arenaError) || !regionsConfirmed} onClick={createExperiment} icon={<Check size={17} />}>Criar e abrir Análise Completa</Button>
             )}
           </footer>
         </section>
