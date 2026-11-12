@@ -71,7 +71,13 @@ O build de release exige esse ID; ele é integrado ao aplicativo, e o pesquisado
 
 Antes de disponibilizar o instalador a qualquer Conta Google, configure o público OAuth como **Externo** em Google Auth Platform → Público-alvo. Se o projeto atual não permitir essa mudança, crie um projeto público separado e um novo cliente Desktop; nesse caso, gere outro instalador com o novo Client ID. No modo de teste, adicione explicitamente as contas que validarão o fluxo. Configure o nome, o e-mail de suporte, o domínio verificado, a página inicial e a política de privacidade; declare os escopos `openid`, `email` e `https://www.googleapis.com/auth/colaboratory`. Publique em produção e envie a verificação solicitada pelo Google, com justificativa dos escopos e demonstração do fluxo de autorização e análise. Enquanto a verificação não estiver concluída, consulte as restrições exibidas no projeto antes de liberar o instalador ao público. Valide o instalador em computadores limpos com contas diferentes, incluindo fechar e reabrir o aplicativo. A execução no Colab também depende da elegibilidade e da disponibilidade de runtime da conta conectada.
 
-O ZIP macOS gerado sem Developer ID é apenas para testes controlados. Para distribuição macOS sem impedimentos do Gatekeeper, assine o aplicativo com Developer ID e envie-o à notarização da Apple. A distribuição Windows ou Linux requer builds próprios nessas plataformas; o artefato macOS Intel não é compatível com elas.
+O DMG macOS gerado sem Developer ID é apenas para testes controlados. Para distribuição macOS sem impedimentos do Gatekeeper, assine o aplicativo com Developer ID e envie-o à notarização da Apple. O instalador Windows sem assinatura de código pode exibir um aviso do SmartScreen.
+
+### Gerar instaladores para Mac e Windows
+
+O build local no Mac Intel gera `src-tauri/target/release/bundle/dmg/Behavior Tracker_0.1.0_x64.dmg` com o Client ID definido no ambiente, conforme o comando acima. Para gerar as versões macOS Intel, macOS Apple Silicon e Windows x64 no GitHub, use **Actions → Build desktop installers → Run workflow**. Os três arquivos aparecem como artefatos separados da execução por sete dias. O workflow compila cada plataforma no runner correspondente e valida os pesos antes de criar os instaladores.
+
+Antes de executar o workflow, publique `best_detector.pth` e `snapshot-hrnet_w32-001.pt` como assets da release fixa `models-wistar-df-v2-r1`, após confirmar o direito de redistribuição indicado acima. O YAML e o manifesto de hashes já estão no repositório. Se faltar a release ou os hashes não conferirem, o workflow para antes da compilação. O workflow não publica instaladores automaticamente como release; revise e assine os artefatos antes da distribuição pública.
 
 ```sh
 npm install

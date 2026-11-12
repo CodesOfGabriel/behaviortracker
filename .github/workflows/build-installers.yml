@@ -1,0 +1,69 @@
+name: Build desktop installers
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            target: x86_64-apple-darwin
+            bundle: dmg
+            artifact: macos-intel
+            output: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            bundle: dmg
+            artifact: macos-apple-silicon
+            output: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundle: nsis
+            artifact: windows-x64
+            output: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+
+    runs-on: ${{ matrix.runner }}
+    env:
+      BEHAVETRACKER_GOOGLE_CLIENT_ID: 60117059630-9v3c4cv8dpb7iacag7qrkrhs6kilvh9t.apps.googleusercontent.com
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Download the pinned model bundle
+        shell: bash
+        run: |
+          gh release download models-wistar-df-v2-r1 \
+            --repo CodesOfGabriel/behaviortracker \
+            --dir models/wistar_df_v2 \
+            --pattern best_detector.pth \
+            --pattern snapshot-hrnet_w32-001.pt
+          node scripts/check-release-models.mjs
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: Build installer
+        run: npm run tauri -- build --target ${{ matrix.target }} --bundles ${{ matrix.bundle }} --ci
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.output }}
+          if-no-files-found: error
+          retention-days: 7
