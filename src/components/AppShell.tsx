@@ -1,4 +1,4 @@
-import { CircleHelp, FlaskConical, LayoutDashboard, LogOut, Plus, Settings } from "lucide-react";
+import { Activity, CircleHelp, FlaskConical, LayoutDashboard, LogOut, Plus, Settings } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAppStore } from "../store/AppStore";
 import { BrandMark } from "./BrandMark";
@@ -16,13 +16,14 @@ export function AppShell({ children, accountEmail, onLogout }: {
   accountEmail: string | null;
   onLogout: () => Promise<void>;
 }) {
-  const { route, navigate } = useAppStore();
+  const { route, navigate, analysisActivity } = useAppStore();
   const [menuOpen, setMenuOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const displayName = accountEmail || "Pesquisador";
   const researcherInitials = displayName.trim().split(/\s+|@/).filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join("") || "P";
+  const runningCount = Object.values(analysisActivity).filter((activity) => activity.starting).length;
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -74,16 +75,21 @@ export function AppShell({ children, accountEmail, onLogout }: {
           <div className="nav-section-label">Workspace</div>
           {navItems.map((item) => {
             const Icon = item.icon;
+            const label = item.id === "experiments" && runningCount > 0
+              ? `${item.label} · ${runningCount} ${runningCount === 1 ? "análise em execução" : "análises em execução"}`
+              : item.label;
             return (
               <button
                 key={item.id}
                 onClick={item.action}
                 className={cn("nav-item", isActive(item.id, route.name) && "nav-item-active")}
-                aria-label={item.label}
+                aria-label={label}
                 aria-current={isActive(item.id, route.name) ? "page" : undefined}
+                title={label}
               >
                 <Icon size={18} strokeWidth={1.8} />
                 <span>{item.label}</span>
+                {item.id === "experiments" && runningCount > 0 && <span className="nav-analysis-indicator" aria-hidden="true"><Activity size={11} strokeWidth={2.5} /></span>}
               </button>
             );
           })}
