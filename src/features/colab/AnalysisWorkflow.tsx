@@ -1,18 +1,19 @@
-import { ArrowRight, Check, CircleAlert, CloudDownload, Cpu, FileVideo, LoaderCircle, ScanSearch, ShieldCheck, UploadCloud, WandSparkles } from "lucide-react";
+import { ArrowRight, Check, CircleAlert, Clock3, CloudDownload, Cpu, FileVideo, LoaderCircle, ScanSearch, ShieldCheck, UploadCloud, WandSparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { formatDuration } from "../../lib/format";
+import { formatElapsedClock } from "../../lib/format";
 import type { ColabJob } from "./analysis";
 import { loadColabLog } from "./analysis";
 import { checkpoints, diaryEvents, displayAnalysisMessage, gpuMessage, stageIndex } from "./workflow";
 
 const icons = [FileVideo, Cpu, UploadCloud, ShieldCheck, WandSparkles, ScanSearch, CloudDownload];
 
-export function AnalysisWorkflow({ job, preparing, message, localError, elapsedSec, protocol: requestedProtocol = "open_field", logOnly = false }: {
+export function AnalysisWorkflow({ job, preparing, message, localError, elapsedSec, startedAt, protocol: requestedProtocol = "open_field", logOnly = false }: {
   job: ColabJob | null;
   preparing: boolean;
   message: string;
   localError: string | null;
   elapsedSec: number;
+  startedAt?: number | null;
   protocol?: "open_field" | "forced_swim";
   logOnly?: boolean;
 }) {
@@ -23,6 +24,16 @@ export function AnalysisWorkflow({ job, preparing, message, localError, elapsedS
   const compactEvents = diaryEvents(events, protocol);
   const failed = job?.status === "failed" || (!job && localError);
   const active = preparing || job?.status === "running" || job?.status === "queued";
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!active) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [active]);
+  const startTime = Math.min(startedAt ?? Infinity, job ? Date.parse(job.createdAt) : Infinity);
+  const duration = active && Number.isFinite(startTime)
+    ? Math.max(0, (now - startTime) / 1_000) : elapsedSec;
   const gpu = gpuMessage(events);
   const flowRef = useRef<HTMLDivElement>(null);
   const [technicalLog, setTechnicalLog] = useState<string | null>(null);
@@ -59,9 +70,24 @@ export function AnalysisWorkflow({ job, preparing, message, localError, elapsedS
   }, [job?.jobId, job?.stage, job?.status, preparing, localError]);
   return (
     <section className="analysis-workflow" aria-label={logOnly ? "Diário da execução" : "Etapas do processamento"}>
-      {!logOnly && <div className="workflow-heading">
-        <div><span className="eyebrow">Do vídeo ao rastreamento</span><h3>{failed ? "Execução interrompida" : job?.status === "succeeded" ? "Resultado pronto" : active ? "Análise em andamento" : "Tudo pronto para começar"}</h3></div>
-        {(job || preparing) && <span className="workflow-duration">{formatDuration(elapsedSec)} de execução</span>}
+      <div className="workflow-heading">
+        <div className="workflow-heading-copy">
+          <span className={`workflow-status ${failed ? "workflow-status-failed" : active ? "workflow-status-active" : "workflow-status-complete"}`}>
+            <span className="workflow-status-dot" />{failed ? "Interrompida" : active ? "Em execução" : job?.status === "succeeded" ? "Concluída" : "Aguardando"}
+          </span>
+          <h3>{failed ? "Execução interrompida" : job?.status === "succeeded" ? "Resultado pronto" : active ? "Análise em andamento" : "Tudo pronto para começar"}</h3>
+          <p>{active ? "A análise continua em segundo plano enquanto você navega pelo aplicativo." : failed ? "Consulte o diário para identificar a etapa interrompida." : job?.status === "succeeded" ? "Os resultados estão disponíveis para revisão." : "Acompanhe aqui as etapas do processamento."}</p>
+        </div>
+        {(job || preparing) && <div className="workflow-duration">
+          <div className="workflow-duration-label"><Clock3 size={15} /><span>Tempo de execução</span></div>
+          <time aria-label={`Tempo de execução: ${formatElapsedClock(duration)}`}>{formatElapsedClock(duration)}</time>
+        </div>}
+      </div>
+      {(job || preparing) && <div className="workflow-progress-overview">
+        <div className="workflow-progress-label"><span>Progresso da análise</span><strong>{job ? `${Math.round(progress)}%` : "Preparando"}</strong></div>
+        <div className={`workflow-progress ${!job && active ? "workflow-progress-indeterminate" : ""}`} role="progressbar" aria-label="Progresso da análise" aria-valuemin={0} aria-valuemax={100} aria-valuenow={job ? Math.round(progress) : undefined}>
+          <span style={job ? { width: `${progress}%` } : undefined} />
+        </div>
       </div>}
       {!logOnly && <div ref={flowRef} className="workflow-scroll" tabIndex={0} aria-label="Fluxograma horizontal; deslize para ver todas as etapas">
         <ol className="workflow-checkpoints">
@@ -95,9 +121,6 @@ export function AnalysisWorkflow({ job, preparing, message, localError, elapsedS
       {job ? (
         <details className="workflow-log" open>
           <summary>Diário da execução</summary>
-          <div className="workflow-progress" role="progressbar" aria-label="Progresso da análise" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
-            <span style={{ width: `${progress}%` }} />
-          </div>
           {compactEvents.length > 0 && <ol aria-label="Eventos da análise">
             {[...compactEvents].reverse().map((event) => (
               <li key={event.id} className={event.status === "failed" ? "log-failed" : ""}>

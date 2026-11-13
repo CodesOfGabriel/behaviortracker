@@ -1214,3 +1214,51 @@ html.desktop-chrome-mac .main-content { min-height: calc(100svh - 60px); }
 .video-preparation-spinner { animation: video-preparation-spin .9s linear infinite; }
 @keyframes video-preparation-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .video-preparation-spinner { animation: none; } }
+
+.analysis-workflow {
+  padding: 26px;
+  border: 1px solid #34433e;
+  border-radius: 18px;
+  background: radial-gradient(circle at 96% 0%, #1b4c3c55, transparent 34%), #171d1e;
+  box-shadow: 0 18px 48px #060d0c33, inset 0 1px 0 #ffffff0d;
+}
+.workflow-heading { align-items: stretch; gap: 24px; margin-bottom: 20px; }
+.workflow-heading-copy { min-width: 0; align-self: center; }
+.workflow-status { display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px; border: 1px solid #3b534b; border-radius: 999px; color: #b8e9d3; background: #1b3029; font-size: 10px; font-weight: 700; letter-spacing: .035em; }
+.workflow-status-dot { width: 6px; height: 6px; border-radius: 50%; background: #6fe3b1; box-shadow: 0 0 0 3px #6fe3b126; }
+.workflow-status-failed { border-color: #6d4852; color: #f4bdc5; background: #35262d; }
+.workflow-status-failed .workflow-status-dot { background: #f0a3af; box-shadow: 0 0 0 3px #f0a3af22; }
+.workflow-status-complete { border-color: #4d5a55; color: #c6d0ca; background: #29322e; }
+.workflow-heading h3 { margin: 11px 0 5px; color: #f5f8f6; font-size: clamp(19px, 2vw, 24px); font-weight: 680; letter-spacing: -.025em; line-height: 1.2; }
+.workflow-heading p { max-width: 560px; margin: 0; color: #adbdb5; font-size: 12px; line-height: 1.6; }
+.workflow-duration { display: flex; flex-direction: column; justify-content: center; min-width: 198px; padding: 17px 20px; border: 1px solid #3c4b45; border-radius: 13px; background: #101819; color: #f1f7f3; }
+.workflow-duration-label { display: flex; align-items: center; gap: 7px; color: #a9bdb2; font-size: 11px; font-weight: 600; }
+.workflow-duration-label svg { color: #80d8ac; }
+.workflow-duration time { display: block; margin-top: 9px; font-size: clamp(25px, 3vw, 32px); font-weight: 650; letter-spacing: -.045em; line-height: 1; font-variant-numeric: tabular-nums; }
+.workflow-progress-overview { padding: 15px 17px; border: 1px solid #33423d; border-radius: 12px; background: #1b2524; }
+.workflow-progress-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #c4d2ca; font-size: 11px; font-weight: 600; }
+.workflow-progress-label strong { color: #e9f7ee; font-size: 12px; font-variant-numeric: tabular-nums; }
+.analysis-workflow .workflow-progress { height: 8px; margin: 11px 0 0; background: #354840; }
+.analysis-workflow .workflow-progress > span { background: linear-gradient(90deg, #2caa7d, #91e1af); }
+.analysis-workflow .workflow-progress-indeterminate > span { width: 35%; animation: workflow-indeterminate 1.8s ease-in-out infinite; }
+@keyframes workflow-indeterminate { from { transform: translateX(-110%); } to { transform: translateX(300%); } }
+.analysis-workflow .workflow-scroll { margin-top: 20px; }
+.analysis-workflow .checkpoint { border-color: #3a4942; background: #202928; }
+.analysis-workflow .checkpoint-active { border-color: #65c99d; background: #214436; box-shadow: inset 0 0 0 1px #75d4a017; }
+.analysis-workflow .checkpoint-done { border-color: #456a58; background: #22352c; }
+.analysis-workflow .checkpoint-failed { border-color: #a05364; background: #34202b; }
+.analysis-workflow .checkpoint > strong { font-size: 11px; }
+.analysis-workflow .checkpoint > p { color: #b4c0b8; font-size: 10px; }
+.analysis-workflow .workflow-current { margin-top: 18px; border-color: #3d6f58; border-radius: 11px; color: #e5f6eb; background: #203b30; font-size: 12px; }
+.analysis-workflow .workflow-current-error { border-color: #794052; color: #ffbcc7; background: #35212b; }
+.analysis-workflow .workflow-log { border-color: #35423c; }
+.analysis-workflow .workflow-log summary { color: #d9e6dc; font-size: 11px; }
+.analysis-workflow .workflow-log li { color: #bfcbc2; font-size: 11px; }
+@media (max-width: 800px) {
+  .analysis-workflow { padding: 19px; }
+  .workflow-heading { flex-direction: column; gap: 15px; }
+  .workflow-duration { align-self: stretch; min-width: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .analysis-workflow .workflow-progress-indeterminate > span { animation: none; }
+}

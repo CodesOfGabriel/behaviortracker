@@ -135,7 +135,7 @@ export function Results({ experimentId }: { experimentId: string }) {
         </section>
         {analysis.error && <div className="validation-box invalid"><AlertTriangle size={16} />{analysis.error}</div>}
         <AnalysisWorkflow job={analysis.activeJob} preparing={analysis.busy && !analysis.activeJob} message={analysis.message}
-          localError={analysis.error} elapsedSec={analysis.elapsedSec} />
+          localError={analysis.error} elapsedSec={analysis.elapsedSec} startedAt={analysis.startedAt} />
         {analysis.loadingResult && <p role="status">Carregando resultado salvo…</p>}
         {analysis.history.length > 0 && <div className="analysis-history-list">{analysis.history.map((job) =>
           <button type="button" className={`analysis-run analysis-run-${job.status}`} key={job.jobId}
@@ -230,7 +230,7 @@ export function Results({ experimentId }: { experimentId: string }) {
       </section>
       {analysis.error && <div className="validation-box invalid"><AlertTriangle size={16} />{analysis.error}</div>}
       {analysis.busy && <AnalysisWorkflow job={analysis.activeJob} preparing={!analysis.activeJob} message={analysis.message}
-        localError={analysis.error} elapsedSec={analysis.elapsedSec} />}
+        localError={analysis.error} elapsedSec={analysis.elapsedSec} startedAt={analysis.startedAt} />}
       {analysis.history.filter((job) => job.resultsReady || job.status === "succeeded").length > 1 &&
         <label className="results-source-select">Execução exibida
           <select value={experiment.trackingSelection?.engine === "colab" ? experiment.trackingSelection.jobId : ""}

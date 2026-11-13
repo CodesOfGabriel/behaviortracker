@@ -72,7 +72,7 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
   const frameData=useMemo(()=>result?.frames.filter(f=>f.frame===frame)??[],[result,frame]);
   const framePoses=useMemo(()=>result?.subjects.flatMap(s=>(result.poseArrays[s.animalId]?.[frame]??[]).map(([xPx,yPx,likelihood],i)=>({animalId:s.animalId,keypoint:result.keypointNames[i],xPx,yPx,likelihood})))??[],[result,frame]);
   const annotations=(experiment?.annotations??[]).filter(a=>!result||a.runId===result.runId);
-  const elapsedSec=workflowJob?Math.max(0,(clock-new Date(workflowJob.createdAt).getTime())/1000):0;
+  const elapsedSec=workflowJob?Math.max(0,((workflowJob.status==="running"||workflowJob.status==="queued"?clock:Date.parse(workflowJob.updatedAt))-Date.parse(workflowJob.createdAt))/1000):0;
 
   useEffect(()=>{if(active)setView("runs")},[active?.jobId]);
 
@@ -124,7 +124,7 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
     let preparation=file?undefined:experiment.video.preparation;
     if(preparation&&preparation.policyVersion!=="fst-adaptive-1")preparation=undefined;
     if(!preparation&&!file){file=asset?.file;if(!file){fileRef.current?.click();return}}
-    setAnalysisActivity(experimentId,{starting:true,message:"Validando conexão com o Colab",error:null});setError(null);
+    setAnalysisActivity(experimentId,{starting:true,message:"Validando conexão com o Colab",error:null,startedAt:Date.now()});setError(null);
     let started=false;
     try{
       if(preparation&&!await checkVideoStaging(experimentId,preparation.uploadId))preparation=undefined;
@@ -176,6 +176,7 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
     <section className="page-heading results-heading"><div><div className="eyebrow">Análise Completa · Forced Swim Test</div><h1>{experiment.title}</h1><p>{experiment.subjects.map(s=>`${s.animalId}: ${s.subjectId}`).join(" · ")} · {experiment.video.filename}</p></div>
       <div className="results-actions"><Button disabled={busy||Boolean(active)||!summary.connected} onClick={()=>void run()}>{busy||active?"Processando…":"Analisar no Colab"}</Button></div></section>
     {(error??activity?.error)&&<div role="alert" className="validation-box invalid"><Info size={16}/>{error??activity?.error}</div>}
+    {(busy||active)&&<AnalysisWorkflow job={workflowJob} protocol="forced_swim" logOnly preparing={busy&&!active} message={message} localError={error??activity?.error??null} elapsedSec={elapsedSec} startedAt={busy?activity?.startedAt:null}/>}
     <EditorTabs<"results"|"runs"> id="fst-view" label="Áreas da análise FST" value={visibleView} onChange={setView}
       items={selectedJob?.resultsReady?[{id:"results",label:"Resultados"},{id:"runs",label:"Execuções"}]:[{id:"runs",label:"Execuções"}]}/>
     {visibleView==="runs"&&<div className="fst-runs-content" role="tabpanel" id="fst-view-runs-panel" aria-labelledby="fst-view-runs-tab">
@@ -189,7 +190,7 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
           </button>
         )) : <p>Nenhuma execução registrada.</p>}
       </section>
-      {(workflowJob||busy)&&<AnalysisWorkflow job={workflowJob} protocol="forced_swim" logOnly preparing={busy&&!active} message={message} localError={error??activity?.error??null} elapsedSec={elapsedSec}/>}
+      {!busy&&!active&&workflowJob&&<AnalysisWorkflow job={workflowJob} protocol="forced_swim" logOnly preparing={false} message={message} localError={error??activity?.error??null} elapsedSec={elapsedSec}/>}
     </div>}
     {visibleView==="results"&&<div className="fst-result-content" role="tabpanel" id="fst-view-results-panel" aria-labelledby="fst-view-results-tab">
     {loadingResult&&<p role="status">Carregando dados FST da execução…</p>}

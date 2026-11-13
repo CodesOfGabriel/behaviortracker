@@ -6,6 +6,15 @@ export function formatDuration(seconds: number) {
   return `${minutes}:${remainder.toString().padStart(2, "0")}`;
 }
 
+export function formatElapsedClock(seconds: number) {
+  if (!Number.isFinite(seconds)) return "—";
+  const total = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const remainder = total % 60;
+  return [hours, minutes, remainder].map((value) => String(value).padStart(2, "0")).join(":");
+}
+
 export function formatBytes(bytes: number) {
   if (!bytes) return "—";
   const units = ["B", "KB", "MB", "GB"];

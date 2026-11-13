@@ -31,7 +31,7 @@ export function useAnalysis(experimentId: string) {
   const [loadingResult, setLoadingResult] = useState(false);
   const [clock, setClock] = useState(Date.now);
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
-  const activity = analysisActivity[experimentId] ?? { starting: false, message: "", error: null };
+  const activity = analysisActivity[experimentId] ?? { starting: false, message: "", error: null, startedAt: null };
   const runningJob = history.find((job) => job.status === "running" || job.status === "queued");
   const activeJob = activity.starting && !runningJob && !selectedHistoryId ? null : selectedHistoryId
     ? history.find((job) => job.jobId === selectedHistoryId) ?? runningJob ?? history[0] ?? null
@@ -118,7 +118,7 @@ export function useAnalysis(experimentId: string) {
       fileRef.current?.click();
       return;
     }
-    setAnalysisActivity(experimentId, { starting: true, message: "Verificando a conexão com o Colab", error: null });
+    setAnalysisActivity(experimentId, { starting: true, message: "Verificando a conexão com o Colab", error: null, startedAt: Date.now() });
     setError(null);
     setSelectedHistoryId(null);
     try {
@@ -196,7 +196,7 @@ export function useAnalysis(experimentId: string) {
     ? clock : activeJob ? Date.parse(activeJob.updatedAt) : 0;
   return {
     fileRef, attachFile, run, selectSource, history, activeJob, busy, summary,
-    error: error ?? activity.error, message: activity.message,
+    error: error ?? activity.error, message: activity.message, startedAt: activity.starting ? activity.startedAt : null,
     loadingResult, selectedHistoryId, setSelectedHistoryId,
     elapsedSec: Math.max(0, (ended - started) / 1000) || 0,
   };
