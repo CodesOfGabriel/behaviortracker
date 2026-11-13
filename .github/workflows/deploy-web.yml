@@ -47,7 +47,7 @@ jobs:
           install -d -m 700 "$HOME/.ssh"
           printf '%s\n' "$VPS_DEPLOY_SSH_KEY" > "$HOME/.ssh/id_ed25519"
           chmod 600 "$HOME/.ssh/id_ed25519"
-          install -m 600 ops/behaviortracker-known-hosts "$HOME/.ssh/known_hosts"
+          install -m 600 .github/behaviortracker-known-hosts "$HOME/.ssh/known_hosts"
 
       - name: Upload tested website
         shell: bash
