@@ -1,7 +1,8 @@
 import { Maximize2, Minus, X } from "lucide-react";
-import { getCurrentWindow, type ResizeDirection } from "@tauri-apps/api/window";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+type ResizeDirection = Parameters<ReturnType<typeof getCurrentWindow>["startResizeDragging"]>[0];
 const resizeDirections: ResizeDirection[] = ["North", "NorthEast", "East", "SouthEast", "South", "SouthWest", "West", "NorthWest"];
 
 export function WindowChrome() {
