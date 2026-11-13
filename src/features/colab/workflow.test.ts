@@ -68,4 +68,11 @@ describe("checkpoints da análise", () => {
     expect(steps[5].state).toBe("done");
     expect(steps[6].state).toBe("active");
   });
+  it("usa etapas FST sem nomes e modelos de Campo Aberto", () => {
+    const steps = checkpoints(job({protocol:"forced_swim",stage:"presence",events:[event(1,"inference"),event(2,"presence")]}),false,false,"forced_swim");
+    expect(steps[5].state).toBe("done");
+    expect(steps[6].state).toBe("active");
+    expect(steps[6].title).toContain("presença");
+    expect(steps.map(step=>step.description).join(" ")).not.toContain("Wistar");
+  });
 });

@@ -32,7 +32,7 @@ import { loadColabVideo } from "../colab/analysis";
 import { isTauriRuntime } from "../colab/connection";
 import { AnalysisWorkflow } from "../colab/AnalysisWorkflow";
 import { useAnalysis } from "./useAnalysis";
-import type { OftMetrics } from "../../types";
+import type { OftMetrics, OpenFieldExperiment } from "../../types";
 
 function metricValue(value: number | null, suffix: string, digits = 1) {
   return value == null ? "Não mensurável" : `${value.toFixed(digits)} ${suffix}`;
@@ -60,7 +60,7 @@ function metricsCsv(metrics: OftMetrics) {
 export function Results({ experimentId }: { experimentId: string }) {
   const { getExperiment, navigate, trackingData, updateExperiment } = useAppStore();
   const analysis = useAnalysis(experimentId);
-  const experiment = getExperiment(experimentId);
+  const experiment = getExperiment(experimentId) as OpenFieldExperiment | undefined;
   const [trajectorySource, setTrajectorySource] = useState<"detector" | "anatomical">("detector");
   const [showExport, setShowExport] = useState(false);
   const [videoExportError, setVideoExportError] = useState<string | null>(null);

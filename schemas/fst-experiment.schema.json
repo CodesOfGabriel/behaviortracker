@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://behavetracker.local/schemas/fst-experiment.schema.json",
+  "title": "BehaveTracker Forced Swim Experiment",
+  "type": "object",
+  "required": ["id", "schemaVersion", "testType", "analysisMethodVersion", "analysisEngine", "title", "subjects", "tanks", "video", "annotations"],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "schemaVersion": { "const": "1.0" },
+    "testType": { "const": "forced_swim" },
+    "analysisMethodVersion": { "const": "fst-0.1" },
+    "analysisEngine": { "const": "fst_superanimal_quadruped_v1" },
+    "title": { "type": "string", "minLength": 1 },
+    "group": { "type": "string" },
+    "notes": { "type": "string" },
+    "subjects": { "type": "array", "minItems": 1, "maxItems": 2, "items": { "$ref": "#/$defs/subject" } },
+    "tanks": { "type": "array", "minItems": 1, "maxItems": 2, "items": { "$ref": "#/$defs/tank" } },
+    "video": { "type": "object", "required": ["filename", "sizeBytes", "width", "height", "durationSec", "timingSource"], "properties": {
+      "filename": { "type": "string", "minLength": 1 }, "sizeBytes": { "type": "integer", "minimum": 0 },
+      "width": { "type": "integer", "minimum": 80 }, "height": { "type": "integer", "minimum": 80 },
+      "durationSec": { "type": "number", "exclusiveMinimum": 0 }, "fps": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+      "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+      "timingSource": { "enum": ["browser-estimate", "ffprobe", "synthetic"] }
+    } },
+    "annotations": { "type": "array", "items": { "$ref": "#/$defs/annotation" } }
+  },
+  "$defs": {
+    "subject": { "type": "object", "required": ["animalId", "subjectId"], "properties": {
+      "animalId": { "type": "string", "pattern": "^animal_[12]$" }, "subjectId": { "type": "string", "minLength": 1 }
+    } },
+    "roi": { "type": "object", "required": ["x", "y", "width", "height"], "properties": {
+      "x": { "type": "integer", "minimum": 0 }, "y": { "type": "integer", "minimum": 0 },
+      "width": { "type": "integer", "minimum": 80 }, "height": { "type": "integer", "minimum": 80 }
+    } },
+    "tank": { "type": "object", "required": ["tankId", "animalId", "subjectId", "roiPx", "revision"], "properties": {
+      "tankId": { "type": "string", "minLength": 1 }, "animalId": { "type": "string", "pattern": "^animal_[12]$" },
+      "subjectId": { "type": "string", "minLength": 1 }, "roiPx": { "$ref": "#/$defs/roi" },
+      "revision": { "type": "integer", "minimum": 1 }
+    } },
+    "annotation": { "type": "object", "required": ["id", "animalId", "startSec", "endSec", "label", "source", "analysisVersion", "createdAt", "runId"], "properties": {
+      "id": { "type": "string", "format": "uuid" }, "animalId": { "type": "string", "pattern": "^animal_[12]$" },
+      "startSec": { "type": "number", "minimum": 0 }, "endSec": { "type": "number", "exclusiveMinimum": 0 },
+      "label": { "enum": ["IMMOBILITY", "SWIMMING", "CLIMBING", "MIXED", "UNCERTAIN"] },
+      "source": { "const": "manual" }, "analysisVersion": { "const": "fst-0.1" },
+      "createdAt": { "type": "string", "format": "date-time" }, "runId": { "type": "string" }
+    } }
+  }
+}

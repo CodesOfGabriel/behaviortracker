@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import { makeDemoExperiment } from "./demo-data";
 import { reviewEvents, selectTrackingReview, hasUnassignedCorrections, preferredReference } from "./tracking-reviews";
 import { applyCorrections } from "./corrections";
-import type { CorrectionEvent, Experiment, PoseSample } from "../types";
+import type { CorrectionEvent, OpenFieldExperiment, PoseSample } from "../types";
 
 const point: PoseSample = {frameIndex:0,timestampSec:0,keypoint:"body_center",xPx:10,yPx:20,status:"valid",likelihood:.9};
 const move:CorrectionEvent={id:"original-manual",type:"MOVE_POINT",source:"manual",createdAt:"now",frameIndex:0,keypoint:"body_center",after:{x:90,y:80}};
 const colab={engine:"colab" as const,jobId:"original"};
 const local={engine:"opencv" as const,jobId:"local"};
-const select=(exp:Experiment,selection:typeof colab|typeof local,samples=[point])=>({...exp,...selectTrackingReview(exp,selection,samples)});
+const select=(exp:OpenFieldExperiment,selection:typeof colab|typeof local,samples=[point]):OpenFieldExperiment=>({...exp,...selectTrackingReview(exp,selection,samples)});
 
 describe("revisões isoladas por fonte e execução",()=>{
   it("prefere o centro anatômico Wistar mesmo quando há caixa do detector",()=>{

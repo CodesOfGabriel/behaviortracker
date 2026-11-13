@@ -10,6 +10,19 @@ export const workflowSteps = [
   { title: "Preparando resultados", description: "Poses, trajetória e vídeo ficam disponíveis para revisão", stages: ["downloading", "rendering", "completed"] },
 ] as const;
 
+export const fstWorkflowSteps = [
+  { title: "Preparando vídeo", description: "Arquivo original e metadados", stages: ["preparing", "queued", "authorizing"] },
+  { title: "Conectando à GPU", description: "Runtime CUDA para HRNet-w32", stages: ["runtime", "workspace", "gpu_ready"] },
+  { title: "Enviando vídeo", description: "Transferência ao Colab", stages: ["uploading"] },
+  { title: "Validando vídeo", description: "Tamanho e SHA-256", stages: ["verifying", "video_ready"] },
+  { title: "Validando cilindros e modelo", description: "ROIs fixas e SuperAnimal Quadruped", stages: ["environment_check", "installing", "environment_ready", "validating_tanks"] },
+  { title: "Inferindo 39 pontos", description: "HRNet-w32 sem detector Faster R-CNN", stages: ["inference"] },
+  { title: "Detectando presença", description: "Silhueta, reflexos e confirmação temporal", stages: ["presence"] },
+  { title: "Calculando indicadores", description: "Movimento e qualidade por animal", stages: ["indicators"] },
+  { title: "Renderizando vídeo", description: "Caixas dinâmicas e pontos visíveis só com presença", stages: ["rendering"] },
+  { title: "Recebendo resultados", description: "Dados, MP4 e manifesto FST", stages: ["downloading", "completed"] },
+] as const;
+
 export type CheckpointState = "pending" | "active" | "done" | "failed";
 
 export function preparingNewAnalysis(starting: boolean, liveJob: ColabJob | null, history: ColabJob[]) {
@@ -20,15 +33,16 @@ export function displayAnalysisMessage(message: string) {
   return message.replace(/D\+F:\s*/g, "").replace(/\s+D\+F\b/g, "");
 }
 
-export function stageIndex(stage: string) {
-  return workflowSteps.findIndex((step) => (step.stages as readonly string[]).includes(stage));
+export function stageIndex(stage: string, protocol: "open_field" | "forced_swim" = "open_field") {
+  return (protocol === "forced_swim" ? fstWorkflowSteps : workflowSteps).findIndex((step) => (step.stages as readonly string[]).includes(stage));
 }
 
-export function checkpoints(job: ColabJob | null, preparing = false, localError = false) {
+export function checkpoints(job: ColabJob | null, preparing = false, localError = false, protocol: "open_field" | "forced_swim" = "open_field") {
+  const steps = protocol === "forced_swim" ? fstWorkflowSteps : workflowSteps;
   const events = job?.events ?? [];
-  const currentIndex = job ? stageIndex(job.stage) : 0;
-  return workflowSteps.map((step, index) => {
-    const stepEvents = events.filter((event) => stageIndex(event.stage) === index);
+  const currentIndex = job ? stageIndex(job.stage, protocol) : 0;
+  return steps.map((step, index) => {
+    const stepEvents = events.filter((event) => stageIndex(event.stage, protocol) === index);
     const lastEvent = stepEvents.at(-1);
     let state: CheckpointState = "pending";
     if (!job) {
@@ -38,7 +52,7 @@ export function checkpoints(job: ColabJob | null, preparing = false, localError 
     else if (index === currentIndex) {
       state = job.status === "failed" ? "failed" : "active";
       if (job.status !== "failed" && ["gpu_ready", "video_ready", "environment_ready"].includes(job.stage)) state = "done";
-    } else if (events.some((event) => stageIndex(event.stage) > index)) state = "done";
+    } else if (events.some((event) => stageIndex(event.stage, protocol) > index)) state = "done";
     return { ...step, state, event: lastEvent,
       ...(job?.diagnostic && index === 5 ? { title: "Testando detector e pose", description: "Medição das saídas no trecho curto" } : {}),
       ...(job?.diagnostic && index === 6 ? { title: "Preparando diagnóstico", description: "Relatório e pontos brutos disponíveis para revisão" } : {}),

@@ -1,11 +1,11 @@
-import type { CorrectionEvent, Experiment, PoseSample, TrackingSelection } from "../types";
+import type { CorrectionEvent, OpenFieldExperiment, PoseSample, TrackingSelection } from "../types";
 
 export function trackingSourceKey(selection?: TrackingSelection) {
   return selection ? `${selection.engine}:${selection.jobId}` : "legacy";
 }
 
 /** Comportamentos descrevem o vídeo. Coordenadas pertencem a uma execução, nunca a outra. */
-export function reviewEvents(experiment: Experiment): CorrectionEvent[] {
+export function reviewEvents(experiment: OpenFieldExperiment): CorrectionEvent[] {
   const current = trackingSourceKey(experiment.trackingSelection);
   const events = new Map(experiment.corrections.map(event => [event.id, event]));
   const scope = (event: CorrectionEvent, visited = new Set<string>()): string => {
@@ -26,7 +26,7 @@ export function reviewEvents(experiment: Experiment): CorrectionEvent[] {
   return experiment.corrections.filter(event => [current, "shared"].includes(scope(event)));
 }
 
-export function hasUnassignedCorrections(experiment: Experiment) {
+export function hasUnassignedCorrections(experiment: OpenFieldExperiment) {
   return (!experiment.legacyReviewSource || experiment.legacyReviewSource === "legacy") && !!experiment.trackingSelection
     && experiment.corrections.some(event => !event.reviewSource && ["MOVE_POINT", "SET_BOX", "MARK_MISSING", "CONFIRM_POINT"].includes(event.type));
 }
@@ -39,7 +39,7 @@ export function preferredReference(samples: PoseSample[]) {
 }
 
 /** Não altera/apaga eventos. Congela a revisão anterior antes de trocar os dados exibidos. */
-export function selectTrackingReview(experiment: Experiment, selection: TrackingSelection, samples: PoseSample[]): Partial<Experiment> {
+export function selectTrackingReview(experiment: OpenFieldExperiment, selection: TrackingSelection, samples: PoseSample[]): Partial<OpenFieldExperiment> {
   const previous = trackingSourceKey(experiment.trackingSelection);
   const next = trackingSourceKey(selection);
   const trackingReviews = { ...experiment.trackingReviews, [previous]: { referencePoint: experiment.referencePoint } };

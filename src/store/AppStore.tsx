@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
-import type { AppRoute, Experiment, PoseSample, VideoAsset } from "../types";
+import type { AppRoute, Experiment, ForcedSwimExperiment, OpenFieldExperiment, PoseSample, VideoAsset } from "../types";
 import { makeDemoExperiment, makeDemoPose } from "../lib/demo-data";
 
 const STORAGE_KEY = "behavetracker.experiments.v1";
@@ -27,7 +27,11 @@ function loadResearcherProfile(): ResearcherProfile {
   }
 }
 
-function migrateExperiment(experiment: Experiment): Experiment {
+export function migrateExperiment(experiment: Experiment): Experiment {
+  if (experiment.testType === "forced_swim") return {
+    ...experiment, schemaVersion: "1.0", analysisMethodVersion: "fst-0.1",
+    annotations: experiment.annotations ?? [],
+  };
   return {
     ...experiment,
     schemaVersion: "1.0",
@@ -56,7 +60,8 @@ interface AppStoreValue {
   experiments: Experiment[];
   getExperiment: (id: string) => Experiment | undefined;
   saveExperiment: (experiment: Experiment, asset?: VideoAsset) => void;
-  updateExperiment: (id: string, update: Partial<Experiment> | ((current: Experiment) => Partial<Experiment>)) => void;
+  updateExperiment: (id: string, update: Partial<OpenFieldExperiment> | ((current: OpenFieldExperiment) => Partial<OpenFieldExperiment>)) => void;
+  updateForcedSwimExperiment: (id: string, update: Partial<ForcedSwimExperiment> | ((current: ForcedSwimExperiment) => Partial<ForcedSwimExperiment>)) => void;
   deleteExperiment: (id: string) => void;
   openDemo: () => void;
   assets: Record<string, VideoAsset>;
@@ -107,14 +112,24 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   );
 
   const updateExperiment = useCallback(
-    (id: string, update: Partial<Experiment> | ((current: Experiment) => Partial<Experiment>)) => {
+    (id: string, update: Partial<OpenFieldExperiment> | ((current: OpenFieldExperiment) => Partial<OpenFieldExperiment>)) => {
       persist(current => current.map((experiment) =>
-          experiment.id === id
+          experiment.id === id && experiment.testType === "open_field"
             ? { ...experiment, ...(typeof update === "function" ? update(experiment) : update), updatedAt: new Date().toISOString() }
             : experiment,
         ));
     },
     [persist],
+  );
+
+  const updateForcedSwimExperiment = useCallback(
+    (id: string, update: Partial<ForcedSwimExperiment> | ((current: ForcedSwimExperiment) => Partial<ForcedSwimExperiment>)) => {
+      persist(current => current.map((experiment) =>
+        experiment.id === id && experiment.testType === "forced_swim"
+          ? { ...experiment, ...(typeof update === "function" ? update(experiment) : update), updatedAt: new Date().toISOString() }
+          : experiment,
+      ));
+    }, [persist],
   );
 
   const deleteExperiment = useCallback(
@@ -157,6 +172,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       getExperiment: (id) => experiments.find((experiment) => experiment.id === id),
       saveExperiment,
       updateExperiment,
+      updateForcedSwimExperiment,
       deleteExperiment,
       openDemo,
       assets,
@@ -166,7 +182,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       analysisActivity,
       setAnalysisActivity,
     }),
-    [researcherProfile, saveResearcherProfile, route, experiments, saveExperiment, updateExperiment, deleteExperiment, openDemo, assets, trackingData, setTrackingData, analysisActivity, setAnalysisActivity],
+    [researcherProfile, saveResearcherProfile, route, experiments, saveExperiment, updateExperiment, updateForcedSwimExperiment, deleteExperiment, openDemo, assets, trackingData, setTrackingData, analysisActivity, setAnalysisActivity],
   );
 
   return <AppStoreContext.Provider value={value}>{children}</AppStoreContext.Provider>;

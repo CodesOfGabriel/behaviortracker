@@ -6,7 +6,13 @@
 
 Desenvolvido por **Gabriel Santos** e **Thiago Vargas**, uma parceria entre o **Laboratório Neurocell** e o **NeuroLab da Universidade Federal de Pelotas (UFPel)**.
 
-Aplicativo desktop para analisar um rato por vídeo no teste de campo aberto. O vídeo é enviado ao Google Colab para inferência com DeepLabCut; a revisão dos pontos, a calibração da arena, as métricas e os resultados ficam no dispositivo.
+Aplicativo desktop para Campo Aberto e Nado Forçado. O Campo Aberto analisa um rato com a geometria da arena; o Nado Forçado aceita um ou dois sujeitos, cada um em seu cilindro. O vídeo é enviado ao Google Colab para inferência com DeepLabCut, e os resultados ficam no dispositivo.
+
+## Nado Forçado (FST)
+
+Em **Novo experimento → Nado Forçado**, informe um ou dois sujeitos, selecione o vídeo e delimite uma ROI fixa que cubra cada cilindro da abertura ao fundo. A análise usa DeepLabCut 3.0.2, SuperAnimal Quadruped, HRNet-w32 de 39 pontos e CUDA, sem o detector nem o bundle Wistar de Campo Aberto. Presença visual, caixas dinâmicas, poses e indicadores são registrados separadamente por animal. O resultado automático de comportamento permanece `NOT_CLASSIFIED`; os rótulos IMMOBILITY, SWIMMING, CLIMBING, MIXED e UNCERTAIN são apenas anotações humanas auditáveis.
+
+O contrato dos resultados, a origem nos notebooks v6.2/v6.4, os arquivos exportados e os limites da validação estão em [docs/FST_CONTRACT.md](docs/FST_CONTRACT.md). A execução real no Colab com GPU e vídeos de referência ainda precisa ser confirmada antes de usar os indicadores FST para conclusão científica.
 
 ## Detector D+F versionado
 
@@ -37,7 +43,7 @@ gh release create models-wistar-df-v2-r1 \
   --notes "Bundle wistar_df_v2. Tamanhos e SHA-256 no asset manifest.json."
 ```
 
-## Fluxo atual
+## Fluxo de Campo Aberto
 
 1. Crie um experimento, selecione o vídeo e marque separadamente a borda superior e o chão da arena.
 2. Conecte sua Conta Google na tela **Processamento**. O pipeline D+F requer um runtime com CUDA.

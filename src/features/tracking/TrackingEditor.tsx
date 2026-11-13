@@ -134,7 +134,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     analysisActivity,
     setAnalysisActivity,
   } = useAppStore();
-  const experiment = getExperiment(experimentId);
+  const experiment = getExperiment(experimentId) as import("../../types").OpenFieldExperiment | undefined;
   const asset = assets[experimentId];
   const videoRef = useRef<HTMLVideoElement>(null);
   const videoFileRef = useRef<HTMLInputElement>(null);

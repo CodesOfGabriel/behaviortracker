@@ -2,7 +2,7 @@ export type Point = { x: number; y: number };
 export type BoundingBox = { x: number; y: number; width: number; height: number };
 export type TrackingSelection = { engine: "opencv" | "colab"; jobId: string };
 export type Quadrilateral = [Point, Point, Point, Point];
-export type AnalysisEngineId = "superanimal_video_adapt_b_legacy" | "wistar_superanimal_hybrid_v1";
+export type AnalysisEngineId = "superanimal_video_adapt_b_legacy" | "wistar_superanimal_hybrid_v1" | "fst_superanimal_quadruped_v1";
 
 export type ExperimentStatus =
   | "draft"
@@ -80,11 +80,11 @@ export interface CorrectionEvent {
   source: "manual";
 }
 
-export interface Experiment {
+export interface OpenFieldExperiment {
   id: string;
   schemaVersion: "1.0";
   analysisMethodVersion: "oft-0.1" | "oft-0.2";
-  analysisEngine?: AnalysisEngineId;
+  analysisEngine?: "superanimal_video_adapt_b_legacy" | "wistar_superanimal_hybrid_v1";
   modelBundleId?: string;
   title: string;
   subjectId: string;
@@ -104,6 +104,26 @@ export interface Experiment {
   trackingReviews?: Record<string, { referencePoint: string }>;
   legacyReviewSource?: string;
 }
+
+export type TankPresence = "IN_TANK" | "NOT_IN_TANK" | "UNCERTAIN";
+export type FstBehavior = "IMMOBILITY" | "SWIMMING" | "CLIMBING" | "MIXED" | "UNCERTAIN";
+export interface ForcedSwimSubject { animalId: string; subjectId: string; }
+export interface TankConfig { tankId: string; animalId: string; subjectId: string; roiPx: BoundingBox; revision: number; }
+export interface FstAnnotation {
+  id: string; animalId: string; startSec: number; endSec: number;
+  label: FstBehavior; source: "manual"; analysisVersion: "fst-0.1";
+  createdAt: string; runId?: string;
+}
+export interface ForcedSwimExperiment {
+  id: string; schemaVersion: "1.0"; analysisMethodVersion: "fst-0.1";
+  analysisEngine: "fst_superanimal_quadruped_v1";
+  title: string; subjectId: string; group?: string; notes?: string;
+  testType: "forced_swim"; status: ExperimentStatus; createdAt: string; updatedAt: string;
+  video: VideoMetadata; calibrationThumbnailDataUrl?: string;
+  subjects: ForcedSwimSubject[]; tanks: TankConfig[];
+  annotations: FstAnnotation[]; trackingSelection?: TrackingSelection;
+}
+export type Experiment = OpenFieldExperiment | ForcedSwimExperiment;
 
 export interface VideoAsset {
   objectUrl?: string;

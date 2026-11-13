@@ -1,5 +1,16 @@
 # Estado da implementação
 
+## Nado Forçado (FST)
+
+- [x] Wizard e contrato próprios para um ou dois sujeitos e ROIs fixas de cilindros, sem parâmetros de arena OFT.
+- [x] Rota Colab FST separada, SuperAnimal Quadruped/HRNet-w32, checkpoints por vídeo/modelo/ROI e artefatos versionados.
+- [x] Presença visual v6.4 adaptada para início com animais presentes, caixas dinâmicas, MP4 e resultados por animal.
+- [x] Indicadores de atividade, revisão humana temporal e exportações independentes; classificação automática permanece `NOT_CLASSIFIED`.
+- [x] Build, testes TypeScript, Rust e testes CPU de presença/contrato locais.
+- [ ] Confirmar uma execução FST real no Colab com CUDA, comparar presença, caixas e pontos em frames anotados e avaliar outras condições de iluminação antes de afirmar validade geral.
+
+Detalhes e limites: [FST_CONTRACT.md](FST_CONTRACT.md).
+
 ## Fluxo ativo
 
 - [x] Criação de experimento, upload do vídeo e calibração da borda e do chão.

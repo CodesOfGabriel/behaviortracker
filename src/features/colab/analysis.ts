@@ -1,5 +1,5 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import type { ArenaConfig, VideoPreparation } from "../../types";
+import type { ArenaConfig, ForcedSwimExperiment, VideoPreparation } from "../../types";
 
 const STAGING_CHUNK_SIZE = 4 * 1024 * 1024;
 export type HybridBundleId = "wistar_df_v1" | "wistar_df_v2";
@@ -34,8 +34,9 @@ export type ColabJob = {
   resultsReady?: boolean;
   training?: boolean;
   customModel?: boolean;
-  engineId?: "superanimal_video_adapt_b_legacy" | "wistar_superanimal_hybrid_v1";
+  engineId?: "superanimal_video_adapt_b_legacy" | "wistar_superanimal_hybrid_v1" | "fst_superanimal_quadruped_v1";
   modelBundleId?: string | null;
+  protocol?: "open_field" | "forced_swim" | null;
 };
 
 export type DiagnosticRange = { startSec: number; endSec: number };
@@ -98,6 +99,33 @@ export function startColabJob(experimentId: string, uploadId: string,
   });
 }
 
+export function startFstJob(experiment: ForcedSwimExperiment, uploadId: string) {
+  return invoke<ColabJob>("start_colab_analysis", { request: {
+    experimentId: experiment.id, uploadId,
+    workload: { width: experiment.video.width, height: experiment.video.height, durationSec: experiment.video.durationSec },
+    engineId: "fst_superanimal_quadruped_v1", fst: { title: experiment.title, group: experiment.group, notes: experiment.notes,
+      subjects: experiment.subjects, tanks: experiment.tanks },
+  } });
+}
+
+export function getStagedVideoSha256(uploadId: string) {
+  return invoke<string>("get_video_staging_sha256", { uploadId });
+}
+
+export async function loadStagedVideo(experimentId: string, uploadId: string) {
+  const path = await invoke<string>("get_staged_video_path", { experimentId, uploadId });
+  return convertFileSrc(path);
+}
+
+export async function loadFstArtifacts(jobId: string) {
+  const files = await invoke<{ name: string; path: string }[]>("get_fst_job_artifacts", { jobId });
+  return files.map(file => ({ ...file, url: convertFileSrc(file.path) }));
+}
+
+export function loadFstManifest(jobId: string) {
+  return invoke<Record<string, unknown>>("get_fst_job_manifest", { jobId });
+}
+
 export async function prepareVideo(experimentId: string, file: File, metadata: { width: number; height: number },
   onProgress: (progress: number, message: string) => void): Promise<VideoPreparation> {
   const uploadId = await stageVideo(experimentId, file, onProgress);
@@ -105,6 +133,19 @@ export async function prepareVideo(experimentId: string, file: File, metadata: {
   const result = await invoke<VideoPreparation>("prepare_analysis_video", { uploadId, width: metadata.width, height: metadata.height });
   onProgress(100, result.message);
   return result;
+}
+
+export async function prepareFstVideo(experimentId: string, file: File, metadata: { width: number; height: number },
+  onProgress: (progress: number, message: string) => void, expectedOriginalSha256?: string) {
+  const originalUploadId = await stageVideo(experimentId, file, onProgress);
+  const originalSha256 = await getStagedVideoSha256(originalUploadId);
+  if (expectedOriginalSha256 && originalSha256 !== expectedOriginalSha256) {
+    throw new Error("O SHA-256 do arquivo selecionado não corresponde ao vídeo original do experimento.");
+  }
+  onProgress(0, "Verificando pixels e timestamps da preparação sem perda");
+  const preparation = await invoke<VideoPreparation>("prepare_analysis_video", { uploadId: originalUploadId, width: metadata.width, height: metadata.height });
+  onProgress(100, preparation.message);
+  return { preparation, originalSha256 };
 }
 
 export type ColabVideoArtifact = { jobId: string; videoPath: string | null; videoError: string | null };

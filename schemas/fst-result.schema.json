@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://behavetracker.local/schemas/fst-result.schema.json",
+  "title": "BehaveTracker FST result v1",
+  "type": "object",
+  "required": ["schemaVersion", "protocol", "engineId", "analysisVersion", "runId", "video", "subjects", "tanks", "frames", "keypointNames", "poseArrays", "quality", "reviewShortlist", "insufficientIntervals"],
+  "properties": {
+    "schemaVersion": { "const": "fst-result-1" }, "protocol": { "const": "forced_swim" },
+    "engineId": { "const": "fst_superanimal_quadruped_v1" }, "analysisVersion": { "const": "fst-0.1" },
+    "runId": { "type": "string" },
+    "video": { "type": "object", "required": ["sha256", "originalSha256", "width", "height", "fps", "frameCount", "filename"] },
+    "subjects": { "type": "array", "minItems": 1, "maxItems": 2 },
+    "tanks": { "type": "array", "minItems": 1, "maxItems": 2 },
+    "frames": { "type": "array", "items": { "type": "object", "required": ["frame", "timestampSec", "animalId", "presence", "bodyScore", "poseCoverage", "classification"], "properties": {
+      "presence": { "enum": ["IN_TANK", "NOT_IN_TANK", "UNCERTAIN"] },
+      "classification": { "const": "NOT_CLASSIFIED" },
+      "bbox": { "type": ["object", "null"] },
+      "relativeMotion": { "type": ["number", "null"] },
+      "centroidMotion": { "type": ["number", "null"] },
+      "silhouetteChange": { "type": ["number", "null"] }
+    } } },
+    "keypointNames": { "type": "array", "items": { "type": "string" } },
+    "poseArrays": { "type": "object", "description": "animalId -> frame -> keypoint -> [x_original_px, y_original_px, likelihood]", "additionalProperties": { "type": "array", "items": { "type": "array", "items": { "type": "array", "prefixItems": [{ "type": ["number", "null"] }, { "type": ["number", "null"] }, { "type": "number" }], "minItems": 3, "maxItems": 3 } } } },
+    "quality": { "type": "object" },
+    "insufficientIntervals": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "object", "required": ["startSec", "endSec"] } } },
+    "reviewShortlist": { "type": "array", "items": { "type": "object", "required": ["animalId", "startSec", "endSec", "reason"], "properties": {
+      "reason": { "enum": ["LOWER_OBSERVED_MOTION", "HIGHER_OBSERVED_MOTION", "TRACKING_INSUFFICIENT"] }
+    } } }
+  }
+}

@@ -71,6 +71,7 @@ pub struct ColabJob {
     custom_model: bool,
     engine_id: Option<String>,
     model_bundle_id: Option<String>,
+    protocol: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -98,7 +99,59 @@ pub struct StartAnalysisRequest {
     #[serde(default)]
     arena: Option<AnalysisArena>,
     #[serde(default)]
+    fst: Option<FstConfiguration>,
+    #[serde(default)]
     diagnostic: Option<DiagnosticRange>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FstSubject { animal_id: String, subject_id: String }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FstRoi { x: f64, y: f64, width: f64, height: f64 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FstTank { tank_id: String, animal_id: String, subject_id: String, roi_px: FstRoi, revision: u32 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FstConfiguration {
+    #[serde(default)] title: Option<String>,
+    #[serde(default)] group: Option<String>,
+    #[serde(default)] notes: Option<String>,
+    subjects: Vec<FstSubject>, tanks: Vec<FstTank>,
+}
+
+impl FstConfiguration {
+    fn validate(&self, workload: &AnalysisWorkload) -> CommandResult<()> {
+        if self.subjects.is_empty() || self.subjects.len() > 2 || self.subjects.len() != self.tanks.len() {
+            return Err("O FST requer um ou dois sujeitos e um cilindro por sujeito.".into());
+        }
+        for (index, (subject, tank)) in self.subjects.iter().zip(&self.tanks).enumerate() {
+            let roi = &tank.roi_px;
+            if subject.animal_id != format!("animal_{}", index + 1)
+                || tank.animal_id != subject.animal_id || tank.subject_id != subject.subject_id
+                || subject.subject_id.trim().is_empty() || tank.tank_id.trim().is_empty() || tank.revision < 1
+                || ![roi.x, roi.y, roi.width, roi.height].iter().all(|v| v.is_finite() && v.fract() == 0.0)
+                || roi.x < 0.0 || roi.y < 0.0 || roi.width < 80.0 || roi.height < 80.0
+                || roi.x + roi.width > f64::from(workload.width) || roi.y + roi.height > f64::from(workload.height)
+                || roi.height < f64::from(workload.height) * 0.55 {
+                return Err("Sujeito ou região fixa do cilindro inválidos para este vídeo.".into());
+            }
+        }
+        if self.subjects.len() == 2 {
+            if self.subjects[0].subject_id == self.subjects[1].subject_id
+                || self.tanks[0].tank_id == self.tanks[1].tank_id { return Err("Identificadores FST duplicados.".into()); }
+            let a = &self.tanks[0].roi_px; let b = &self.tanks[1].roi_px;
+            let overlap_x = (a.x + a.width).min(b.x + b.width) - a.x.max(b.x);
+            let overlap_y = (a.y + a.height).min(b.y + b.height) - a.y.max(b.y);
+            if overlap_x > 0.0 && overlap_y > 0.0 { return Err("Os cilindros FST não podem se sobrepor.".into()); }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -636,6 +689,29 @@ pub fn finish_video_staging(app: AppHandle, upload_id: String) -> CommandResult<
     })
 }
 
+#[tauri::command]
+pub fn get_video_staging_sha256(app: AppHandle, upload_id: String) -> CommandResult<String> {
+    validate_local_id(&upload_id, "Upload")?;
+    prepare_tables(&app)?;
+    open_database(&app)?.query_row("SELECT sha256 FROM video_staging WHERE upload_id=?1 AND ready=1", [&upload_id], |row| row.get(0))
+        .map_err(|_| "SHA-256 do vídeo preparado indisponível.".into())
+}
+
+#[tauri::command]
+pub fn get_staged_video_path(app: AppHandle, experiment_id: String, upload_id: String) -> CommandResult<String> {
+    validate_local_id(&experiment_id, "Experimento")?;
+    validate_local_id(&upload_id, "Upload")?;
+    prepare_tables(&app)?;
+    let path: String = open_database(&app)?.query_row(
+        "SELECT local_path FROM video_staging WHERE upload_id=COALESCE((SELECT original_upload_id FROM video_preparations WHERE prepared_upload_id=?1),?1) AND experiment_id=?2 AND ready=1",
+        params![&upload_id,&experiment_id],|row|row.get(0))
+        .map_err(|_| "Vídeo deste experimento não está mais no cache local.".to_string())?;
+    let canonical = Path::new(&path).canonicalize().map_err(|_| "Vídeo local indisponível.")?;
+    let root = staging_directory(&app)?.canonicalize().map_err(|_| "Cache de vídeo indisponível.")?;
+    if !canonical.starts_with(root) { return Err("Caminho do vídeo fora do cache do aplicativo.".into()); }
+    Ok(canonical.to_string_lossy().into_owned())
+}
+
 fn row_to_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<ColabJob> {
     Ok(ColabJob {
         job_id: row.get(0)?,
@@ -655,6 +731,7 @@ fn row_to_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<ColabJob> {
         custom_model: false,
         engine_id: None,
         model_bundle_id: None,
+        protocol: None,
     })
 }
 
@@ -687,6 +764,7 @@ fn enrich_job(connection: &Connection, job: &mut ColabJob) -> CommandResult<()> 
         let value: Value = serde_json::from_str(&geometry).map_err(|_| "Geometria da execução inválida")?;
         job.engine_id = value["engineId"].as_str().map(str::to_owned);
         job.model_bundle_id = value["modelBundleId"].as_str().map(str::to_owned);
+        job.protocol = value["protocol"].as_str().map(str::to_owned);
     }
     Ok(())
 }
@@ -1609,6 +1687,8 @@ fn run_background_task(
             "Treinando detector e pontos personalizados"
         } else if task == "render" {
             "Gerando vídeo rotulado · poses já disponíveis"
+        } else if job.protocol.as_deref() == Some("forced_swim") {
+            "FST em execução"
         } else if job.custom_model {
             "Modelo personalizado experimental em execução"
         } else if job.diagnostic.is_some() {
@@ -1623,7 +1703,14 @@ fn run_background_task(
             }
             execute_job_code(app, job_id, &token, session, code)
         },
-        |message| update_job(app, job_id, "running", &job.stage, job.progress, message),
+        |message| {
+            let stage = if job.protocol.as_deref() == Some("forced_swim") {
+                ["validating_tanks","inference","presence","indicators","rendering"]
+                    .iter().find(|stage| message.contains(&format!("FST_STAGE={stage}")))
+                    .copied().unwrap_or(&job.stage)
+            } else { &job.stage };
+            update_job(app, job_id, "running", stage, job.progress, message)
+        },
         |report| {
             let temporary = log_path.with_extension("tmp");
             fs::write(
@@ -2174,7 +2261,7 @@ fn download_labeled_video(connection: &ConnectionInfo, remote_output: &str, dire
     if manifest["available"].as_bool() != Some(true) {
         return Err(manifest["error"].as_str().unwrap_or("O vídeo do DeepLabCut não foi gerado").chars().take(1500).collect());
     }
-    if manifest["filename"].as_str() != Some("dlc_labeled.mp4") || ![Some("deeplabcut_raw_h5"),Some("behavetracker-keypoint-rcnn-v1"),Some("behavetracker-hybrid-df-v2")].contains(&manifest["source"].as_str()) {
+    if manifest["filename"].as_str() != Some("dlc_labeled.mp4") || ![Some("deeplabcut_raw_h5"),Some("behavetracker-keypoint-rcnn-v1"),Some("behavetracker-hybrid-df-v2"),Some("behavetracker-fst-v1")].contains(&manifest["source"].as_str()) {
         return Err("Origem do vídeo de resultado não reconhecida".into());
     }
     let bytes = manifest["sizeBytes"].as_u64().filter(|size| *size > 0 && *size <= MAX_VIDEO_SIZE as u64).ok_or("Tamanho inválido do vídeo rotulado")?;
@@ -2432,6 +2519,25 @@ fn prepare_hybrid_environment(app: &AppHandle, job: &str, session: &str, directo
     Ok(())
 }
 
+fn prepare_fst_environment(app: &AppHandle, job: &str, session: &str, directory: &str) -> Result<(), AnalysisFailure> {
+    update_job(app, job, "running", "environment_check", 52, "Validando DeepLabCut 3.0.2, HRNet-w32 e CUDA para FST")?;
+    let code = "import os,sys,subprocess,importlib.metadata\nos.environ['HF_HUB_DISABLE_XET']='1'\nos.environ['HF_HUB_DOWNLOAD_TIMEOUT']='120'\nos.environ['HF_HUB_ETAG_TIMEOUT']='30'\ntry:\n    version=importlib.metadata.version('deeplabcut')\nexcept importlib.metadata.PackageNotFoundError:\n    version=None\nif version!='3.0.2': subprocess.check_call([sys.executable,'-m','pip','install','-q','deeplabcut==3.0.2'])\nimport torch,cv2,numpy,pandas,deeplabcut\nimport deeplabcut.pose_estimation_pytorch as pep\nfrom deeplabcut.pose_estimation_pytorch.modelzoo.inference_helpers import create_superanimal_inference_runners\nif not torch.cuda.is_available(): raise RuntimeError('CUDA indisponível para FST')\nif not hasattr(pep,'VideoIterator') or not hasattr(pep,'video_inference'): raise RuntimeError('API DLC 3 incompatível')\nprint('BEHAVETRACKER_FST_ENV_OK '+deeplabcut.__version__+' '+torch.cuda.get_device_name(0))";
+    run_background_task(app, job, session, directory, "setup", code)?;
+    update_job(app, job, "running", "environment_ready", 60, "Ambiente FST validado · detector desativado")?;
+    Ok(())
+}
+
+fn fst_code(video: &str, output: &str, fst: &FstConfiguration, workload: &AnalysisWorkload, digest: &str, original_digest: &str, filename: &str, run_id: &str) -> String {
+    let config = json!({"protocol":"forced_swim","engineId":"fst_superanimal_quadruped_v1",
+        "runId":run_id,"title":&fst.title,"group":&fst.group,"notes":&fst.notes,
+        "subjects":&fst.subjects,"tanks":&fst.tanks,
+        "video":{"sha256":digest,"originalSha256":original_digest,"filename":filename,"width":workload.width,"height":workload.height}});
+    let config_json = config.to_string();
+    let source = include_str!("../python/fst_pipeline.py");
+    let presence = include_str!("../python/fst_presence.py");
+    format!("import json,runpy,sys\nfrom pathlib import Path\np=Path({output:?})\np.mkdir(parents=True,exist_ok=True)\n(p/'fst_presence.py').write_text({presence:?},encoding='utf-8')\n(p/'fst_pipeline.py').write_text({source:?},encoding='utf-8')\nsys.path.insert(0,str(p))\nrunpy.run_path(str(p/'fst_pipeline.py'))['run']({video:?},{output:?},json.loads({config_json:?}))")
+}
+
 fn hybrid_code(video: &str, output: &str, csv: &str, arena: Option<&AnalysisArena>, models: &str, bundle_id: &str) -> String {
     let files = hybrid_bundle_files(bundle_id).expect("bundle validado antes da execução");
     let arena_literal = match serde_json::to_string(&arena).unwrap() {
@@ -2554,6 +2660,7 @@ fn run_analysis(
     diagnostic: Option<DiagnosticRange>,
     engine_id: String,
     model_bundle_id: Option<String>,
+    fst: Option<FstConfiguration>,
 ) -> CommandResult<()> {
     let preparation_started = Instant::now();
     prepare_tables(&app)?;
@@ -2593,6 +2700,11 @@ fn run_analysis(
     if ready == 0 || sha256.is_none() {
         return Err("Finalize o envio local do vídeo antes de iniciar a análise.".into());
     }
+    let original_identity: Option<(String,String)> = if fst.is_some() {
+        Some(open_database(&app)?.query_row(
+            "SELECT sha256,original_filename FROM video_staging WHERE upload_id=COALESCE((SELECT original_upload_id FROM video_preparations WHERE prepared_upload_id=?1),?1) AND ready=1",
+            [&upload_id],|row|Ok((row.get(0)?,row.get(1)?))).map_err(|_|"Identidade do vídeo original indisponível")?)
+    } else { None };
     record_timing(&app, &job_id, "preparo local do job", preparation_started);
 
     update_job(
@@ -2713,7 +2825,7 @@ fn run_analysis(
         } else {
             upload_video(&app, &job_id, &connection, Path::new(&local_path), &remote_video, size)?;
         }
-        let custom_model=ensure_remote_model(&app,&job_id,&session,&connection,&remote_directory,&absolute_directory)?;
+        let custom_model=if fst.is_some() { None } else { ensure_remote_model(&app,&job_id,&session,&connection,&remote_directory,&absolute_directory)? };
         update_job(
             &app,
             &job_id,
@@ -2748,7 +2860,8 @@ fn run_analysis(
             "Vídeo recebido e validado · tamanho e SHA-256 conferem",
         )?;
 
-        if custom_model.is_some(){prepare_custom_environment(&app,&job_id,&session,&absolute_directory)?;}else if engine_id == "wistar_superanimal_hybrid_v1" { prepare_hybrid_environment(&app, &job_id, &session, &absolute_directory)?; } else {prepare_environment(&app, &job_id, &session, &absolute_directory)?;}
+        if fst.is_some() { prepare_fst_environment(&app, &job_id, &session, &absolute_directory)?; }
+        else if custom_model.is_some(){prepare_custom_environment(&app,&job_id,&session,&absolute_directory)?;}else if engine_id == "wistar_superanimal_hybrid_v1" { prepare_hybrid_environment(&app, &job_id, &session, &absolute_directory)?; } else {prepare_environment(&app, &job_id, &session, &absolute_directory)?;}
 
         update_job(
             &app,
@@ -2756,7 +2869,7 @@ fn run_analysis(
             "running",
             "inference",
             65,
-            if engine_id == "wistar_superanimal_hybrid_v1" { "Executando pipeline · detector Wistar + HRNet adaptada · resultados experimentais" } else if custom_model.is_some(){"Executando modelo personalizado experimental · confiança anatômica não calibrada; revise as posições"} else if diagnostic.is_some() { "Diagnóstico curto · medindo detector e pose separadamente, sem recuperação ou adaptação" } else if arena
+            if fst.is_some() { "FST · inferência HRNet-w32 por cilindro, presença visual e indicadores por animal" } else if engine_id == "wistar_superanimal_hybrid_v1" { "Executando pipeline · detector Wistar + HRNet adaptada · resultados experimentais" } else if custom_model.is_some(){"Executando modelo personalizado experimental · confiança anatômica não calibrada; revise as posições"} else if diagnostic.is_some() { "Diagnóstico curto · medindo detector e pose separadamente, sem recuperação ou adaptação" } else if arena
                 .as_ref()
                 .is_some_and(|geometry| geometry.rim_corners_px.is_some())
             {
@@ -2765,7 +2878,11 @@ fn run_analysis(
                 "Executando adaptação B do SuperAnimal no vídeo inteiro · projeto sem borda calibrada"
             },
         )?;
-        let code = if engine_id == "wistar_superanimal_hybrid_v1" {
+        let code = if let Some(fst) = &fst {
+            fst_code(&absolute_video, &remote_output, fst, &workload, video_digest,
+                &original_identity.as_ref().ok_or("Identidade do vídeo original ausente")?.0,
+                &original_identity.as_ref().ok_or("Nome do vídeo original ausente")?.1, &job_id)
+        } else if engine_id == "wistar_superanimal_hybrid_v1" {
             hybrid_code(
                 &absolute_video,
                 &remote_output,
@@ -2795,7 +2912,7 @@ fn run_analysis(
             "running",
             "downloading",
             93,
-            "Baixando o CSV canônico",
+            if fst.is_some() { "Baixando resultados FST por animal" } else { "Baixando o CSV canônico" },
         )?;
         let result_directory = app
             .path()
@@ -2804,14 +2921,17 @@ fn run_analysis(
             .join("results");
         fs::create_dir_all(&result_directory)
             .map_err(|_| "Não foi possível preparar a pasta de resultados.".to_string())?;
-        let result_path = result_directory.join(format!("{job_id}.csv"));
+        let result_path = result_directory.join(format!("{job_id}.{}", if fst.is_some() { "json" } else { "csv" }));
         let download_token = google_access_token(&app, PROFILE_ID)?;
         let refreshed_runtime = get_runtime(&api_client()?, &download_token, &runtime.name)?;
         let refreshed_connection = refreshed_runtime.connection_info.ok_or_else(|| {
             "O runtime não renovou os dados de conexão para o download.".to_string()
         })?;
         let download_started = Instant::now();
-        if engine_id == "wistar_superanimal_hybrid_v1" {
+        if fst.is_some() {
+            download_remote_artifact(&app,&job_id,&session,&refreshed_connection,
+                &format!("{remote_output}/result.json"),&result_path)?;
+        } else if engine_id == "wistar_superanimal_hybrid_v1" {
             download_remote_artifact(
                 &app,
                 &job_id,
@@ -2827,7 +2947,20 @@ fn run_analysis(
                 &result_path,
             )?;
         }
-        if engine_id == "wistar_superanimal_hybrid_v1" {
+        if let Some(fst) = &fst {
+            let mut artifacts = vec!["presence.csv".to_string(),"presence_events.csv".to_string(),"presence_summary.csv".to_string(),"activity.csv".to_string(),"boxes.csv".to_string(),
+                "activity_windows_1s.csv".to_string(),"activity_windows_3s.csv".to_string(),"review_shortlist.csv".to_string(),
+                "run_manifest.json".to_string(),"execution_report.json".to_string()];
+            for subject in &fst.subjects {
+                artifacts.push(format!("{}_pose_raw.csv", subject.animal_id));
+                artifacts.push(format!("{}_pose_raw.npz", subject.animal_id));
+            }
+            for artifact in artifacts {
+                download_remote_artifact(&app,&job_id,&session,&refreshed_connection,
+                    &format!("{remote_output}/{artifact}"),
+                    &result_directory.join(format!("{job_id}-{artifact}")))?;
+            }
+        } else if engine_id == "wistar_superanimal_hybrid_v1" {
             for artifact in [
                 "detections.csv",
                 "pose_raw.csv",
@@ -2854,6 +2987,16 @@ fn run_analysis(
                 params![&job_id, result_path.to_string_lossy().as_ref()],
             )
             .map_err(|_| "Não foi possível registrar o resultado do job.".to_string())?;
+        if fst.is_some() {
+            update_job(&app,&job_id,"running","downloading",96,"Recebendo vídeo FST com presença confirmada")?;
+            let video_result=download_labeled_video(&refreshed_connection,&format!("{remote_directory}/output"),&result_directory,&job_id);
+            let (video_path,video_error)=match video_result { Ok(path)=>(Some(path.to_string_lossy().into_owned()),None),Err(error)=>(None,Some(error)) };
+            open_database(&app)?.execute("INSERT OR REPLACE INTO colab_job_artifacts (job_id,labeled_video_path,video_error) VALUES (?1,?2,?3)",
+                params![&job_id,video_path,video_error]).map_err(|_|"Não foi possível registrar o vídeo FST")?;
+            update_job(&app,&job_id,"succeeded","completed",100,
+                if video_error.is_none(){"FST concluído · presença, poses e vídeo disponíveis"}else{"FST concluído · dados disponíveis; vídeo indisponível"})?;
+            return Ok(());
+        }
         if engine_id == "wistar_superanimal_hybrid_v1" {
             update_job(&app, &job_id, "running", "rendering", 94, "Poses disponíveis · gerando vídeo de inspeção")?;
             let render_started = Instant::now();
@@ -2937,12 +3080,17 @@ pub fn start_colab_analysis(
     validate_local_id(&request.experiment_id, "Experimento")?;
     validate_local_id(&request.upload_id, "Upload")?;
     request.workload.validate()?;
-    if request.engine_id != "superanimal_video_adapt_b_legacy" {
-        if request.engine_id != "wistar_superanimal_hybrid_v1" {
-            return Err("Motor de análise não reconhecido.".into());
+    if request.engine_id == "fst_superanimal_quadruped_v1" {
+        if request.arena.is_some() || request.model_bundle_id.is_some() {
+            return Err("FST não aceita arena nem bundle de Campo Aberto.".into());
         }
+        request.fst.as_ref().ok_or("Configuração dos cilindros FST ausente.")?.validate(&request.workload)?;
+    } else if request.engine_id == "wistar_superanimal_hybrid_v1" {
+        if request.fst.is_some() { return Err("Configuração FST não corresponde ao motor selecionado.".into()); }
         let bundle_id = request.model_bundle_id.as_deref().ok_or("Modelo de análise não informado.")?;
         hybrid_bundle_paths(&app, bundle_id)?;
+    } else if request.engine_id != "superanimal_video_adapt_b_legacy" || request.fst.is_some() {
+        return Err("Motor de análise não reconhecido.".into());
     }
     if request.diagnostic.is_some() {
         return Err("O teste de rastreamento foi removido. Use Analisar no Colab para processar o vídeo completo.".into());
@@ -3006,18 +3154,21 @@ pub fn start_colab_analysis(
             "INSERT INTO colab_job_geometry(job_id, geometry_json) VALUES (?1, ?2)",
             params![
                 &job_id,
-                serde_json::to_string(&json!({
-                    "engineId": &request.engine_id,
+                serde_json::to_string(&if request.fst.is_some() { json!({
+                    "protocol":"forced_swim", "engineId":&request.engine_id,
+                    "analysisMethodVersion":"fst-0.1", "fst":&request.fst
+                }) } else { json!({
+                    "protocol":"open_field", "engineId": &request.engine_id,
                     "modelBundleId": &request.model_bundle_id,
                     "poseAdapterVersion":"superanimal-adapted-quality-1",
                     "trajectoryPostprocessVersion":"dlc-adapted-trajectory-c-1",
                     "recoveryVersion":"visual-recovery-2",
                     "arena": &request.arena
-                }))
+                }) })
                     .map_err(|_| "Não foi possível serializar a geometria.")?
             ],
         )
-        .map_err(|_| "Não foi possível registrar a borda e o chão deste job.".to_string())?;
+        .map_err(|_| "Não foi possível registrar a configuração deste job.".to_string())?;
     if let Some(range) = &request.diagnostic {
         transaction.execute("INSERT INTO colab_job_diagnostics(job_id,range_json) VALUES (?1,?2)", params![&job_id, serde_json::to_string(range).map_err(|_| "Intervalo inválido")?]).map_err(|_| "Não foi possível registrar o intervalo diagnóstico")?;
     }
@@ -3047,6 +3198,7 @@ pub fn start_colab_analysis(
             request.diagnostic,
             request.engine_id,
             request.model_bundle_id,
+            request.fst,
         ) {
             let _ = fail_job(&task_app, &task_job_id, &error);
         }
@@ -3111,9 +3263,49 @@ pub fn get_colab_job_result(app: AppHandle, job_id: String) -> CommandResult<Str
         return Err("O resultado ainda não está disponível.".into());
     }
     fs::read_to_string(
-        result_path.ok_or_else(|| "O job não possui um CSV de resultado.".to_string())?,
+        result_path.ok_or_else(|| "O job não possui resultado.".to_string())?,
     )
-    .map_err(|_| "Não foi possível ler o CSV de resultado.".to_string())
+    .map_err(|_| "Não foi possível ler o resultado.".to_string())
+}
+
+#[derive(Serialize)]
+struct FstArtifact { name: String, path: String }
+
+#[tauri::command]
+pub fn get_fst_job_artifacts(app: AppHandle, job_id: String) -> CommandResult<Vec<Value>> {
+    validate_local_id(&job_id, "Job")?;
+    prepare_tables(&app)?;
+    let job = get_job(&app,&job_id)?;
+    if job.protocol.as_deref() != Some("forced_swim") || !job.results_ready {
+        return Err("Esta execução não possui artefatos FST disponíveis.".into());
+    }
+    let directory=app.path().app_data_dir().map_err(|_|"Pasta de resultados indisponível")?.join("results");
+    let names=["result.json","presence.csv","presence_events.csv","presence_summary.csv","activity.csv","boxes.csv","activity_windows_1s.csv","activity_windows_3s.csv","review_shortlist.csv","run_manifest.json","execution_report.json",
+        "animal_1_pose_raw.csv","animal_1_pose_raw.npz","animal_2_pose_raw.csv","animal_2_pose_raw.npz"];
+    let mut result=Vec::new();
+    for name in names {
+        let path=if name=="result.json" { directory.join(format!("{job_id}.json")) }
+            else {directory.join(format!("{job_id}-{name}"))};
+        if path.is_file() {
+            let artifact=FstArtifact{name:name.to_string(),path:path.to_string_lossy().into_owned()};
+            result.push(serde_json::to_value(artifact).map_err(|_|"Artefato FST inválido")?);
+        }
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+pub fn get_fst_job_manifest(app: AppHandle, job_id: String) -> CommandResult<Value> {
+    validate_local_id(&job_id, "Job")?;
+    prepare_tables(&app)?;
+    let job=get_job(&app,&job_id)?;
+    if job.protocol.as_deref()!=Some("forced_swim") || !job.results_ready {
+        return Err("Manifesto FST indisponível para esta execução.".into());
+    }
+    let path=app.path().app_data_dir().map_err(|_|"Pasta de resultados indisponível")?
+        .join("results").join(format!("{job_id}-run_manifest.json"));
+    let body=fs::read_to_string(path).map_err(|_|"Manifesto FST não encontrado")?;
+    serde_json::from_str(&body).map_err(|_|"Manifesto FST inválido".into())
 }
 
 #[tauri::command]
@@ -3240,6 +3432,37 @@ mod tests {
         net::TcpListener,
         thread,
     };
+
+    #[test]
+    fn fst_config_requires_distinct_full_cylinders_and_no_oft_geometry() {
+        let workload = AnalysisWorkload { width: 800, height: 600, duration_sec: 20.0 };
+        let config: super::FstConfiguration = serde_json::from_value(json!({
+            "subjects":[{"animalId":"animal_1","subjectId":"R1"},{"animalId":"animal_2","subjectId":"R2"}],
+            "tanks":[
+                {"tankId":"tank_1","animalId":"animal_1","subjectId":"R1","roiPx":{"x":10,"y":0,"width":350,"height":560},"revision":1},
+                {"tankId":"tank_2","animalId":"animal_2","subjectId":"R2","roiPx":{"x":430,"y":0,"width":350,"height":560},"revision":1}
+            ]
+        })).unwrap();
+        config.validate(&workload).unwrap();
+        let mut invalid = config.clone();
+        invalid.tanks[1].roi_px.x = 300.0;
+        assert!(invalid.validate(&workload).is_err());
+        invalid = config.clone();
+        invalid.tanks[0].roi_px.height = 200.0;
+        assert!(invalid.validate(&workload).is_err());
+        invalid = config.clone();
+        invalid.subjects[1].subject_id = "R1".into();
+        assert!(invalid.validate(&workload).is_err());
+        let source = super::fst_code("video.mp4","/tmp/fst-output",&config,&workload,&"a".repeat(64),&"b".repeat(64),"fst.mp4","run-1");
+        assert!(source.contains("forced_swim"));
+        assert!(source.contains("detector_name=None"));
+        assert!(!source.contains("wistar_df_v2"));
+        use std::process::{Command, Stdio};
+        let mut child = Command::new("python3").arg("-c").arg("import ast,sys; ast.parse(sys.stdin.read())")
+            .stdin(Stdio::piped()).spawn().unwrap();
+        child.stdin.take().unwrap().write_all(source.as_bytes()).unwrap();
+        assert!(child.wait().unwrap().success());
+    }
 
     #[test]
     fn hybrid_bundle_ids_keep_distinct_detector_hashes() {

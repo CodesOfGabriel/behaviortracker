@@ -43,6 +43,8 @@ pub fn run() {
             colab::append_video_staging_chunk,
             colab::append_video_staging_raw,
             colab::finish_video_staging,
+            colab::get_video_staging_sha256,
+            colab::get_staged_video_path,
             video::prepare_analysis_video,
             video::check_video_staging,
             colab::start_colab_analysis,
@@ -52,6 +54,8 @@ pub fn run() {
             colab::get_colab_job,
             colab::get_colab_job_log,
             colab::get_colab_job_result,
+            colab::get_fst_job_artifacts,
+            colab::get_fst_job_manifest,
             colab::get_colab_job_video,
             colab::get_latest_colab_job,
             colab::list_colab_jobs

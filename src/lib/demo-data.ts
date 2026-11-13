@@ -1,4 +1,4 @@
-import type { ArenaConfig, Experiment, Point, PoseSample } from "../types";
+import type { ArenaConfig, OpenFieldExperiment, Point, PoseSample } from "../types";
 import { calculateHomography, transformPoint } from "./geometry";
 
 export const DEMO_VIDEO_WIDTH = 1280;
@@ -22,7 +22,7 @@ export const defaultArena: ArenaConfig = {
   boundaryPolicy: "center_inclusive",
 };
 
-export function makeDemoExperiment(id = crypto.randomUUID()): Experiment {
+export function makeDemoExperiment(id = crypto.randomUUID()): OpenFieldExperiment {
   const now = new Date().toISOString();
   return {
     id,
@@ -64,7 +64,7 @@ function floorToPixel(arena: ArenaConfig, point: Point) {
   return transformPoint(point, matrix);
 }
 
-export function makeDemoPose(experiment: Experiment): PoseSample[] {
+export function makeDemoPose(experiment: OpenFieldExperiment): PoseSample[] {
   const duration = Math.min(Math.max(experiment.video.durationSec || 120, 20), 600);
   const frequency = 10;
   const samples: PoseSample[] = [];

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "reac
 import { parseCanonicalPoseCsv } from "../../lib/csv";
 import { selectTrackingReview } from "../../lib/tracking-reviews";
 import { useAppStore } from "../../store/AppStore";
-import type { TrackingSelection } from "../../types";
+import type { OpenFieldExperiment, TrackingSelection } from "../../types";
 import {
   checkVideoStaging, getHybridBundleStatus, loadColabJobs, loadColabResult,
   prepareVideo, startColabJob, waitForColabJob, type ColabJob,
@@ -18,7 +18,7 @@ export function useAnalysis(experimentId: string) {
     getExperiment, assets, setAsset, trackingData, setTrackingData,
     updateExperiment, analysisActivity, setAnalysisActivity,
   } = useAppStore();
-  const experiment = getExperiment(experimentId);
+  const experiment = getExperiment(experimentId) as OpenFieldExperiment | undefined;
   const asset = assets[experimentId];
   const fileRef = useRef<HTMLInputElement>(null);
   const analysisRequested = useRef(false);

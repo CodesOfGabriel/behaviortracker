@@ -7,14 +7,16 @@ import { checkpoints, displayAnalysisMessage, gpuMessage } from "./workflow";
 
 const icons = [FileVideo, Cpu, UploadCloud, ShieldCheck, WandSparkles, ScanSearch, CloudDownload];
 
-export function AnalysisWorkflow({ job, preparing, message, localError, elapsedSec }: {
+export function AnalysisWorkflow({ job, preparing, message, localError, elapsedSec, protocol: requestedProtocol = "open_field" }: {
   job: ColabJob | null;
   preparing: boolean;
   message: string;
   localError: string | null;
   elapsedSec: number;
+  protocol?: "open_field" | "forced_swim";
 }) {
-  const steps = checkpoints(job, preparing, Boolean(!job && localError));
+  const protocol = job?.protocol === "forced_swim" ? "forced_swim" : requestedProtocol;
+  const steps = checkpoints(job, preparing, Boolean(!job && localError), protocol);
   const events = job?.events ?? [];
   const progress = job?.status === "succeeded" ? 100 : Math.min(100, Math.max(0, job?.progress ?? 0, ...events.map((event) => event.progress)));
   const compactEvents = events.filter((event) => event.status === "failed" || !/\d+(?:[.,]\d+)?\s*%/.test(event.message));
@@ -63,7 +65,7 @@ export function AnalysisWorkflow({ job, preparing, message, localError, elapsedS
       <div ref={flowRef} className="workflow-scroll" tabIndex={0} aria-label="Fluxograma horizontal; deslize para ver todas as etapas">
         <ol className="workflow-checkpoints">
           {steps.map((step, index) => {
-            const Icon = icons[index];
+            const Icon = icons[index] ?? CloudDownload;
             const description = index === 1 && gpu ? gpu : step.description;
             return (
               <li key={step.title} className={`checkpoint checkpoint-${step.state}`} aria-current={step.state === "active" ? "step" : undefined}>

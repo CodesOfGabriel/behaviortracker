@@ -105,6 +105,9 @@ def snapshot(directory, task):
         last_progress = custom[-1].start()
     if video_phase and video_phase[-1].start() > last_progress:
         report["progressText"] = video_phase[-1].group(1)
+    fst_phase = list(re.finditer(r"BEHAVETRACKER_FST_PHASE=([a-z_]+)", clean))
+    if fst_phase:
+        report["progressText"] = "FST_STAGE=" + fst_phase[-1].group(1)
     return report
 
 
