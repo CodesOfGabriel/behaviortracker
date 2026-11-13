@@ -26,22 +26,7 @@ O envio local usa blocos binários Tauri de 4 MiB. O bundle v2 é procurado prim
 
 ### Publicação do bundle v2
 
-Os arquivos da release são os três pesos/configurações e o `manifest.json` de `models/wistar_df_v2/`. Antes de publicar os checkpoints em uma release pública, confirme o direito de redistribuição de ambos. A release ainda precisa ser publicada para que o download direto seja usado; até lá o envio local permanece funcional. Valide os arquivos com `node scripts/check-release-models.mjs` e publique-os como assets da tag fixa `models-wistar-df-v2-r1` no repositório `CodesOfGabriel/behaviortracker`. Não use a URL `latest`: a tag e os hashes devem corresponder exatamente ao bundle v2.
-
-Com a conta GitHub autenticada e a redistribuição autorizada, a publicação pode ser feita com:
-
-```sh
-node scripts/check-release-models.mjs
-gh release create models-wistar-df-v2-r1 \
-  models/wistar_df_v2/best_detector.pth \
-  models/wistar_df_v2/snapshot-hrnet_w32-001.pt \
-  models/wistar_df_v2/pytorch_config.yaml \
-  models/wistar_df_v2/manifest.json \
-  --repo CodesOfGabriel/behaviortracker \
-  --target main \
-  --title "Pesos Wistar D+F v2" \
-  --notes "Bundle wistar_df_v2. Tamanhos e SHA-256 no asset manifest.json."
-```
+Os três pesos/configurações e o `manifest.json` estão na [release fixa `models-wistar-df-v2-r1`](https://github.com/CodesOfGabriel/behaviortracker/releases/tag/models-wistar-df-v2-r1). O workflow baixa os dois arquivos grandes dessa release e valida os quatro arquivos com `node scripts/check-release-models.mjs` antes de compilar. A release de modelos é separada da release dos instaladores. Não use a URL `latest`: a tag e os hashes devem corresponder exatamente ao bundle v2.
 
 ## Fluxo de Campo Aberto
 
@@ -81,11 +66,11 @@ Antes de disponibilizar o instalador a qualquer Conta Google, configure o públi
 
 O DMG macOS gerado sem Developer ID é apenas para testes controlados. Para distribuição macOS sem impedimentos do Gatekeeper, assine o aplicativo com Developer ID e envie-o à notarização da Apple. O instalador Windows sem assinatura de código pode exibir um aviso do SmartScreen.
 
-### Gerar instaladores para Mac e Windows
+### Gerar instaladores para Windows, macOS e Linux
 
-O build local no Mac Intel gera `src-tauri/target/release/bundle/dmg/Behavior Tracker_0.1.0_x64.dmg` com o Client ID definido no ambiente, conforme o comando acima. Para gerar as versões macOS Intel, macOS Apple Silicon e Windows x64 no GitHub, use **Actions → Build desktop installers → Run workflow**. Os três arquivos aparecem como artefatos separados da execução por sete dias. O workflow compila cada plataforma no runner correspondente e valida os pesos antes de criar os instaladores.
+O build local no Mac Intel gera `src-tauri/target/release/bundle/dmg/Behavior Tracker_0.1.0_x64.dmg` com o Client ID definido no ambiente, conforme o comando acima. Para gerar os instaladores no GitHub, use **Actions → Build desktop installers → Run workflow**. O workflow é manual e produz quatro artefatos: `windows-x64` (`.exe`), `macos-intel` (`.dmg`), `macos-apple-silicon` (`.dmg`) e `linux-x64` (`.deb` e `.AppImage`). Cada artefato do Actions é um ZIP para revisão e expira após sete dias. O build Linux usa Ubuntu 22.04 e inclui o suporte multimídia do AppImage; `ffmpeg` e `ffprobe` ainda precisam estar instalados no sistema para preparar e verificar vídeos.
 
-Antes de executar o workflow, publique `best_detector.pth` e `snapshot-hrnet_w32-001.pt` como assets da release fixa `models-wistar-df-v2-r1`, após confirmar o direito de redistribuição indicado acima. O YAML e o manifesto de hashes já estão no repositório. Se faltar a release ou os hashes não conferirem, o workflow para antes da compilação. O workflow não publica instaladores automaticamente como release; revise e assine os artefatos antes da distribuição pública.
+Para downloads permanentes em `github.com/CodesOfGabriel/behaviortracker/releases`, crie uma **release do aplicativo** com uma tag de versão (por exemplo, `v0.1.0`) apontando para o commit testado e anexe os arquivos `.exe`, `.dmg`, `.deb` e `.AppImage` extraídos dos artefatos. O `package.json` contém scripts e dependências de build; os instaladores ficam nos assets da release, não no GitHub Packages. O workflow não publica uma release automaticamente. Antes de disponibilizar os arquivos ao público, valide cada instalação; macOS ainda exige Developer ID e notarização para distribuição sem bloqueio do Gatekeeper, e o Windows pode exibir um aviso do SmartScreen sem assinatura.
 
 ```sh
 npm install
