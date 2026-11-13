@@ -447,72 +447,7 @@ fn safe_extension(filename: &str) -> String {
 }
 
 pub(crate) fn prepare_tables(app: &AppHandle) -> CommandResult<()> {
-    open_database(app)?
-        .execute_batch(
-            "CREATE TABLE IF NOT EXISTS video_staging (
-               upload_id TEXT PRIMARY KEY NOT NULL,
-               experiment_id TEXT NOT NULL,
-               local_path TEXT NOT NULL,
-               original_filename TEXT NOT NULL,
-               expected_size INTEGER NOT NULL,
-               received_size INTEGER NOT NULL DEFAULT 0,
-               sha256 TEXT,
-               ready INTEGER NOT NULL DEFAULT 0,
-               created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-               updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-             );
-             CREATE TABLE IF NOT EXISTS colab_jobs (
-               job_id TEXT PRIMARY KEY NOT NULL,
-               profile_id TEXT NOT NULL,
-               experiment_id TEXT NOT NULL,
-               upload_id TEXT NOT NULL,
-               status TEXT NOT NULL,
-               stage TEXT NOT NULL,
-               progress INTEGER NOT NULL,
-               message TEXT NOT NULL,
-               runtime_name TEXT,
-               session_name TEXT,
-               result_path TEXT,
-               error TEXT,
-               created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-               updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-             );
-             CREATE INDEX IF NOT EXISTS idx_colab_jobs_experiment
-               ON colab_jobs(experiment_id, created_at);
-             CREATE TABLE IF NOT EXISTS colab_job_events (
-               id INTEGER PRIMARY KEY AUTOINCREMENT,
-               job_id TEXT NOT NULL REFERENCES colab_jobs(job_id),
-               stage TEXT NOT NULL,
-               status TEXT NOT NULL,
-               progress INTEGER NOT NULL,
-               message TEXT NOT NULL,
-               created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-             );
-             CREATE INDEX IF NOT EXISTS idx_colab_events_job ON colab_job_events(job_id, id);
-             CREATE TABLE IF NOT EXISTS video_preparations (
-               original_upload_id TEXT PRIMARY KEY REFERENCES video_staging(upload_id),
-               prepared_upload_id TEXT NOT NULL REFERENCES video_staging(upload_id),
-               report_json TEXT NOT NULL
-             );
-             CREATE TABLE IF NOT EXISTS colab_job_artifacts (
-               job_id TEXT PRIMARY KEY REFERENCES colab_jobs(job_id),
-               labeled_video_path TEXT,
-               video_error TEXT
-             );
-             CREATE TABLE IF NOT EXISTS colab_job_diagnostics (
-               job_id TEXT PRIMARY KEY REFERENCES colab_jobs(job_id),
-               range_json TEXT NOT NULL,
-               report_path TEXT,
-               raw_pose_path TEXT
-             );
-             CREATE TABLE IF NOT EXISTS colab_job_geometry (
-               job_id TEXT PRIMARY KEY REFERENCES colab_jobs(job_id),
-               geometry_json TEXT NOT NULL
-             );",
-        )
-        .map_err(|_| "Não foi possível preparar o armazenamento dos jobs Colab.".to_string())?;
-    crate::training::prepare_tables(&open_database(app)?)?;
-    Ok(())
+    open_database(app).map(|_| ())
 }
 
 pub(crate) fn staging_directory(app: &AppHandle) -> CommandResult<PathBuf> {

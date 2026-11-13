@@ -41,7 +41,7 @@ fn root(app: &AppHandle) -> CommandResult<PathBuf> {
     Ok(root)
 }
 pub(crate) fn prepare_tables(app: &AppHandle) -> CommandResult<()> {
-    open_database(app)?.execute_batch("CREATE TABLE IF NOT EXISTS local_tracking_jobs(job_id TEXT PRIMARY KEY,experiment_id TEXT NOT NULL,upload_id TEXT NOT NULL,video_sha256 TEXT NOT NULL,config_json TEXT NOT NULL,state TEXT NOT NULL,error TEXT,created_at TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')));").map_err(|_|"Armazenamento local indisponível".into())
+    open_database(app).map(|_| ())
 }
 fn python(app: &AppHandle) -> CommandResult<PathBuf> {
     if let Some(path) = std::env::var_os("BEHAVETRACKER_PYTHON") {

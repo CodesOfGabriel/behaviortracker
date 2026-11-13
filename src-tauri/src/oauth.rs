@@ -158,34 +158,16 @@ pub(crate) fn open_database(app: &AppHandle) -> CommandResult<Connection> {
     })?;
     fs::create_dir_all(&data_dir)
         .map_err(|_| "Não foi possível criar o diretório de dados do aplicativo.".to_string())?;
-    let connection = Connection::open(data_dir.join("behavetracker.sqlite3"))
+    let mut connection = Connection::open(data_dir.join("behavetracker.sqlite3"))
         .map_err(|_| "Não foi possível abrir o banco local do Behavior Tracker.".to_string())?;
     connection
-        .execute_batch(
-            "PRAGMA foreign_keys = ON;
-             PRAGMA journal_mode = WAL;
-             CREATE TABLE IF NOT EXISTS google_oauth_profiles (
-               profile_id TEXT PRIMARY KEY NOT NULL,
-               google_client_id TEXT NOT NULL,
-               client_secret TEXT,
-               refresh_token TEXT,
-               has_client_secret INTEGER NOT NULL DEFAULT 0,
-               has_refresh_token INTEGER NOT NULL DEFAULT 0,
-               account_email TEXT,
-               subscription_tier TEXT,
-               eligible_runtime_count INTEGER NOT NULL DEFAULT 0,
-               eligible_gpu_count INTEGER NOT NULL DEFAULT 0,
-               provider_error TEXT,
-               connected_at TEXT,
-               updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-             );",
-        )
+        .execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")
         .map_err(|_| "Não foi possível preparar o banco local do Behavior Tracker.".to_string())?;
-    migrate_credential_state(&connection)?;
+    crate::database::migrate(&mut connection)?;
     Ok(connection)
 }
 
-fn migrate_credential_state(connection: &Connection) -> CommandResult<()> {
+pub(crate) fn migrate_credential_state(connection: &Connection) -> CommandResult<()> {
     let has_column = |name: &str| -> CommandResult<bool> {
         connection
             .query_row(

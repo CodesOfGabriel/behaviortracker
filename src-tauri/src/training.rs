@@ -59,13 +59,6 @@ pub struct FrameLabel {
     reviewed: bool,
     updated_at: String,
 }
-pub(crate) fn prepare_tables(connection: &Connection) -> CommandResult<()> {
-    connection.execute_batch("CREATE TABLE IF NOT EXISTS training_frames(id TEXT PRIMARY KEY,experiment_id TEXT NOT NULL,video_sha256 TEXT NOT NULL,frame_index INTEGER NOT NULL,annotation_json TEXT NOT NULL,UNIQUE(video_sha256,frame_index,experiment_id));
-        CREATE TABLE IF NOT EXISTS training_intervals(experiment_id TEXT PRIMARY KEY,intervals_json TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS training_runs(job_id TEXT PRIMARY KEY REFERENCES colab_jobs(job_id),dataset_path TEXT NOT NULL,dataset_sha256 TEXT NOT NULL,report_json TEXT,model_path TEXT,model_sha256 TEXT,epochs INTEGER NOT NULL);
-        CREATE TABLE IF NOT EXISTS training_selection(profile TEXT PRIMARY KEY,job_id TEXT REFERENCES training_runs(job_id));
-        CREATE TABLE IF NOT EXISTS custom_analysis_models(job_id TEXT PRIMARY KEY REFERENCES colab_jobs(job_id),model_job_id TEXT NOT NULL REFERENCES training_runs(job_id));").map_err(|_|"Não foi possível preparar o armazenamento de treinamento".to_string())
-}
 fn root(app: &AppHandle) -> CommandResult<PathBuf> {
     let path = app
         .path()
@@ -640,15 +633,12 @@ mod tests {
     }
     #[test]
     fn training_schema_does_not_require_or_mutate_scientific_results() {
-        let connection = Connection::open_in_memory().unwrap();
-        connection
-            .execute_batch("CREATE TABLE colab_jobs(job_id TEXT PRIMARY KEY);")
-            .unwrap();
-        prepare_tables(&connection).unwrap();
+        let mut connection = Connection::open_in_memory().unwrap();
+        crate::database::migrate(&mut connection).unwrap();
         let count: i64 = connection
             .query_row("SELECT COUNT(*) FROM training_frames", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 0);
-        prepare_tables(&connection).unwrap();
+        crate::database::migrate(&mut connection).unwrap();
     }
 }

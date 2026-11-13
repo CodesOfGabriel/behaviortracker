@@ -63,6 +63,8 @@ Build TypeScript, testes locais e contrato da inferência com modelo simulado ve
 
 ## Desenvolvimento
 
+O armazenamento local, as tabelas SQLite, as migrations e os testes de regressão estão descritos em [docs/DATABASE.md](docs/DATABASE.md).
+
 ### Distribuição para outros pesquisadores
 
 Cada instalação usa o diretório de dados do usuário do sistema operacional e autoriza a Conta Google pessoal desse pesquisador no navegador. O token de renovação fica no cofre de credenciais do macOS/Windows/Linux; o SQLite local guarda apenas o estado da conexão. Tokens gravados por versões anteriores no SQLite são migrados para o cofre ao abrir o perfil OAuth, e o campo antigo é apagado após a gravação bem-sucedida. Se uma instalação antiga usava outro Client ID, será necessário reconectar a conta ao abrir a versão distribuída. As credenciais não são compartilhadas entre instalações.

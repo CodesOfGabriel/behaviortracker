@@ -1,8 +1,9 @@
 mod colab;
-mod oauth;
-mod video;
-mod training;
+mod database;
 mod local_tracking;
+mod oauth;
+mod training;
+mod video;
 
 #[derive(serde::Serialize)]
 struct AppInfo {
