@@ -41,3 +41,17 @@ No Nado Forçado, a presença visual e a confiança dos pontos anatômicos são 
 - Tempo no centro e imobilidade operacional são indicadores quantitativos; sua interpretação depende do protocolo e da revisão do vídeo.
 - No Nado Forçado, presença incerta não equivale a ausência nem a imobilidade. Movimento e silhueta são indicadores observados para revisão, não rótulos comportamentais.
 - Os indicadores ainda exigem validação com vídeos de referência e revisão manual de frames em execuções reais no Colab antes de fundamentar conclusões científicas.
+
+## Publicação do site na VPS
+
+O site em `behavior.usetars.com` é servido pelo Nginx de `docker-compose.live.yml`, com `dist/` montado em modo somente leitura. Na VPS `vps-sala212`, o timer `behaviortracker-deploy.timer` verifica `origin/main` aproximadamente a cada minuto. Quando há um novo commit, [`scripts/deploy-live.sh`](scripts/deploy-live.sh) compila e testa o site em um container Node 22, atualiza o checkout em `/srv/apps/behaviortracker` por avanço direto e troca a pasta publicada. A versão anterior é restaurada caso as verificações HTTP locais falhem.
+
+As unidades versionadas estão em [`ops/`](ops/). Para consultar a automação na VPS:
+
+```bash
+systemctl status behaviortracker-deploy.timer
+journalctl -u behaviortracker-deploy.service -n 80 --no-pager
+cat /srv/apps/.behaviortracker-deploy/deployed_sha
+```
+
+O deploy do site é separado dos workflows de instaladores desktop, que continuam manuais.

@@ -1,0 +1,11 @@
+[Unit]
+Description=Check Behavior Tracker main for updates
+
+[Timer]
+OnBootSec=1min
+OnUnitInactiveSec=1min
+Unit=behaviortracker-deploy.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target
