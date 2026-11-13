@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type MouseEvent } from "react";
 import { ArrowRight, LoaderCircle } from "lucide-react";
 import {
   COLAB_PROFILE_ID,
@@ -33,6 +33,16 @@ export function LoginPage({ summary, checking, checkError, onSessionChange, onRe
   const [error, setError] = useState<string | null>(null);
   const [clientId, setClientId] = useState("");
   const desktop = isTauriRuntime();
+
+  async function openLegalPage(event: MouseEvent<HTMLAnchorElement>, page: "privacy" | "terms") {
+    if (!desktop) return;
+    event.preventDefault();
+    try {
+      await invoke("open_legal_page", { page });
+    } catch (reason) {
+      setError(errorMessage(reason));
+    }
+  }
 
   async function signIn() {
     setBusy(true);
@@ -90,6 +100,11 @@ export function LoginPage({ summary, checking, checkError, onSessionChange, onRe
               {busy ? "Aguardando autorização…" : checking ? "Verificando sessão…" : "Entrar com Google"}
               {!busy && !checking && <ArrowRight size={16} className="login-arrow" />}
             </button>
+            <nav className="login-legal" aria-label="Documentos legais">
+              <a href="https://behavior.usetars.com/privacy" target="_blank" rel="noopener noreferrer" onClick={(event) => void openLegalPage(event, "privacy")}>Políticas de Privacidade</a>
+              <span aria-hidden="true">·</span>
+              <a href="https://behavior.usetars.com/terms" target="_blank" rel="noopener noreferrer" onClick={(event) => void openLegalPage(event, "terms")}>Termos de Serviço</a>
+            </nav>
             {busy && <p className="login-hint" role="status">Conclua a autorização na janela do navegador.</p>}
             {!desktop && <p className="login-error" role="alert">O login Google está disponível no aplicativo desktop.</p>}
             {(error || checkError) && <div className="login-error" role="alert">{error || checkError}{checkError && <button type="button" onClick={onRetry}>Tentar novamente</button>}</div>}

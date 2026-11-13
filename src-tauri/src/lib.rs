@@ -4,6 +4,19 @@ mod local_tracking;
 mod oauth;
 mod training;
 mod video;
+use tauri_plugin_opener::OpenerExt;
+
+#[tauri::command]
+fn open_legal_page(app: tauri::AppHandle, page: String) -> Result<(), String> {
+    let url = match page.as_str() {
+        "privacy" => "https://behavior.usetars.com/privacy",
+        "terms" => "https://behavior.usetars.com/terms",
+        _ => return Err("Página legal desconhecida.".into()),
+    };
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|_| "Não foi possível abrir o navegador padrão.".to_string())
+}
 
 #[derive(serde::Serialize)]
 struct AppInfo {
@@ -32,6 +45,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             app_info,
+            open_legal_page,
             local_tracking::get_local_tracking_result,
             oauth::get_google_oauth_config,
             oauth::save_google_oauth_config,

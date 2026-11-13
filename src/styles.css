@@ -998,6 +998,10 @@ body, .tracking-page { background: #090a0b; }
 .login-google-button:hover:not(:disabled) { border-color: #aab2b1; background: #fafafa; box-shadow: 0 3px 12px rgb(10 15 17 / 7%); }
 .login-google-button:focus-visible, .profile-trigger:focus-visible, .profile-menu button:focus-visible { outline: 2px solid #838e91; outline-offset: 3px; }
 .login-google-button:disabled { opacity: .58; }
+.login-legal { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: -12px; color: #a0a6a6; font-size: 10px; white-space: nowrap; }
+.login-legal a { color: #737b7d; text-decoration: none; text-underline-offset: 3px; }
+.login-legal a:hover { color: #222829; text-decoration: underline; }
+.login-legal a:focus-visible { outline: 2px solid #838e91; outline-offset: 3px; border-radius: 2px; }
 .login-arrow { margin-left: auto; color: #868c8d; }
 .login-spinner { animation: login-spin 1s linear infinite; }
 @keyframes login-spin { to { transform: rotate(360deg); } }

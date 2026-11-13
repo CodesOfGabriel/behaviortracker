@@ -1,0 +1,30 @@
+
+services:
+  behaviortracker-web:
+    image: nginx:stable-alpine
+    container_name: behaviortracker-web
+    restart: unless-stopped
+
+    volumes:
+      - ./dist:/usr/share/nginx/html:ro
+
+    networks:
+      - traefik_public
+
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik_public"
+
+      # Roteamento HTTPS
+      - "traefik.http.routers.behaviortracker-web.rule=Host(`${BEHAVIORTRACKER_DOMAIN}`)"
+      - "traefik.http.routers.behaviortracker-web.entrypoints=websecure"
+      - "traefik.http.routers.behaviortracker-web.tls=true"
+      - "traefik.http.routers.behaviortracker-web.tls.certresolver=letsencrypt"
+
+      # Serviço interno
+      - "traefik.http.routers.behaviortracker-web.service=behaviortracker-web"
+      - "traefik.http.services.behaviortracker-web.loadbalancer.server.port=80"
+
+networks:
+  traefik_public:
+    external: true
