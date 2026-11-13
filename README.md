@@ -44,14 +44,13 @@ No Nado Forçado, a presença visual e a confiança dos pontos anatômicos são 
 
 ## Publicação do site na VPS
 
-O site em `behavior.usetars.com` é servido pelo Nginx de `docker-compose.live.yml`, com `dist/` montado em modo somente leitura. Na VPS `vps-sala212`, o timer `behaviortracker-deploy.timer` verifica `origin/main` aproximadamente a cada minuto. Quando há um novo commit, [`scripts/deploy-live.sh`](scripts/deploy-live.sh) compila e testa o site em um container Node 22, atualiza o checkout em `/srv/apps/behaviortracker` por avanço direto e troca a pasta publicada. A versão anterior é restaurada caso as verificações HTTP locais falhem.
+O site em `behavior.usetars.com` é servido pelo Nginx de `docker-compose.live.yml`, com `dist/` montado em modo somente leitura. Um push na `main` dispara o workflow [`deploy-web.yml`](.github/workflows/deploy-web.yml), que testa e compila o site no GitHub Actions. O workflow envia o `dist/` pronto à VPS `vps-sala212`; o [`script de publicação`](scripts/deploy-live.sh) atualiza o checkout em `/srv/apps/behaviortracker` por avanço direto e troca a pasta publicada. A versão anterior é restaurada se as verificações HTTP locais falharem. A VPS não consulta o GitHub periodicamente.
 
-As unidades versionadas estão em [`ops/`](ops/). Para consultar a automação na VPS:
+O workflow usa o segredo de repositório `VPS_DEPLOY_SSH_KEY`, uma chave SSH dedicada ao usuário `deploy`. Configure esse segredo em **GitHub → Settings → Secrets and variables → Actions** antes do primeiro push com o workflow. A chave privada não deve entrar no Git; a chave pública do host está fixada em [`ops/behaviortracker-known-hosts`](ops/behaviortracker-known-hosts). Para consultar a última publicação na VPS:
 
 ```bash
-systemctl status behaviortracker-deploy.timer
-journalctl -u behaviortracker-deploy.service -n 80 --no-pager
 cat /srv/apps/.behaviortracker-deploy/deployed_sha
+docker ps --filter name=behaviortracker-web
 ```
 
 O deploy do site é separado dos workflows de instaladores desktop, que continuam manuais.

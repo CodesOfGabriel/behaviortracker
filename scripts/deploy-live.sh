@@ -1,15 +1,26 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Runs on the VPS as the deploy user. The site is mounted from dist by Nginx.
+# Called by GitHub Actions after the tested dist has been uploaded to the VPS.
+target_sha=${1:-}
+if [[ ! "$target_sha" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Expected a full Git commit SHA." >&2
+  exit 1
+fi
+
 app_dir=/srv/apps/behaviortracker
 state_dir=/srv/apps/.behaviortracker-deploy
+incoming="$state_dir/incoming/$target_sha"
 compose_file="$app_dir/docker-compose.live.yml"
 service=behaviortracker-web
 
 mkdir -p "$state_dir"
 exec 9>"$state_dir/lock"
-flock -n 9 || exit 0
+flock -w 120 9 || { echo "Another deploy is still running." >&2; exit 1; }
+
+for page in index.html privacy/index.html terms/index.html legal.css; do
+  test -s "$incoming/$page" || { echo "Missing uploaded file: $page" >&2; exit 1; }
+done
 
 cd "$app_dir"
 if [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then
@@ -18,35 +29,16 @@ if [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then
 fi
 
 git fetch --quiet origin main
-target_sha=$(git rev-parse FETCH_HEAD)
-current_sha=$(git rev-parse HEAD)
-deployed_sha=$(cat "$state_dir/deployed_sha" 2>/dev/null || true)
-
-if [[ "$target_sha" == "$deployed_sha" && "$current_sha" == "$target_sha" && -s "$app_dir/dist/index.html" ]]; then
+remote_sha=$(git rev-parse FETCH_HEAD)
+if [[ "$remote_sha" != "$target_sha" ]]; then
+  echo "A newer push replaced $target_sha; this run will not publish an older commit."
   exit 0
 fi
+current_sha=$(git rev-parse HEAD)
 if ! git merge-base --is-ancestor "$current_sha" "$target_sha"; then
   echo "The VPS main branch cannot fast-forward to origin/main; deployment stopped." >&2
   exit 1
 fi
-
-worktree=$(mktemp -d "$state_dir/worktree.XXXXXX")
-rmdir "$worktree"
-cleanup() {
-  if [[ -d "$worktree" ]]; then
-    git worktree remove --force "$worktree" || true
-  fi
-}
-trap cleanup EXIT
-git worktree add --quiet --detach "$worktree" "$target_sha"
-
-docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
-  -v "$worktree:/workspace" -w /workspace node:22-alpine \
-  sh -lc 'npm ci --no-audit --no-fund && npm test -- --run && npm run build'
-
-for page in index.html privacy/index.html terms/index.html legal.css; do
-  test -s "$worktree/dist/$page" || { echo "Missing build output: $page" >&2; exit 1; }
-done
 
 git merge --ff-only "$target_sha"
 docker compose -f "$compose_file" config --quiet
@@ -58,7 +50,7 @@ fi
 if [[ -e "$app_dir/dist" ]]; then
   mv "$app_dir/dist" "$previous"
 fi
-mv "$worktree/dist" "$app_dir/dist"
+mv "$incoming" "$app_dir/dist"
 
 verify_site() {
   docker compose -f "$compose_file" up -d --force-recreate --no-deps "$service"
@@ -69,7 +61,7 @@ verify_site() {
 
 if ! verify_site; then
   echo "Site verification failed; restoring the previous dist." >&2
-  mv "$app_dir/dist" "$state_dir/failed-$target_sha"
+  mv "$app_dir/dist" "$state_dir/failed-$target_sha-$(date +%s)"
   if [[ -e "$previous" ]]; then
     mv "$previous" "$app_dir/dist"
     docker compose -f "$compose_file" up -d --force-recreate --no-deps "$service" || true
