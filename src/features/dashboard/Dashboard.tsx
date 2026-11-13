@@ -36,7 +36,7 @@ const statusTone: Record<ExperimentStatus, "neutral" | "success" | "warning" | "
 };
 
 export function Dashboard() {
-  const { experiments, navigate, openDemo, deleteExperiment } = useAppStore();
+  const { experiments, navigate, openDemo, deleteExperiment, analysisActivity } = useAppStore();
   const [pendingDeletion, setPendingDeletion] = useState<{ id: string; title: string } | null>(null);
   const available = experiments.filter((experiment) => experiment.status === "review").length;
   const completed = experiments.filter((experiment) => experiment.status === "completed").length;
@@ -122,7 +122,9 @@ export function Dashboard() {
                   <div className="experiment-main">
                     <div className="experiment-title-row">
                       <h3>{experiment.title}</h3>
-                      <Badge tone={statusTone[experiment.status]} dot>{statusLabels[experiment.status]}</Badge>
+                      <Badge tone={statusTone[analysisActivity[experiment.id]?.starting ? "processing" : experiment.status]} dot>
+                        {analysisActivity[experiment.id]?.starting ? "Processando em segundo plano" : statusLabels[experiment.status]}
+                      </Badge>
                     </div>
                     <p>{experiment.testType === "forced_swim" ? experiment.subjects.map(s => s.subjectId).join(" · ") : experiment.subjectId}{experiment.group ? ` · ${experiment.group}` : ""}</p>
                     <div className="experiment-meta">

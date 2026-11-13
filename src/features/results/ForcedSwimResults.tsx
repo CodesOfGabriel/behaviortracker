@@ -40,17 +40,18 @@ function jobStatus(status: ColabJob["status"]) {
 }
 
 export function ForcedSwimResults({experimentId}:{experimentId:string}) {
-  const {getExperiment,navigate,assets,setAsset,updateForcedSwimExperiment}=useAppStore();
+  const {getExperiment,navigate,assets,setAsset,updateForcedSwimExperiment,analysisActivity,setAnalysisActivity}=useAppStore();
   const experiment=getExperiment(experimentId) as ForcedSwimExperiment|undefined;
   const asset=assets[experimentId];
+  const activity=analysisActivity[experimentId];
+  const busy=activity?.starting??false;
+  const message=activity?.message??"";
   const [summary,setSummary]=useState<OAuthProfileSummary>(emptyColabSummary);
   const [history,setHistory]=useState<ColabJob[]>([]);
   const [selectedJobId,setSelectedJobId]=useState<string|null>(null);
-  const [view,setView]=useState<"results"|"runs">("results");
+  const [view,setView]=useState<"results"|"runs">(busy?"runs":"results");
   const [result,setResult]=useState<FstResult|null>(null);
   const [loadingResult,setLoadingResult]=useState(false);
-  const [busy,setBusy]=useState(false);
-  const [message,setMessage]=useState("");
   const [error,setError]=useState<string|null>(null);
   const [videoUrl,setVideoUrl]=useState<string|null>(null);
   const [labeledVideo,setLabeledVideo]=useState<string|null>(null);
@@ -65,12 +66,15 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
   const fileRef=useRef<HTMLInputElement>(null);const playerRef=useRef<HTMLVideoElement>(null);
   const selectedJob=history.find(j=>j.jobId===selectedJobId)??history[0]??null;
   const active=history.find(j=>j.status==="running"||j.status==="queued");
+  const workflowJob=active??(busy?null:selectedJob);
   const visibleView=selectedJob?.resultsReady?view:"runs";
   const frame=result?Math.max(0,Math.min(result.video.frameCount-1,Math.round(time*result.video.fps))):0;
   const frameData=useMemo(()=>result?.frames.filter(f=>f.frame===frame)??[],[result,frame]);
   const framePoses=useMemo(()=>result?.subjects.flatMap(s=>(result.poseArrays[s.animalId]?.[frame]??[]).map(([xPx,yPx,likelihood],i)=>({animalId:s.animalId,keypoint:result.keypointNames[i],xPx,yPx,likelihood})))??[],[result,frame]);
   const annotations=(experiment?.annotations??[]).filter(a=>!result||a.runId===result.runId);
-  const elapsedSec=selectedJob?Math.max(0,(clock-new Date(selectedJob.createdAt).getTime())/1000):0;
+  const elapsedSec=workflowJob?Math.max(0,(clock-new Date(workflowJob.createdAt).getTime())/1000):0;
+
+  useEffect(()=>{if(active)setView("runs")},[active?.jobId]);
 
   useEffect(()=>{
     if(!isTauriRuntime())return;
@@ -119,17 +123,18 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
     const validation=validateForcedSwim(experiment);if(validation){setError(validation);return}
     let preparation=file?undefined:experiment.video.preparation;
     if(preparation&&preparation.policyVersion!=="fst-adaptive-1")preparation=undefined;
-    if(preparation&&!await checkVideoStaging(experimentId,preparation.uploadId))preparation=undefined;
     if(!preparation&&!file){file=asset?.file;if(!file){fileRef.current?.click();return}}
-    setBusy(true);setError(null);setMessage("Validando conexão com o Colab");
+    setAnalysisActivity(experimentId,{starting:true,message:"Validando conexão com o Colab",error:null});setError(null);
     let started=false;
     try{
+      if(preparation&&!await checkVideoStaging(experimentId,preparation.uploadId))preparation=undefined;
+      if(!preparation&&!file){file=asset?.file;if(!file){fileRef.current?.click();return}}
       const connection=await loadColabSummary();setSummary(connection);
       if(!connection.connected)throw new Error("Conecte o Colab antes de executar o FST.");
       if(connection.providerError)throw new Error(connection.providerError);
       if(connection.eligibleGpuCount<1)throw new Error("Nenhuma GPU elegível disponível.");
       if(!preparation){
-        const prepared=await prepareFstVideo(experimentId,file!,experiment.video,(_p,m)=>setMessage(m),experiment.video.sha256);
+        const prepared=await prepareFstVideo(experimentId,file!,experiment.video,(_p,m)=>setAnalysisActivity(experimentId,{message:m}),experiment.video.sha256);
         preparation=prepared.preparation;
         const digest=prepared.originalSha256;
         if(experiment.video.sha256&&digest!==experiment.video.sha256)throw new Error("O arquivo selecionado não corresponde ao vídeo original deste experimento.");
@@ -141,7 +146,7 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
       started=true;
       updateForcedSwimExperiment(experimentId,{status:"processing"});
       setHistory(current=>[job,...current.filter(j=>j.jobId!==job.jobId)]);setSelectedJobId(job.jobId);
-      const done=await waitForColabJob(job.jobId,j=>{setHistory(current=>[j,...current.filter(v=>v.jobId!==j.jobId)]);setMessage(j.message)});
+      const done=await waitForColabJob(job.jobId,j=>{setHistory(current=>[j,...current.filter(v=>v.jobId!==j.jobId)]);setAnalysisActivity(experimentId,{message:j.message})});
       if(done.status==="failed"&&!done.resultsReady)throw new Error(done.error||"Falha no processamento FST.");
       const data=parseFstResult(await loadColabResult(done.jobId));
       if(experiment.video.sha256&&data.video.originalSha256!==experiment.video.sha256)throw new Error("O resultado não corresponde ao vídeo original do experimento.");
@@ -149,8 +154,8 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
       setView("results");
       updateForcedSwimExperiment(experimentId,{status:"review",trackingSelection:{engine:"colab",jobId:done.jobId}});
       if(done.status==="failed")setError(`Dados preservados; execução interrompida: ${done.error}`);
-    }catch(reason){setError(String(reason));if(started)updateForcedSwimExperiment(experimentId,{status:"failed"})}
-    finally{setBusy(false)}
+    }catch(reason){const failure=String(reason);setError(failure);setAnalysisActivity(experimentId,{error:failure,message:failure});if(started)updateForcedSwimExperiment(experimentId,{status:"failed"})}
+    finally{setAnalysisActivity(experimentId,{starting:false})}
   };
   const attach=(event:ChangeEvent<HTMLInputElement>)=>{
     const file=event.target.files?.[0];event.target.value="";if(!file||!experiment)return;
@@ -170,7 +175,7 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
     <button className="back-link" onClick={()=>navigate({name:"dashboard"})}><ArrowLeft size={16}/> Experimentos</button>
     <section className="page-heading results-heading"><div><div className="eyebrow">Análise Completa · Forced Swim Test</div><h1>{experiment.title}</h1><p>{experiment.subjects.map(s=>`${s.animalId}: ${s.subjectId}`).join(" · ")} · {experiment.video.filename}</p></div>
       <div className="results-actions"><Button disabled={busy||Boolean(active)||!summary.connected} onClick={()=>void run()}>{busy||active?"Processando…":"Analisar no Colab"}</Button></div></section>
-    {error&&<div role="alert" className="validation-box invalid"><Info size={16}/>{error}</div>}
+    {(error??activity?.error)&&<div role="alert" className="validation-box invalid"><Info size={16}/>{error??activity?.error}</div>}
     <EditorTabs<"results"|"runs"> id="fst-view" label="Áreas da análise FST" value={visibleView} onChange={setView}
       items={selectedJob?.resultsReady?[{id:"results",label:"Resultados"},{id:"runs",label:"Execuções"}]:[{id:"runs",label:"Execuções"}]}/>
     {visibleView==="runs"&&<div className="fst-runs-content" role="tabpanel" id="fst-view-runs-panel" aria-labelledby="fst-view-runs-tab">
@@ -184,7 +189,7 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
           </button>
         )) : <p>Nenhuma execução registrada.</p>}
       </section>
-      {(selectedJob||busy)&&<AnalysisWorkflow job={selectedJob} protocol="forced_swim" logOnly preparing={busy&&!selectedJob} message={message} localError={error} elapsedSec={elapsedSec}/>}
+      {(workflowJob||busy)&&<AnalysisWorkflow job={workflowJob} protocol="forced_swim" logOnly preparing={busy&&!active} message={message} localError={error??activity?.error??null} elapsedSec={elapsedSec}/>}
     </div>}
     {visibleView==="results"&&<div className="fst-result-content" role="tabpanel" id="fst-view-results-panel" aria-labelledby="fst-view-results-tab">
     {loadingResult&&<p role="status">Carregando dados FST da execução…</p>}
