@@ -2610,7 +2610,7 @@ fn run_analysis(
         update_job(&app, &job_id, "running", "authorizing", 3, "Trecho curto preparado e pixels conferidos; o vídeo completo não será enviado")?;
         clip
     } else {
-        let preparation = crate::video::prepare_staged_video(&app, &upload_id, workload.width, workload.height)?;
+        let preparation = crate::video::prepare_staged_video_with_policy(&app, &upload_id, workload.width, workload.height, fst.is_some())?;
         update_job(&app, &job_id, "running", "authorizing", 3, &format!("{} · {} → {} bytes", preparation.message, preparation.original_bytes, preparation.upload_bytes))?;
         preparation.upload_id
     };

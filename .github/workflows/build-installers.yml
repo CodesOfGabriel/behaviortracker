@@ -81,6 +81,9 @@ jobs:
         with:
           workspaces: ./src-tauri -> target
 
+      - name: Test bundled video preparation on the target system
+        run: node scripts/test-video-tools.mjs
+
       - name: Build installer
         run: npm run tauri -- build --target ${{ matrix.target }} --bundles ${{ matrix.bundle }} --ci
 

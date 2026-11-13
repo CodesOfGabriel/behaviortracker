@@ -6,9 +6,7 @@ import { formatBytes, formatDuration } from "../../lib/format";
 import { validateForcedSwim, validateTanks, FST_ENGINE, FST_VERSION } from "../../lib/fst";
 import { useAppStore } from "../../store/AppStore";
 import type { BoundingBox, ForcedSwimExperiment, TankConfig, VideoAsset, VideoMetadata } from "../../types";
-import { prepareFstVideo } from "../colab/analysis";
 import { preparedGeometry, scaleTanksToUpload } from "../colab/videoGeometry";
-import { isTauriRuntime } from "../colab/connection";
 import { captureVideoFrame, openVideo } from "./OpenFieldExperimentWizard";
 
 const steps = ["Experimento", "Vídeo", "Cilindros", "Revisão"];
@@ -94,16 +92,10 @@ export function ForcedSwimExperimentWizard({ onBack }: { onBack: () => void }) {
       const captured = await captureVideoFrame(element,at);
       const metadata: VideoMetadata = {filename:file.name,sizeBytes:file.size,width:element.videoWidth,height:element.videoHeight,durationSec:element.duration,
         fps:null,timingSource:"browser-estimate",calibrationFrameSec:captured.timeSec,lastModified:file.lastModified};
-      if (isTauriRuntime()) {
-        const prepared = await prepareFstVideo(id,file,metadata,(_p,m) => setMessage(m));
-        metadata.preparation = prepared.preparation;
-        metadata.sha256 = prepared.originalSha256;
-        if (metadata.preparation.frameCount && Number.isFinite(metadata.durationSec) && metadata.durationSec > 0) metadata.fps = metadata.preparation.frameCount/metadata.durationSec;
-      }
       if (asset.objectUrl) URL.revokeObjectURL(asset.objectUrl);
       setVideo(metadata);setAsset({objectUrl:url,file,frameDataUrl:captured.frameDataUrl,thumbnailDataUrl:captured.thumbnailDataUrl,frameTimeSec:captured.timeSec});
       setFrameSec(captured.timeSec);setTanks(initialTanks(subjects.map(s=>s.trim())));
-      setMessage("Vídeo pronto para delimitar os cilindros.");
+      setMessage("Vídeo pronto para delimitar os cilindros. A preparação começa ao iniciar a análise no Colab.");
     } catch (reason) { URL.revokeObjectURL(url);setError(String(reason)); }
     finally { setLoading(false);event.target.value=""; }
   };

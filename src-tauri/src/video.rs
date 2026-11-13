@@ -13,7 +13,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tauri::{AppHandle, Manager};
 
@@ -32,6 +32,14 @@ pub struct VideoPreparation {
     pub upload_width: Option<u32>,
     #[serde(default)]
     pub upload_height: Option<u32>,
+    #[serde(default)]
+    pub encoder: Option<String>,
+    #[serde(default)]
+    pub method: Option<String>,
+    #[serde(default)]
+    pub preparation_ms: Option<u64>,
+    #[serde(default)]
+    pub cache_hit: bool,
 }
 
 pub(crate) fn binary(name: &str) -> Option<PathBuf> {
@@ -64,6 +72,7 @@ fn probe(program: &Path, input: &Path) -> CommandResult<Value> {
             "-select_streams",
             "v:0",
             "-show_streams",
+            "-show_format",
             "-of",
             "json",
         ])
@@ -555,11 +564,194 @@ fn optimize(
     Ok(original.len() as u64)
 }
 
-pub(crate) fn prepare_staged_video(
+const FST_POLICY: &str = "fst-adaptive-1";
+
+#[derive(Debug)]
+struct AdaptivePreparation {
+    method: &'static str,
+    encoder: Option<&'static str>,
+    frame_count: Option<u64>,
+}
+
+fn valid_adaptive_source(info: &Value, width: u32, height: u32) -> CommandResult<()> {
+    let stream = info.pointer("/streams/0").ok_or("Vídeo sem trilha visual")?;
+    if stream["width"].as_u64() != Some(u64::from(width))
+        || stream["height"].as_u64() != Some(u64::from(height))
+        || width == 0 || height == 0 {
+        return Err("Resolução diferente da calibração; selecione novamente o vídeo original".into());
+    }
+    if stream["side_data_list"].as_array().is_some_and(|items| items.iter().any(|item| {
+        item["rotation"].as_f64().is_some_and(|value| value.abs() > 0.01)
+    })) || stream.pointer("/tags/rotate").and_then(Value::as_str)
+        .is_some_and(|value| value != "0") {
+        return Err("Vídeo com rotação: normalize a orientação antes de marcar os cilindros".into());
+    }
+    let duration = stream["duration"].as_str()
+        .or_else(|| info.pointer("/format/duration").and_then(Value::as_str))
+        .and_then(|value| value.parse::<f64>().ok())
+        .filter(|value| value.is_finite() && *value > 0.0);
+    if duration.is_none() { return Err("Duração do vídeo indisponível ou inválida".into()); }
+    let start = stream["start_time"].as_str().and_then(|value| value.parse::<f64>().ok())
+        .ok_or("Timestamp inicial do vídeo indisponível")?;
+    if !start.is_finite() || start.abs() > 0.05 {
+        return Err("O vídeo começa fora do tempo zero; normalize os timestamps antes da análise".into());
+    }
+    let valid_ratio = |field: &str| stream[field].as_str().and_then(|value| {
+        let (numerator, denominator) = value.split_once('/')?;
+        Some((numerator.parse::<u64>().ok()?, denominator.parse::<u64>().ok()?))
+    }).is_some_and(|(numerator, denominator)| numerator > 0 && denominator > 0);
+    if !valid_ratio("avg_frame_rate") || !valid_ratio("time_base") {
+        return Err("Taxa de frames ou base temporal inválida".into());
+    }
+    Ok(())
+}
+
+fn sample_decode(ffmpeg: &Path, input: &Path, duration: f64) -> CommandResult<()> {
+    for position in [0.0, duration * 0.9] {
+        let result = Command::new(ffmpeg).args(["-v", "error", "-nostdin", "-noautorotate",
+            "-ss", &position.to_string(), "-i"]).arg(input)
+            .args(["-map", "0:v:0", "-frames:v", "1", "-f", "framemd5", "-"])
+            .output()
+            .map_err(|_| "Não foi possível conferir a decodificação do vídeo")?;
+        if !result.status.success() || !String::from_utf8_lossy(&result.stdout)
+            .lines().any(|line| !line.starts_with('#') && !line.trim().is_empty()) {
+            return Err("O vídeo falhou na decodificação de amostra".into());
+        }
+    }
+    Ok(())
+}
+
+fn packet_timestamps(ffprobe: &Path, input: &Path) -> CommandResult<Vec<f64>> {
+    let mut child = Command::new(ffprobe)
+        .args(["-v", "error", "-select_streams", "v:0", "-show_packets", "-show_entries",
+            "packet=pts_time", "-of", "compact=p=1:nk=0"])
+        .arg(input).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()
+        .map_err(|_| "Não foi possível verificar os timestamps do vídeo")?;
+    let result = (|| {
+        let mut timestamps = Vec::new();
+        for line in BufReader::new(child.stdout.take().ok_or("Timestamps indisponíveis")?).lines() {
+            let line = line.map_err(|_| "Leitura dos timestamps interrompida")?;
+            if !line.starts_with("packet|") { continue; }
+            let pts = line.split('|').find_map(|field| field.strip_prefix("pts_time="))
+                .and_then(|value| value.parse::<f64>().ok())
+                .filter(|value| value.is_finite())
+                .ok_or("Pacote de vídeo sem PTS válido")?;
+            timestamps.push(pts);
+            if timestamps.len() > 2_000_000 { return Err("Vídeo excede o limite de pacotes".into()); }
+        }
+        if timestamps.is_empty() { return Err("Vídeo sem pacotes de imagem".into()); }
+        Ok(timestamps)
+    })();
+    if result.is_err() { let _ = child.kill(); }
+    if !child.wait().map_err(|_| "Verificação de timestamps interrompida")?.success() {
+        return Err("ffprobe não conseguiu ler os pacotes do vídeo".into());
+    }
+    result
+}
+
+fn same_packet_timing(first: &[f64], second: &[f64]) -> bool {
+    first.len() == second.len() && first.iter().zip(second)
+        .all(|(a, b)| (a - b).abs() <= 0.001)
+}
+
+fn same_presentation_timing(first: &[f64], second: &[f64]) -> bool {
+    if first.len() != second.len() { return false; }
+    let mut first = first.to_vec();
+    let mut second = second.to_vec();
+    first.sort_by(f64::total_cmp);
+    second.sort_by(f64::total_cmp);
+    same_packet_timing(&first, &second)
+}
+
+fn adaptive_prepare(input: &Path, output: &Path, ffmpeg: &Path, ffprobe: &Path,
+    width: u32, height: u32) -> CommandResult<AdaptivePreparation> {
+    let info = probe(ffprobe, input)?;
+    valid_adaptive_source(&info, width, height)?;
+    let duration = info["streams"][0]["duration"].as_str()
+        .or_else(|| info.pointer("/format/duration").and_then(Value::as_str))
+        .and_then(|value| value.parse::<f64>().ok()).ok_or("Duração inválida")?;
+    sample_decode(ffmpeg, input, duration)?;
+    let stream = &info["streams"][0];
+    let compatible_pixels = stream["codec_name"] == "h264" && stream["pix_fmt"] == "yuv420p";
+    let is_mp4 = input.extension().and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("mp4"))
+        && info.pointer("/format/format_name").and_then(Value::as_str)
+            .is_some_and(|format| format.split(',').any(|part| part == "mp4"));
+    if compatible_pixels && is_mp4 {
+        return Ok(AdaptivePreparation { method: "passthrough", encoder: None, frame_count: None });
+    }
+    if compatible_pixels {
+        let status = Command::new(ffmpeg).args(["-v", "error", "-nostdin", "-n", "-i"])
+            .arg(input).args(["-map", "0:v:0", "-c:v", "copy", "-an", "-sn", "-dn",
+                "-movflags", "+faststart"]).arg(output).status()
+            .map_err(|_| "Não foi possível remuxar o vídeo")?;
+        if status.success() {
+            let result = (|| {
+                let remuxed = probe(ffprobe, output)?;
+                valid_adaptive_source(&remuxed, width, height)?;
+                if remuxed["streams"][0]["codec_name"] != stream["codec_name"] {
+                    return Err("Codec alterado no remux".into());
+                }
+                let before = packet_timestamps(ffprobe, input)?;
+                let after = packet_timestamps(ffprobe, output)?;
+                if !same_packet_timing(&before, &after) {
+                    return Err("O remux alterou os timestamps ou a ordem dos pacotes".into());
+                }
+                Ok(AdaptivePreparation { method: "streamcopy", encoder: None,
+                    frame_count: Some(before.len() as u64) })
+            })();
+            if result.is_ok() { return result; }
+        }
+        let _ = fs::remove_file(output);
+    }
+    if width % 2 != 0 || height % 2 != 0 {
+        return Err("Vídeo incompatível com H.264 4:2:0 e resolução ímpar; normalize a resolução antes da análise".into());
+    }
+    let mut encoders: Vec<&'static str> = Vec::new();
+    #[cfg(target_os = "macos")]
+    { encoders.push("h264_videotoolbox"); }
+    #[cfg(target_os = "windows")]
+    { encoders.extend(["h264_nvenc", "h264_qsv", "h264_amf"]); }
+    #[cfg(target_os = "linux")]
+    { encoders.extend(["h264_nvenc", "h264_qsv"]); }
+    encoders.push("libx264");
+    let before = packet_timestamps(ffprobe, input)?;
+    for encoder in encoders {
+        let mut command = Command::new(ffmpeg);
+        command.args(["-v", "error", "-nostdin", "-n", "-noautorotate", "-i"])
+            .arg(input).args(["-map", "0:v:0", "-an", "-sn", "-dn", "-c:v", encoder,
+                "-pix_fmt", "yuv420p", "-fps_mode", "passthrough", "-movflags", "+faststart"]);
+        if encoder == "libx264" { command.args(["-preset", "fast", "-crf", "18"]); }
+        else { command.args(["-b:v", "8M"]); }
+        let status = command.arg(output).stdout(Stdio::null()).stderr(Stdio::null()).status();
+        if status.is_ok_and(|status| status.success()) {
+            let checked = (|| {
+                let encoded = probe(ffprobe, output)?;
+                valid_adaptive_source(&encoded, width, height)?;
+                if encoded["streams"][0]["codec_name"] != "h264"
+                    || encoded["streams"][0]["pix_fmt"] != "yuv420p" {
+                    return Err("A conversão não produziu H.264 4:2:0".into());
+                }
+                let after = packet_timestamps(ffprobe, output)?;
+                if !same_presentation_timing(&before, &after) {
+                    return Err("A conversão alterou frames ou timestamps".into());
+                }
+                Ok(AdaptivePreparation { method: "transcode", encoder: Some(encoder),
+                    frame_count: Some(before.len() as u64) })
+            })();
+            if checked.is_ok() { return checked; }
+        }
+        let _ = fs::remove_file(output);
+    }
+    Err("Nenhum encoder disponível preservou os frames e timestamps; o original não foi substituído".into())
+}
+
+pub(crate) fn prepare_staged_video_with_policy(
     app: &AppHandle,
     upload_id: &str,
     width: u32,
     height: u32,
+    fst_adaptive: bool,
 ) -> CommandResult<VideoPreparation> {
     validate_local_id(upload_id, "Upload")?;
     prepare_tables(app)?;
@@ -569,6 +761,9 @@ pub(crate) fn prepare_staged_video(
     if let Some(cached) = cached {
         let report: VideoPreparation =
             serde_json::from_str(&cached).map_err(|_| "Preparação local ilegível")?;
+        if fst_adaptive && report.policy_version != FST_POLICY {
+            return Err("Preparação anterior incompatível com a política FST atual. Selecione novamente o vídeo original.".into());
+        }
         let path: String = connection
             .query_row(
                 "SELECT local_path FROM video_staging WHERE upload_id = ?1 AND ready = 1",
@@ -606,7 +801,102 @@ pub(crate) fn prepare_staged_video(
         frame_count: None,
         upload_width: Some(width),
         upload_height: Some(height),
+        encoder: None,
+        method: None,
+        preparation_ms: None,
+        cache_hit: false,
     };
+    if fst_adaptive {
+        let started = Instant::now();
+        let original_digest: String = connection.query_row(
+            "SELECT sha256 FROM video_staging WHERE upload_id=?1 AND ready=1",
+            [upload_id], |row| row.get(0))
+            .map_err(|_| "SHA-256 do original indisponível")?;
+        let cached_source: Option<(VideoPreparation, String, String)> = {
+            let mut statement = connection.prepare(
+                "SELECT p.report_json, s.local_path, s.sha256
+                   FROM video_preparations p
+                   JOIN video_staging o ON o.upload_id=p.original_upload_id
+                   JOIN video_staging s ON s.upload_id=p.prepared_upload_id
+                  WHERE o.sha256=?1 AND o.expected_size=?2 AND p.original_upload_id<>?3 AND s.ready=1")
+                .map_err(|_| "Não foi possível consultar o cache de mídia")?;
+            let rows = statement.query_map(params![original_digest, size_sql, upload_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+            }).map_err(|_| "Não foi possível ler o cache de mídia")?;
+            let mut found = None;
+            for row in rows {
+                let (json, path, digest) = row.map_err(|_| "Registro de cache inválido")?;
+                if let Ok(previous) = serde_json::from_str::<VideoPreparation>(&json) {
+                    if previous.policy_version == FST_POLICY && previous.upload_width == Some(width)
+                        && previous.upload_height == Some(height)
+                        && fs::metadata(&path).is_ok_and(|file| file.is_file() && file.len() == previous.upload_bytes)
+                        && sha256(Path::new(&path)).is_ok_and(|actual| actual == digest) {
+                        found = Some((previous, path, digest));
+                        break;
+                    }
+                }
+            }
+            found
+        };
+        if let Some((previous, cached_path, cached_digest)) = cached_source {
+            report = previous;
+            report.original_bytes = size;
+            report.cache_hit = true;
+            if report.method.as_deref() == Some("passthrough") {
+                report.upload_id = upload_id.into();
+                report.upload_bytes = size;
+                report.status = "original".into();
+            } else {
+                let prepared_id = new_uuid_v4();
+                let output = staging_directory(app)?.join(format!("{prepared_id}.mp4"));
+                if fs::hard_link(&cached_path, &output).is_err() {
+                    fs::copy(&cached_path, &output).map_err(|_| "Falha ao reutilizar a mídia preparada")?;
+                }
+                connection.execute("INSERT INTO video_staging (upload_id,experiment_id,local_path,original_filename,expected_size,received_size,sha256,ready) VALUES (?1,?2,?3,?4,?5,?5,?6,1)",
+                    params![prepared_id, experiment_id, output.to_string_lossy(), format!("{filename}.prepared.mp4"), report.upload_bytes as i64, cached_digest])
+                    .map_err(|_| "Falha ao registrar mídia reutilizada")?;
+                report.upload_id = prepared_id;
+            }
+            report.preparation_ms = Some(started.elapsed().as_millis() as u64);
+            connection.execute("INSERT INTO video_preparations (original_upload_id,prepared_upload_id,report_json) VALUES (?1,?2,?3)",
+                params![upload_id, &report.upload_id, serde_json::to_string(&report).map_err(|_| "Falha ao registrar cache")?])
+                .map_err(|_| "Falha ao salvar o cache de mídia")?;
+            return Ok(report);
+        }
+        let ffprobe = binary("ffprobe").ok_or("ffprobe é necessário para validar o vídeo FST")?;
+        let ffmpeg = binary("ffmpeg").ok_or("FFmpeg é necessário para preparar o vídeo FST")?;
+        let prepared_id = new_uuid_v4();
+        let output = staging_directory(app)?.join(format!("{prepared_id}.mp4"));
+        let result = adaptive_prepare(Path::new(&input), &output, &ffmpeg, &ffprobe, width, height);
+        let outcome = match result {
+            Ok(value) => value,
+            Err(error) => { let _ = fs::remove_file(&output); return Err(error); }
+        };
+        report.policy_version = FST_POLICY.into();
+        report.frame_count = outcome.frame_count;
+        report.encoder = outcome.encoder.map(str::to_string);
+        report.method = Some(outcome.method.into());
+        report.message = match outcome.method {
+            "passthrough" => "MP4 compatível: original enviado sem recodificação; pixels e timestamps preservados.".into(),
+            "streamcopy" => "Contêiner MP4 preparado sem recodificar; pacotes e timestamps conferidos.".into(),
+            _ => format!("Vídeo convertido com {} para H.264; pixels alterados, frames e timestamps conferidos.", outcome.encoder.unwrap_or("encoder desconhecido")),
+        };
+        if outcome.method != "passthrough" {
+            let bytes = fs::metadata(&output).map_err(|_| "Vídeo preparado indisponível")?.len();
+            let digest = sha256(&output)?;
+            connection.execute("INSERT INTO video_staging (upload_id,experiment_id,local_path,original_filename,expected_size,received_size,sha256,ready) VALUES (?1,?2,?3,?4,?5,?5,?6,1)",
+                params![prepared_id, experiment_id, output.to_string_lossy(), format!("{filename}.prepared.mp4"), bytes as i64, digest])
+                .map_err(|_| "Falha ao registrar o vídeo preparado")?;
+            report.upload_id = prepared_id;
+            report.upload_bytes = bytes;
+            report.status = "optimized".into();
+        }
+        report.preparation_ms = Some(started.elapsed().as_millis() as u64);
+        connection.execute("INSERT INTO video_preparations (original_upload_id,prepared_upload_id,report_json) VALUES (?1,?2,?3)",
+            params![upload_id, &report.upload_id, serde_json::to_string(&report).map_err(|_| "Falha ao registrar preparação")?])
+            .map_err(|_| "Falha ao salvar preparação do vídeo")?;
+        return Ok(report);
+    }
     if let (Some(ffmpeg), Some(ffprobe)) = (binary("ffmpeg"), binary("ffprobe")) {
         let prepared_id = new_uuid_v4();
         let output = staging_directory(app)?.join(format!("{prepared_id}.mp4"));
@@ -662,9 +952,10 @@ pub async fn prepare_analysis_video(
     upload_id: String,
     width: u32,
     height: u32,
+    fst_adaptive: Option<bool>,
 ) -> CommandResult<VideoPreparation> {
     tauri::async_runtime::spawn_blocking(move || {
-        prepare_staged_video(&app, &upload_id, width, height)
+        prepare_staged_video_with_policy(&app, &upload_id, width, height, fst_adaptive.unwrap_or(false))
     })
     .await
     .map_err(|_| "Preparação do vídeo interrompida".to_string())?
@@ -844,6 +1135,51 @@ pub(crate) fn prepare_diagnostic_video(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn adaptive_preparation_passthrough_remux_and_transcode() {
+        let (Some(ffmpeg), Some(ffprobe)) = (binary("ffmpeg"), binary("ffprobe")) else { return; };
+        let root = std::env::temp_dir().join(format!("behavetracker-adaptive-{}", new_uuid_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let mp4 = root.join("source.mp4");
+        assert!(Command::new(&ffmpeg).args(["-v", "error", "-f", "lavfi", "-i",
+            "testsrc2=size=160x120:rate=24", "-frames:v", "24", "-c:v", "libx264",
+            "-pix_fmt", "yuv420p"]).arg(&mp4).status().unwrap().success());
+        let digest = sha256(&mp4).unwrap();
+        let untouched = root.join("unused.mp4");
+        let direct = adaptive_prepare(&mp4, &untouched, &ffmpeg, &ffprobe, 160, 120).unwrap();
+        assert_eq!(direct.method, "passthrough");
+        assert!(!untouched.exists());
+        assert_eq!(sha256(&mp4).unwrap(), digest);
+
+        let mkv = root.join("source.mkv");
+        assert!(Command::new(&ffmpeg).args(["-v", "error", "-i"]).arg(&mp4)
+            .args(["-c:v", "copy"]).arg(&mkv).status().unwrap().success());
+        let remuxed = root.join("remuxed.mp4");
+        let remux = adaptive_prepare(&mkv, &remuxed, &ffmpeg, &ffprobe, 160, 120).unwrap();
+        assert_eq!(remux.method, "streamcopy");
+        assert!(same_packet_timing(&packet_timestamps(&ffprobe, &mkv).unwrap(),
+            &packet_timestamps(&ffprobe, &remuxed).unwrap()));
+
+        let raw = root.join("source.nut");
+        assert!(Command::new(&ffmpeg).args(["-v", "error", "-f", "lavfi", "-i",
+            "testsrc2=size=160x120:rate=24", "-frames:v", "24", "-c:v", "rawvideo",
+            "-f", "nut"]).arg(&raw).status().unwrap().success());
+        let converted = root.join("converted.mp4");
+        let transcode = adaptive_prepare(&raw, &converted, &ffmpeg, &ffprobe, 160, 120).unwrap();
+        assert_eq!(transcode.method, "transcode");
+        assert!(transcode.encoder.is_some());
+        assert!(same_presentation_timing(&packet_timestamps(&ffprobe, &raw).unwrap(),
+            &packet_timestamps(&ffprobe, &converted).unwrap()));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn adaptive_preparation_rejects_changed_geometry_and_rotation() {
+        let info = serde_json::json!({"streams":[{"width":160,"height":120,
+            "side_data_list":[{"rotation":90}]}],"format":{"duration":"1.0"}});
+        assert!(valid_adaptive_source(&info, 160, 120).unwrap_err().contains("rotação"));
+        assert!(valid_adaptive_source(&info, 320, 240).unwrap_err().contains("Resolução"));
+    }
     #[test]
     fn staging_status_requires_a_ready_file_of_the_expected_size_owned_by_the_experiment() {
         let root = std::env::temp_dir().join(format!("behavetracker-cache-test-{}", new_uuid_v4()));

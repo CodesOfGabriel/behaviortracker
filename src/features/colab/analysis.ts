@@ -150,9 +150,9 @@ export async function prepareFstVideo(experimentId: string, file: File, metadata
   if (expectedOriginalSha256 && originalSha256 !== expectedOriginalSha256) {
     throw new Error("O SHA-256 do arquivo selecionado não corresponde ao vídeo original do experimento.");
   }
-  onProgress(0, "Otimizando o vídeo e conferindo a sincronização dos frames");
-  const preparation = await invoke<VideoPreparation>("prepare_analysis_video", { uploadId: originalUploadId, width: metadata.width, height: metadata.height });
-  onProgress(100, preparation.message);
+  onProgress(0, "Verificando compatibilidade e preparando o vídeo FST, se necessário");
+  const preparation = await invoke<VideoPreparation>("prepare_analysis_video", { uploadId: originalUploadId, width: metadata.width, height: metadata.height, fstAdaptive: true });
+  onProgress(100, `${preparation.message}${preparation.cacheHit ? " · Cache reutilizado" : ""}`);
   return { preparation, originalSha256 };
 }
 

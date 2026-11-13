@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { defaultArena } from "../../lib/demo-data";
 import type { ForcedSwimExperiment, VideoPreparation } from "../../types";
-import { loadColabVideo, prepareVideo, startColabJob, startFstJob } from "./analysis";
+import { loadColabVideo, prepareFstVideo, prepareVideo, startColabJob, startFstJob } from "./analysis";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn().mockResolvedValue({}), convertFileSrc: (path: string) => `asset://${path}` }));
 
@@ -50,6 +50,15 @@ describe("geometria enviada ao backend Colab", () => {
     expect(vi.mocked(invoke).mock.calls.slice(-4).map(([name]) => name)).toEqual(["begin_video_staging", "append_video_staging_raw", "finish_video_staging", "prepare_analysis_video"]);
     expect(vi.mocked(invoke).mock.calls.at(-3)?.[1]).toEqual(new Uint8Array([1, 2, 3, 4]));
     expect(vi.mocked(invoke).mock.calls.at(-3)?.[2]).toEqual({ headers: { "x-upload-id": "original", "x-offset": "0" } });
+  });
+  it("usa a política adaptativa apenas para o vídeo FST", async () => {
+    vi.mocked(invoke).mockImplementation(async (command) => command === "begin_video_staging" ? { uploadId: "original" }
+      : command === "get_video_staging_sha256" ? "digest"
+      : command === "prepare_analysis_video" ? { uploadId: "original", policyVersion: "fst-adaptive-1" } : {});
+    const file = { name: "nado.mp4", size: 4, slice: () => ({ arrayBuffer: async () => new Uint8Array([1, 2, 3, 4]).buffer }) } as unknown as File;
+    const result = await prepareFstVideo("fst", file, { width: 1920, height: 1080 }, vi.fn(), "digest");
+    expect(result.preparation.policyVersion).toBe("fst-adaptive-1");
+    expect(invoke).toHaveBeenLastCalledWith("prepare_analysis_video", { uploadId: "original", width: 1920, height: 1080, fstAdaptive: true });
   });
   it("usa URL de arquivo local sem carregar o MP4 inteiro no JavaScript", async () => {
     vi.mocked(invoke).mockResolvedValueOnce({ jobId: "job", videoPath: "/results/job-dlc.mp4", videoError: null });

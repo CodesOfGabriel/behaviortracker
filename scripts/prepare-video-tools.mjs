@@ -9,6 +9,11 @@ const target = process.env.BEHAVETRACKER_TARGET || {
   "win32:x64": "x86_64-pc-windows-msvc", "linux:x64": "x86_64-unknown-linux-gnu",
 }[`${process.platform}:${process.arch}`];
 if (!target) throw new Error("Plataforma sem FFmpeg empacotado.");
+const nativeTarget = {
+  "darwin:x64": "x86_64-apple-darwin", "darwin:arm64": "aarch64-apple-darwin",
+  "win32:x64": "x86_64-pc-windows-msvc", "linux:x64": "x86_64-unknown-linux-gnu",
+}[`${process.platform}:${process.arch}`];
+if (target !== nativeTarget) throw new Error(`FFmpeg deve ser preparado no sistema de destino: ${target} em ${nativeTarget}.`);
 const suffix = process.platform === "win32" ? ".exe" : "";
 const outputDir = resolve("src-tauri/binaries");
 mkdirSync(outputDir, { recursive: true });
@@ -23,7 +28,7 @@ function systemBinary(name) {
 
 for (const name of ["ffmpeg", "ffprobe"]) {
   const output = join(outputDir, `behavetracker-${name}-${target}${suffix}`);
-  if (!existsSync(output)) {
+  if (!existsSync(output) || process.env.BEHAVETRACKER_REQUIRE_STATIC === "1") {
     let source;
     try {
       source = require(name === "ffmpeg" ? "ffmpeg-static" : "@derhuerst/ffprobe-static");
@@ -31,8 +36,9 @@ for (const name of ["ffmpeg", "ffprobe"]) {
       if (process.env.BEHAVETRACKER_REQUIRE_STATIC === "1") throw new Error(`${name} estático ausente para ${target}.`);
       source = systemBinary(name);
     }
+    source = typeof source === "string" ? source : source?.path;
     if (!source || !existsSync(source)) throw new Error(`${name} indisponível para o instalador ${target}.`);
-    copyFileSync(source, output);
+    if (resolve(source) !== resolve(output)) copyFileSync(source, output);
     if (process.platform !== "win32") chmodSync(output, 0o755);
   }
   const result = spawnSync(output, ["-version"], { stdio: "ignore" });

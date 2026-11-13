@@ -118,9 +118,9 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
     if(!isTauriRuntime()){setError("A análise FST requer o aplicativo desktop.");return}
     const validation=validateForcedSwim(experiment);if(validation){setError(validation);return}
     let preparation=file?undefined:experiment.video.preparation;
-    if(preparation&&preparation.originalBytes>100_000_000&&preparation.policyVersion!=="quality-upload-2")preparation=undefined;
+    if(preparation&&preparation.policyVersion!=="fst-adaptive-1")preparation=undefined;
     if(preparation&&!await checkVideoStaging(experimentId,preparation.uploadId))preparation=undefined;
-    if(!preparation&&!file){fileRef.current?.click();return}
+    if(!preparation&&!file){file=asset?.file;if(!file){fileRef.current?.click();return}}
     setBusy(true);setError(null);setMessage("Validando conexão com o Colab");
     let started=false;
     try{
