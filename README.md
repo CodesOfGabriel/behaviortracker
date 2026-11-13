@@ -46,7 +46,7 @@ No Nado Forçado, a presença visual e a confiança dos pontos anatômicos são 
 
 O site em `behavior.usetars.com` é servido pelo Nginx de `docker-compose.live.yml`, com `dist/` montado em modo somente leitura. Um push na `main` dispara o workflow [`deploy-web.yml`](.github/workflows/deploy-web.yml), que testa e compila o site no GitHub Actions. O workflow envia o `dist/` pronto à VPS `vps-sala212`; o [`script de publicação`](scripts/deploy-live.sh) atualiza o checkout em `/srv/apps/behaviortracker` por avanço direto e troca a pasta publicada. A versão anterior é restaurada se as verificações HTTP locais falharem. A VPS não consulta o GitHub periodicamente.
 
-O workflow usa o segredo de repositório `VPS_DEPLOY_SSH_KEY`, uma chave SSH dedicada ao usuário `deploy`. Configure esse segredo em **GitHub → Settings → Secrets and variables → Actions** antes do primeiro push com o workflow. A chave privada não deve entrar no Git; a chave pública do host está fixada em [`ops/behaviortracker-known-hosts`](ops/behaviortracker-known-hosts). Para consultar a última publicação na VPS:
+O workflow usa o segredo de repositório `VPS_DEPLOY_SSH_KEY`, uma chave SSH dedicada ao usuário `deploy`. Configure esse segredo em **GitHub → Settings → Secrets and variables → Actions** antes do primeiro push com o workflow. A chave privada não deve entrar no Git; a chave pública do host está fixada em [`.github/behaviortracker-known-hosts`](.github/behaviortracker-known-hosts). Para consultar a última publicação na VPS:
 
 ```bash
 cat /srv/apps/.behaviortracker-deploy/deployed_sha
