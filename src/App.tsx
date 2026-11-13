@@ -1,4 +1,5 @@
 import { AppShell } from "./components/AppShell";
+import { About } from "./features/about/About";
 import { ColabGate } from "./features/colab/ColabGate";
 import { Dashboard } from "./features/dashboard/Dashboard";
 import { NewExperiment } from "./features/experiments/NewExperiment";
@@ -20,6 +21,9 @@ export default function App() {
       break;
     case "colab":
       content = <ColabGate />;
+      break;
+    case "about":
+      content = <About />;
       break;
     default:
       content = <Dashboard />;

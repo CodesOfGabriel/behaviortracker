@@ -1,0 +1,140 @@
+name: Publish desktop release
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Successful Build desktop installers run ID"
+        required: true
+        type: string
+      visibility:
+        description: "Draft for review, or public for immediate downloads"
+        required: true
+        default: draft
+        type: choice
+        options:
+          - draft
+          - public
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-22.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+      RELEASE_VISIBILITY: ${{ inputs.visibility }}
+    steps:
+      - name: Check the installer build
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "Invalid run ID" >&2; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" > source-run.json
+          jq -e '
+            .status == "completed" and
+            .conclusion == "success" and
+            .event == "workflow_dispatch" and
+            .head_branch == "main" and
+            .path == ".github/workflows/build-installers.yml"
+          ' source-run.json > /dev/null
+          echo "sha=$(jq -r .head_sha source-run.json)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.source.outputs.sha }}
+          persist-credentials: false
+
+      - name: Check release version and tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          tag="v$version"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "Release $tag already exists" >&2
+            exit 1
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" > existing-tag.json 2>/dev/null; then
+            if [[ "$(jq -r .object.sha existing-tag.json)" != "${{ steps.source.outputs.sha }}" ]]; then
+              echo "Tag $tag points to a different commit" >&2
+              exit 1
+            fi
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Download all four installer artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in macos-intel macos-apple-silicon windows-x64 linux-x64; do
+            gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$name" --dir "artifacts/$name"
+          done
+
+      - name: Check and name the five installers
+        shell: bash
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from shutil import copy2
+
+          version = os.environ['APP_VERSION']
+          expected = {
+              'macos-intel': {'.dmg': f'BehaviorTracker-v{version}-macOS-Intel.dmg'},
+              'macos-apple-silicon': {'.dmg': f'BehaviorTracker-v{version}-macOS-Apple-Silicon.dmg'},
+              'windows-x64': {'.exe': f'BehaviorTracker-v{version}-Windows-x64.exe'},
+              'linux-x64': {
+                  '.deb': f'BehaviorTracker-v{version}-Linux-x64.deb',
+                  '.AppImage': f'BehaviorTracker-v{version}-Linux-x64.AppImage',
+              },
+          }
+          output = Path('dist')
+          output.mkdir()
+          for artifact, files_by_suffix in expected.items():
+              source = Path('artifacts') / artifact
+              files = [path for path in source.rglob('*') if path.is_file() and not path.is_symlink()]
+              if len(files) != len(files_by_suffix):
+                  raise SystemExit(f'{artifact}: expected {len(files_by_suffix)} files, found {len(files)}')
+              for suffix, name in files_by_suffix.items():
+                  matches = [path for path in files if path.name.endswith(suffix)]
+                  if len(matches) != 1 or matches[0].stat().st_size == 0:
+                      raise SystemExit(f'{artifact}: expected one nonempty {suffix} installer')
+                  copy2(matches[0], output / name)
+                  print(f'{name}: {matches[0].stat().st_size} bytes')
+          PY
+
+      - name: Create app release
+        shell: bash
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
+          APP_TAG: ${{ steps.version.outputs.tag }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<EOF
+          Instaladores do Behavior Tracker $APP_VERSION para Windows x64, macOS Intel, macOS Apple Silicon e Linux x64 (.deb e .AppImage).
+
+          Compilados a partir do commit $SOURCE_SHA na execução $SOURCE_RUN_ID do GitHub Actions.
+
+          Estes instaladores ainda não têm assinatura de código. macOS e Windows podem pedir confirmação adicional ao instalar.
+          EOF
+          options=(--repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" --title "Behavior Tracker $APP_TAG" --notes-file release-notes.md)
+          if [[ "$RELEASE_VISIBILITY" == draft ]]; then
+            options+=(--draft)
+          elif [[ "$RELEASE_VISIBILITY" == public ]]; then
+            options+=(--latest)
+          else
+            echo "Invalid release visibility" >&2
+            exit 1
+          fi
+          gh release create "$APP_TAG" dist/* "${options[@]}"

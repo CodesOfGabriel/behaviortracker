@@ -67,6 +67,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     { id: "dashboard", label: "Visão geral", icon: LayoutDashboard, action: () => navigate({ name: "dashboard" }) },
     { id: "experiments", label: "Experimentos", icon: FlaskConical, action: () => navigate({ name: "dashboard" }) },
     { id: "colab", label: "Processamento", icon: CloudCog, action: () => navigate({ name: "colab" }) },
+    { id: "about", label: "Sobre", icon: CircleHelp, action: () => navigate({ name: "about" }) },
   ];
 
   return (
@@ -89,6 +90,8 @@ export function AppShell({ children }: { children: ReactNode }) {
                 key={item.id}
                 onClick={item.action}
                 className={cn("nav-item", isActive(item.id, route.name) && "nav-item-active")}
+                aria-label={item.label}
+                aria-current={isActive(item.id, route.name) ? "page" : undefined}
               >
                 <Icon size={18} strokeWidth={1.8} />
                 <span>{item.label}</span>
@@ -113,7 +116,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         <div className="sidebar-footer">
-          <button><CircleHelp size={17} /> Ajuda e método</button>
           <button><Settings size={17} /> Preferências</button>
           <div className="local-profile">
             <div className="profile-avatar">{researcherInitials}</div>

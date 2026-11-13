@@ -16,7 +16,8 @@ export type AppRoute =
   | { name: "dashboard" }
   | { name: "new-experiment" }
   | { name: "results"; experimentId: string }
-  | { name: "colab" };
+  | { name: "colab" }
+  | { name: "about" };
 
 export interface VideoMetadata {
   filename: string;
