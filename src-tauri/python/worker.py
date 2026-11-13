@@ -108,6 +108,11 @@ def snapshot(directory, task):
     fst_phase = list(re.finditer(r"BEHAVETRACKER_FST_PHASE=([a-z_]+)", clean))
     if fst_phase:
         report["progressText"] = "FST_STAGE=" + fst_phase[-1].group(1)
+    fst_frames = list(re.finditer(r"BEHAVETRACKER_FST_FRAMES=([A-Za-z0-9_]+):(\d+)/(\d+)", clean))
+    if fst_frames and (not fst_phase or fst_frames[-1].start() > fst_phase[-1].start()):
+        animal, current, total = fst_frames[-1].groups()
+        frame_text = f"FST_FRAMES={animal}:{current}/{total}"
+        report["progressText"] = (report.get("progressText", "") + " · " + frame_text).strip(" ·")
     return report
 
 

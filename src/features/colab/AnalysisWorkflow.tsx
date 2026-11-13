@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { formatElapsedClock } from "../../lib/format";
 import type { ColabJob } from "./analysis";
 import { loadColabLog } from "./analysis";
-import { checkpoints, diaryEvents, displayAnalysisMessage, gpuMessage, stageIndex } from "./workflow";
+import { checkpoints, diaryEvents, displayAnalysisMessage, gpuMessage, reportedFrameProgress, stageIndex } from "./workflow";
 
 const icons = [FileVideo, Cpu, UploadCloud, ShieldCheck, WandSparkles, ScanSearch, CloudDownload];
 
@@ -34,6 +34,7 @@ export function AnalysisWorkflow({ job, preparing, message, localError, elapsedS
   const startTime = Math.min(startedAt ?? Infinity, job ? Date.parse(job.createdAt) : Infinity);
   const duration = active && Number.isFinite(startTime)
     ? Math.max(0, (now - startTime) / 1_000) : elapsedSec;
+  const frameProgress = reportedFrameProgress(job, protocol);
   const gpu = gpuMessage(events);
   const flowRef = useRef<HTMLDivElement>(null);
   const [technicalLog, setTechnicalLog] = useState<string | null>(null);
@@ -88,6 +89,11 @@ export function AnalysisWorkflow({ job, preparing, message, localError, elapsedS
         <div className={`workflow-progress ${!job && active ? "workflow-progress-indeterminate" : ""}`} role="progressbar" aria-label="Progresso da análise" aria-valuemin={0} aria-valuemax={100} aria-valuenow={job ? Math.round(progress) : undefined}>
           <span style={job ? { width: `${progress}%` } : undefined} />
         </div>
+      </div>}
+      {frameProgress && <div className="workflow-frames" aria-label={`Frames reportados pelo Colab para ${frameProgress.scope}`}>
+        <div><span>Frames analisados · {frameProgress.scope}</span><strong>{frameProgress.processed.toLocaleString("pt-BR")} <small>/ {frameProgress.total.toLocaleString("pt-BR")}</small></strong></div>
+        <div><span>Restantes nesta etapa</span><strong>{frameProgress.remaining.toLocaleString("pt-BR")}</strong></div>
+        <p>Contagem informada pelo Colab para esta etapa.</p>
       </div>}
       {!logOnly && <div ref={flowRef} className="workflow-scroll" tabIndex={0} aria-label="Fluxograma horizontal; deslize para ver todas as etapas">
         <ol className="workflow-checkpoints">

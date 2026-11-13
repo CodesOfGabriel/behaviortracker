@@ -35,6 +35,26 @@ export function displayAnalysisMessage(message: string) {
     .replace(/\s*[·:]\s*$/g, "").replace(/\s{2,}/g, " ").trim();
 }
 
+export function reportedFrameProgress(job: ColabJob | null, protocol: "open_field" | "forced_swim") {
+  if (!job || job.status !== "running" || job.stage !== "inference") return null;
+  const match = protocol === "forced_swim"
+    ? /FST_FRAMES=([A-Za-z0-9_]+):(\d+)\/(\d+)/.exec(job.message)
+    : /Recuperação visual: (\d+)\/(\d+) frames verificados/.exec(job.message)
+      ?? /Detector Wistar · (\d+)\/(\d+)(?=\s|$)/.exec(job.message);
+  if (!match) return null;
+  const currentText = protocol === "forced_swim" ? match[2] : match[1];
+  const totalText = protocol === "forced_swim" ? match[3] : match[2];
+  const processed = Number(currentText);
+  const total = Number(totalText);
+  if (!Number.isSafeInteger(processed) || !Number.isSafeInteger(total) || total <= 0 || processed < 0 || processed > total) return null;
+  let scope = job.message.includes("Recuperação visual:") ? "Recuperação visual" : "Detecção";
+  if (protocol === "forced_swim") {
+    const animal = /^animal_(\d+)$/.exec(match[1]);
+    scope = animal ? `Animal ${animal[1]}` : match[1];
+  }
+  return { processed, total, remaining: total - processed, scope };
+}
+
 export function diaryEvents(events: ColabJobEvent[], protocol: "open_field" | "forced_swim") {
   const steps = protocol === "forced_swim" ? fstWorkflowSteps : workflowSteps;
   const entries: { id: number; createdAt: string; status: ColabJobEvent["status"]; message: string }[] = [];

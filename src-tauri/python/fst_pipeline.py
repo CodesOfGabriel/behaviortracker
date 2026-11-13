@@ -205,11 +205,13 @@ def _infer(video, cache, rects, fps, n_frames, fingerprint):
                             arr[i]=pose
                     _save_checkpoint(cache/f'{animal}_{chunk:04d}.npz',arr,fingerprint)
                     available[animal]=arr
-                    print(f'FST inference {animal}: {min(n_frames,(chunk+1)*chunk_frames)}/{n_frames} frames, batch={batch}',flush=True)
+                    print(f'BEHAVETRACKER_FST_FRAMES={animal}:{min(n_frames,(chunk+1)*chunk_frames)}/{n_frames}',flush=True)
                     del result,shapes,good,arr,video_it
                     gc.collect()
                 for animal, arr in available.items():
                     arrays[animal].append(arr)
+                    if animal not in pending:
+                        print(f'BEHAVETRACKER_FST_FRAMES={animal}:{min(n_frames,(chunk+1)*chunk_frames)}/{n_frames}',flush=True)
             finally:
                 for writer in writers.values():writer.release()
                 for clip,_,_ in clips.values():clip.unlink(missing_ok=True)
@@ -310,6 +312,7 @@ def run(video_path, output_path, config):
         raise RuntimeError('Checkpoint fingerprint collision')
     cache_config.write_text(json.dumps(fingerprint_data,indent=2))
     print('BEHAVETRACKER_FST_PHASE=inference',flush=True)
+    print(f'BEHAVETRACKER_FST_FRAMES={next(iter(rects))}:0/{n_frames}',flush=True)
     arrays,names,batch=_infer(video,cache,rects,fps,n_frames,fingerprint)
     if len(names)!=39:names=[f'keypoint_{i:02d}' for i in range(39)]
     print('BEHAVETRACKER_FST_PHASE=presence',flush=True)

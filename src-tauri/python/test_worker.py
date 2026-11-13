@@ -122,6 +122,15 @@ class WorkerTests(unittest.TestCase):
         report = worker.snapshot(self.directory, "inference")
         self.assertEqual(report["progressText"], "Recuperação visual: 240/7356 frames verificados")
 
+    def test_fst_frame_count_is_reported_only_during_inference(self):
+        files = worker.paths(self.directory, "inference")
+        worker.write_status(files["status"], {"state": "running"})
+        files["log"].write_text("BEHAVETRACKER_FST_PHASE=inference\nBEHAVETRACKER_FST_FRAMES=animal_2:600/1200\n")
+        self.assertEqual(worker.snapshot(self.directory, "inference")["progressText"],
+                         "FST_STAGE=inference · FST_FRAMES=animal_2:600/1200")
+        files["log"].write_text("BEHAVETRACKER_FST_PHASE=inference\nBEHAVETRACKER_FST_FRAMES=animal_2:600/1200\nBEHAVETRACKER_FST_PHASE=presence\n")
+        self.assertEqual(worker.snapshot(self.directory, "inference")["progressText"], "FST_STAGE=presence")
+
     def test_keyboard_interrupt_is_a_real_failure_not_a_configuration_warning(self):
         worker.launch(self.directory, "inference", "raise KeyboardInterrupt")
         report = self.wait_for()

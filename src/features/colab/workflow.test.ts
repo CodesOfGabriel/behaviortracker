@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ColabJob, ColabJobEvent } from "./analysis";
-import { checkpoints, diaryEvents, displayAnalysisMessage, gpuMessage, preparingNewAnalysis } from "./workflow";
+import { checkpoints, diaryEvents, displayAnalysisMessage, gpuMessage, preparingNewAnalysis, reportedFrameProgress } from "./workflow";
 
 function event(id: number, stage: string, message = stage): ColabJobEvent {
   return { id, stage, message, progress: 0, status: "running", createdAt: "2026-11-06T12:00:00Z" };
@@ -13,6 +13,18 @@ function job(overrides: Partial<ColabJob>): ColabJob {
 }
 
 describe("checkpoints da análise", () => {
+  it("mostra apenas contagens de frames explicitamente reportadas pelo Colab", () => {
+    expect(reportedFrameProgress(job({stage:"inference",message:"SuperAnimal em execução · lote atual: Detector Wistar · 240/7356 (3.2 frames/s)"}),"open_field"))
+      .toEqual({processed:240,total:7356,remaining:7116,scope:"Detecção"});
+    expect(reportedFrameProgress(job({stage:"inference",message:"SuperAnimal em execução · lote atual: 3633/7356 (49%)"}),"open_field")).toBeNull();
+    expect(reportedFrameProgress(job({stage:"inference",message:"SuperAnimal em execução · lote atual: Recuperação visual: 240/7356 frames verificados"}),"open_field"))
+      .toEqual({processed:240,total:7356,remaining:7116,scope:"Recuperação visual"});
+    expect(reportedFrameProgress(job({stage:"inference",message:"FST em execução · lote atual: FST_STAGE=inference · FST_FRAMES=animal_2:600/1200",protocol:"forced_swim"}),"forced_swim"))
+      .toEqual({processed:600,total:1200,remaining:600,scope:"Animal 2"});
+    expect(reportedFrameProgress(job({stage:"inference",message:"FST_FRAMES=animal_2:1201/1200",protocol:"forced_swim"}),"forced_swim")).toBeNull();
+    expect(reportedFrameProgress(job({message:"FST em execução · lote atual: FST_STAGE=presence",protocol:"forced_swim",stage:"presence"}),"forced_swim")).toBeNull();
+  });
+
   it("mostra a preparação de um novo job mesmo após uma execução interrompida", () => {
     const previous = job({ status: "failed", message: "O aplicativo fechou" });
     expect(preparingNewAnalysis(true, null, [previous])).toBe(true);
