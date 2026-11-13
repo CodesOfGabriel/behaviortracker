@@ -122,6 +122,9 @@ struct FstConfiguration {
     #[serde(default)] title: Option<String>,
     #[serde(default)] group: Option<String>,
     #[serde(default)] notes: Option<String>,
+    #[serde(default)] source_width: Option<u32>,
+    #[serde(default)] source_height: Option<u32>,
+    #[serde(default)] preparation_policy_version: Option<String>,
     subjects: Vec<FstSubject>, tanks: Vec<FstTank>,
 }
 
@@ -2466,7 +2469,9 @@ fn fst_code(video: &str, output: &str, fst: &FstConfiguration, workload: &Analys
     let config = json!({"protocol":"forced_swim","engineId":"fst_superanimal_quadruped_v1",
         "runId":run_id,"title":&fst.title,"group":&fst.group,"notes":&fst.notes,
         "subjects":&fst.subjects,"tanks":&fst.tanks,
-        "video":{"sha256":digest,"originalSha256":original_digest,"filename":filename,"width":workload.width,"height":workload.height}});
+        "video":{"sha256":digest,"originalSha256":original_digest,"filename":filename,"width":workload.width,"height":workload.height,
+            "sourceWidth":fst.source_width,"sourceHeight":fst.source_height,
+            "preparationPolicyVersion":&fst.preparation_policy_version}});
     let config_json = config.to_string();
     let source = include_str!("../python/fst_pipeline.py");
     let presence = include_str!("../python/fst_presence.py");
@@ -2599,7 +2604,7 @@ fn run_analysis(
 ) -> CommandResult<()> {
     let preparation_started = Instant::now();
     prepare_tables(&app)?;
-    update_job(&app, &job_id, "running", "authorizing", 2, "Preparando o vídeo local sem reduzir resolução ou FPS")?;
+    update_job(&app, &job_id, "running", "authorizing", 2, "Conferindo o vídeo preparado para a análise")?;
     let upload_id = if let Some(range) = &diagnostic {
         let clip = crate::video::prepare_diagnostic_video(&app, &upload_id, &job_id, range.start_sec, range.end_sec, workload.width, workload.height)?;
         update_job(&app, &job_id, "running", "authorizing", 3, "Trecho curto preparado e pixels conferidos; o vídeo completo não será enviado")?;

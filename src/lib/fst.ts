@@ -45,7 +45,7 @@ export interface FstFrame {
 }
 export interface FstResult {
   schemaVersion: "fst-result-1"; protocol: "forced_swim"; engineId: typeof FST_ENGINE;
-  analysisVersion: typeof FST_VERSION; runId: string; video: { sha256: string; originalSha256: string; width: number; height: number; fps: number; frameCount: number; filename: string };
+  analysisVersion: typeof FST_VERSION; runId: string; video: { sha256: string; originalSha256: string; width: number; height: number; sourceWidth?: number | null; sourceHeight?: number | null; sourceToUploadScaleX?: number | null; sourceToUploadScaleY?: number | null; preparationPolicyVersion?: string | null; fps: number; frameCount: number; filename: string };
   subjects: ForcedSwimExperiment["subjects"]; tanks: TankConfig[]; frames: FstFrame[];
   keypointNames: string[]; poseArrays: Record<string, [number | null, number | null, number][][]>;
   quality: Record<string, { presenceSec: number; anatomicalCoverage: number; insufficientDataSec: number }>;

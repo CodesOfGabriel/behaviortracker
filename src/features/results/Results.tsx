@@ -4,7 +4,6 @@ import {
   Check,
   CheckCircle2,
   Clock3,
-  CloudCog,
   Download,
   Footprints,
   Gauge,
@@ -131,7 +130,6 @@ export function Results({ experimentId }: { experimentId: string }) {
         <section className="page-heading results-heading">
           <div><div className="eyebrow">Análise Completa · Open Field Test</div><h1>{experiment.title}</h1><p>{experiment.subjectId} · Aguardando resultado do tracking</p></div>
           <div className="results-actions">
-            <Button variant="secondary" icon={<CloudCog size={16} />} onClick={() => navigate({ name: "colab" })}>{analysis.summary.connected ? "Colab conectado" : "Conectar Colab"}</Button>
             <Button disabled={analysis.busy || analysis.loadingResult || !analysis.summary.connected} onClick={() => void analysis.run()}>{analysis.busy ? "Processando…" : "Analisar no Colab"}</Button>
           </div>
         </section>
@@ -225,7 +223,6 @@ export function Results({ experimentId }: { experimentId: string }) {
           <p>{experiment.subjectId}{experiment.group ? ` · ${experiment.group}` : ""} · Método {METRIC_POLICY.version}</p>
         </div>
         <div className="results-actions">
-          <Button variant="secondary" icon={<CloudCog size={16} />} onClick={() => navigate({ name: "colab" })}>{analysis.summary.connected ? "Colab conectado" : "Conectar Colab"}</Button>
           <Button variant="secondary" disabled={analysis.busy || !analysis.summary.connected} onClick={() => void analysis.run()}>{analysis.busy ? "Processando…" : "Reprocessar"}</Button>
           <Button variant="secondary" icon={<Download size={16} />} onClick={() => setShowExport((current) => !current)}>Exportar</Button>
           <Button icon={<Check size={16} />} disabled={analysis.busy} onClick={() => updateExperiment(experiment.id, { status: "completed" })}>Concluir análise</Button>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ColabJob, ColabJobEvent } from "./analysis";
-import { checkpoints, displayAnalysisMessage, gpuMessage, preparingNewAnalysis } from "./workflow";
+import { checkpoints, diaryEvents, displayAnalysisMessage, gpuMessage, preparingNewAnalysis } from "./workflow";
 
 function event(id: number, stage: string, message = stage): ColabJobEvent {
   return { id, stage, message, progress: 0, status: "running", createdAt: "2026-11-06T12:00:00Z" };
@@ -23,6 +23,14 @@ describe("checkpoints da análise", () => {
   it("apresenta mensagens históricas sem o codinome do pipeline", () => {
     expect(displayAnalysisMessage("Executando pipeline D+F · detector Wistar")).toBe("Executando pipeline · detector Wistar");
     expect(displayAnalysisMessage("D+F: Detector Wistar · lote 16")).toBe("Detector Wistar · lote 16");
+    expect(displayAnalysisMessage("D+F: analisando 1%-2%-5%")).toBe("analisando");
+  });
+  it("resume o diário por etapa e remove porcentagens e nomes internos", () => {
+    const events = [event(1, "inference", "D+F: analisando 1%"), event(2, "inference", "D+F: analisando 2%"),
+      event(3, "rendering", "Renderizando 5%"), { ...event(4, "rendering", "D+F: erro 10%"), status: "failed" as const }];
+    const entries = diaryEvents(events, "open_field");
+    expect(entries.map(item => item.message)).toEqual(["Detectando animal em andamento", "Preparando resultados em andamento", "Falha em preparando resultados: erro"]);
+    expect(entries.map(item => item.id)).toEqual([1, 3, 4]);
   });
   it("mostra a etapa ativa e a GPU realmente confirmada", () => {
     const events = [event(1, "runtime"), event(2, "gpu_ready", "Tesla T4 encontrada · sessão pronta"), event(3, "uploading")];

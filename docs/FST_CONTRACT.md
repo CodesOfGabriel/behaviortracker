@@ -4,11 +4,11 @@ FST uses `testType: "forced_swim"`, `analysisMethodVersion: "fst-0.1"`, and `ana
 
 ## Inference and presence
 
-`fst_pipeline.py` adapts the v6.2 notebook's `create_superanimal_inference_runners` call: DeepLabCut 3.0.2, `superanimal_quadruped`, HRNet-w32, 39 points, CUDA, `detector_name=None`, one fixed crop and one individual per tank. It uses 20-second chunks, GPU-dependent batches, OOM retry at half batch size, and NPZ checkpoints. Each pose coordinate in the UI/result CSV is translated from crop to original-video pixels. The raw NPZ retains crop coordinates and the original rectangle.
+`fst_pipeline.py` adapts the v6.2 notebook's `create_superanimal_inference_runners` call: DeepLabCut 3.0.2, `superanimal_quadruped`, HRNet-w32, 39 points, CUDA, `detector_name=None`, one fixed crop and one individual per tank. It uses 20-second chunks, GPU-dependent batches, OOM retry at half batch size, and NPZ checkpoints. Each pose coordinate in the UI/result CSV is translated from crop to uploaded-video pixels. For videos over 100 MiB, the upload may be downscaled to 1080p; the result and manifest record both uploaded and source dimensions. The raw NPZ retains crop coordinates and the uploaded rectangle.
 
 `fst_presence.py` starts from the v6.4 notebook's dark temporal reference, silhouette evidence, rejection of narrow reflections, and temporal debounce. A static-silhouette fallback adds evidence when an animal appears from the beginning and is absorbed into the temporal background. If temporal evidence confirms an entry later, earlier static candidates remain `UNCERTAIN` instead of confirming a stationary reflection as an animal. Presence never reads DLC pose coverage. `NOT_IN_TANK` and `UNCERTAIN` suppress boxes and points in the player. A lost pose cannot change presence. This heuristic has only the notebook's initial short-video evidence; new lighting and tanks need visual review. An uncertain frame is not counted as absent or immobile.
 
-The dynamic box uses the v6.4 pose-supported segmentation and prior-box logic. It is independent of the fixed search ROI and does not prove the anatomical points are correct. The MP4 is rendered at the input dimensions and FPS. The browser preview may estimate FPS; the result and manifest record FPS and frame count read by OpenCV in the Colab runtime. The manifest records the experiment title, group and notes, plus both the original file SHA-256 and the SHA-256 of the uploaded copy. Reattachment compares original-file hashes even if the lossless preparation creates different bytes.
+The dynamic box uses the v6.4 pose-supported segmentation and prior-box logic. It is independent of the fixed search ROI and does not prove the anatomical points are correct. The MP4 is rendered at the uploaded dimensions and FPS. The browser preview may estimate FPS; the result and manifest record FPS and frame count read by OpenCV in the Colab runtime. The manifest records the experiment title, group and notes, plus both the original file SHA-256 and the SHA-256 of the uploaded copy. Reattachment compares original-file hashes even if preparation creates different bytes. Lossy compression and downscaling can affect fine anatomical details, so comparative studies need frame review.
 
 ## Indicators and review
 
@@ -18,7 +18,7 @@ The dynamic box uses the v6.4 pose-supported segmentation and prior-box logic. I
 
 The Colab job stores each file below the app's `results` directory using the job UUID as a prefix. Downloads verify size and SHA-256 before publication:
 
-- `<job>.json`: UI result, frame indicators and compact per-frame pose arrays in original-video pixels.
+- `<job>.json`: UI result, frame indicators and compact per-frame pose arrays in uploaded-video pixels; source dimensions are recorded for coordinate conversion.
 - `<job>-animal_N_pose_raw.csv`: one row per point and frame, crop and original coordinates, likelihood.
 - `<job>-animal_N_pose_raw.npz`: raw pose array, FPS, original ROI, point names.
 - `<job>-presence.csv`, `<job>-presence_events.csv`, `<job>-presence_summary.csv`, `<job>-activity.csv`, `<job>-boxes.csv`, `<job>-activity_windows_1s.csv`, `<job>-activity_windows_3s.csv`, `<job>-review_shortlist.csv`: independent per-animal observations and review priorities.

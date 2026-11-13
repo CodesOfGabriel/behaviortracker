@@ -3,23 +3,24 @@ import { useEffect, useRef, useState } from "react";
 import { formatDuration } from "../../lib/format";
 import type { ColabJob } from "./analysis";
 import { loadColabLog } from "./analysis";
-import { checkpoints, displayAnalysisMessage, gpuMessage } from "./workflow";
+import { checkpoints, diaryEvents, displayAnalysisMessage, gpuMessage, stageIndex } from "./workflow";
 
 const icons = [FileVideo, Cpu, UploadCloud, ShieldCheck, WandSparkles, ScanSearch, CloudDownload];
 
-export function AnalysisWorkflow({ job, preparing, message, localError, elapsedSec, protocol: requestedProtocol = "open_field" }: {
+export function AnalysisWorkflow({ job, preparing, message, localError, elapsedSec, protocol: requestedProtocol = "open_field", logOnly = false }: {
   job: ColabJob | null;
   preparing: boolean;
   message: string;
   localError: string | null;
   elapsedSec: number;
   protocol?: "open_field" | "forced_swim";
+  logOnly?: boolean;
 }) {
   const protocol = job?.protocol === "forced_swim" ? "forced_swim" : requestedProtocol;
   const steps = checkpoints(job, preparing, Boolean(!job && localError), protocol);
   const events = job?.events ?? [];
   const progress = job?.status === "succeeded" ? 100 : Math.min(100, Math.max(0, job?.progress ?? 0, ...events.map((event) => event.progress)));
-  const compactEvents = events.filter((event) => event.status === "failed" || !/\d+(?:[.,]\d+)?\s*%/.test(event.message));
+  const compactEvents = diaryEvents(events, protocol);
   const failed = job?.status === "failed" || (!job && localError);
   const active = preparing || job?.status === "running" || job?.status === "queued";
   const gpu = gpuMessage(events);
@@ -57,12 +58,12 @@ export function AnalysisWorkflow({ job, preparing, message, localError, elapsedS
     return () => observer.disconnect();
   }, [job?.jobId, job?.stage, job?.status, preparing, localError]);
   return (
-    <section className="analysis-workflow" aria-label="Etapas do processamento">
-      <div className="workflow-heading">
+    <section className="analysis-workflow" aria-label={logOnly ? "Diário da execução" : "Etapas do processamento"}>
+      {!logOnly && <div className="workflow-heading">
         <div><span className="eyebrow">Do vídeo ao rastreamento</span><h3>{failed ? "Execução interrompida" : job?.status === "succeeded" ? "Resultado pronto" : active ? "Análise em andamento" : "Tudo pronto para começar"}</h3></div>
         {(job || preparing) && <span className="workflow-duration">{formatDuration(elapsedSec)} de execução</span>}
-      </div>
-      <div ref={flowRef} className="workflow-scroll" tabIndex={0} aria-label="Fluxograma horizontal; deslize para ver todas as etapas">
+      </div>}
+      {!logOnly && <div ref={flowRef} className="workflow-scroll" tabIndex={0} aria-label="Fluxograma horizontal; deslize para ver todas as etapas">
         <ol className="workflow-checkpoints">
           {steps.map((step, index) => {
             const Icon = icons[index] ?? CloudDownload;
@@ -78,7 +79,7 @@ export function AnalysisWorkflow({ job, preparing, message, localError, elapsedS
             );
           })}
         </ol>
-      </div>
+      </div>}
       {job && <div className="workflow-technical">
         <button type="button" className="button button-ghost" onClick={showTechnicalLog} disabled={loadingLog}>
           {loadingLog ? "Carregando log…" : technicalLog === null ? "Ver log técnico" : "Atualizar log técnico"}
@@ -87,7 +88,9 @@ export function AnalysisWorkflow({ job, preparing, message, localError, elapsedS
       </div>}
       <div className={`workflow-current ${failed ? "workflow-current-error" : ""}`} role="status" aria-live="polite">
         {failed ? <CircleAlert size={17} /> : active ? <LoaderCircle size={17} className="animate-spin" /> : <ScanSearch size={17} />}
-        <span>{displayAnalysisMessage(job?.error || localError || (job?.message && !/\d+(?:[.,]\d+)?\s*%/.test(job.message) ? job.message : null) || message || (job ? "Análise em andamento" : "As etapas serão atualizadas durante a análise."))}</span>
+        <span>{failed ? displayAnalysisMessage(job?.error || localError || "A execução foi interrompida. Consulte o log técnico.")
+          : job ? (steps[stageIndex(job.stage, protocol)]?.title || "Análise em andamento")
+          : displayAnalysisMessage(message || "As etapas serão atualizadas durante a análise.")}</span>
       </div>
       {job ? (
         <details className="workflow-log" open>
@@ -100,7 +103,7 @@ export function AnalysisWorkflow({ job, preparing, message, localError, elapsedS
               <li key={event.id} className={event.status === "failed" ? "log-failed" : ""}>
                 <time>{new Date(event.createdAt).toLocaleTimeString("pt-BR")}</time>
                 <span className="log-dot" />
-                <span>{displayAnalysisMessage(event.message)}</span>
+                <span>{event.message}</span>
               </li>
             ))}
           </ol>}

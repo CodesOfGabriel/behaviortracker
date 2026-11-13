@@ -563,7 +563,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
     try {
       const connection = await loadColabSummary();
       setColabSummary(connection);
-      if (!connection.connected) throw new Error("A Conta Google não está conectada. Abra Google Colab na barra lateral.");
+      if (!connection.connected) throw new Error("A Conta Google não está conectada. Abra Configurações pelo menu do usuário.");
       if (connection.providerError) throw new Error(connection.providerError);
       if (connection.eligibleGpuCount < 1) throw new Error("Sua conta não possui um runtime GPU elegível neste momento.");
       const bundleId = experiment.modelBundleId ?? "wistar_df_v1";
@@ -651,9 +651,6 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
         <button className="editor-home" onClick={() => navigate({ name: "dashboard" })}><ArrowLeft size={16} /><span><strong>Behavior Tracker</strong><small>Experimentos</small></span></button>
         <div className="editor-title"><div><h1>{experiment.title}</h1><p>{experiment.subjectId}{experiment.group ? ` · ${experiment.group}` : ""} · Campo aberto · {experiment.modelBundleId || "modelo legado"}</p></div><Badge tone={rawSamples.length ? "warning" : "neutral"} dot>{rawSamples.length ? "Em revisão" : "Sem tracking"}</Badge></div>
         <div className="editor-context">
-          {isTauriRuntime() && <button type="button" className={`editor-colab-status${colabSummary.connected ? " connected" : ""}`} onClick={() => navigate({ name: "colab" })}>
-            <CloudCog size={16} />{colabSummary.connected ? "Colab conectado" : "Conectar Colab"}
-          </button>}
           <EditorTabs<WorkspaceTab> id="workspace" label="Áreas do experimento" value={workspaceTab} onChange={changeWorkspace} items={[
             {id:"review",label:"Revisar vídeo"},
             ...(hasExecutionRecord ? [{id:"runs" as const,label:"Execuções"}] : []),

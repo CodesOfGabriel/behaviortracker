@@ -420,7 +420,11 @@ def run(video_path, output_path, config):
         writer=csv.writer(handle);writer.writerow(['animal_id','frame','timestamp_sec','presence','x','y','width','height','confidence','method']);writer.writerows(box_rows)
     shortlist=_review_windows(frames,rects.keys(),fps,out)
     result={'schemaVersion':'fst-result-1','protocol':'forced_swim','engineId':ENGINE,'analysisVersion':VERSION,
-            'runId':config['runId'],'video':{'sha256':sha,'originalSha256':config['video']['originalSha256'],'width':width,'height':height,'fps':fps,'frameCount':n_frames,'filename':config['video']['filename']},
+            'runId':config['runId'],'video':{'sha256':sha,'originalSha256':config['video']['originalSha256'],'width':width,'height':height,'fps':fps,'frameCount':n_frames,'filename':config['video']['filename'],
+                'sourceWidth':config['video'].get('sourceWidth'),'sourceHeight':config['video'].get('sourceHeight'),
+                'sourceToUploadScaleX':width/config['video']['sourceWidth'] if config['video'].get('sourceWidth') else None,
+                'sourceToUploadScaleY':height/config['video']['sourceHeight'] if config['video'].get('sourceHeight') else None,
+                'preparationPolicyVersion':config['video'].get('preparationPolicyVersion')},
             'subjects':config['subjects'],'tanks':config['tanks'],'frames':frames,'keypointNames':names,'poseArrays':pose_arrays,'quality':quality,
             'reviewShortlist':shortlist,'insufficientIntervals':insufficient_intervals}
     (out/'result.json').write_text(json.dumps(result,ensure_ascii=False,separators=(',',':'),allow_nan=False))

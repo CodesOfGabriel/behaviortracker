@@ -1,25 +1,6 @@
-import {
-  Activity,
-  Beaker,
-  ChevronRight,
-  CircleHelp,
-  CloudCog,
-  FlaskConical,
-  LayoutDashboard,
-  Plus,
-  Settings,
-} from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { CircleHelp, FlaskConical, LayoutDashboard, LogOut, Plus, Settings } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAppStore } from "../store/AppStore";
-import {
-  COLAB_STATUS_EVENT,
-  emptyColabSummary,
-  isTauriRuntime,
-  loadColabSummary,
-  publishColabSummary,
-  type OAuthProfileSummary,
-} from "../features/colab/connection";
 import { BrandMark } from "./BrandMark";
 import { Badge } from "./ui/Badge";
 import { cn } from "../lib/format";
@@ -30,45 +11,53 @@ function isActive(routeName: string, current: string) {
   return current === routeName;
 }
 
-export function AppShell({ children }: { children: ReactNode }) {
-  const { route, navigate, researcherProfile } = useAppStore();
-  const researcherInitials = researcherProfile.name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join("") || "P";
-  const [colabSummary, setColabSummary] = useState<OAuthProfileSummary>(emptyColabSummary);
+export function AppShell({ children, accountEmail, onLogout }: {
+  children: ReactNode;
+  accountEmail: string | null;
+  onLogout: () => Promise<void>;
+}) {
+  const { route, navigate } = useAppStore();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const displayName = accountEmail || "Pesquisador";
+  const researcherInitials = displayName.trim().split(/\s+|@/).filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join("") || "P";
 
   useEffect(() => {
-    if (!isTauriRuntime()) return;
-    let disposed = false;
-    let revision = 0;
-    const updateStatus = (event: Event) => {
-      revision += 1;
-      setColabSummary((event as CustomEvent<OAuthProfileSummary>).detail);
+    if (!menuOpen) return;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
     };
-    window.addEventListener(COLAB_STATUS_EVENT, updateStatus);
-    const refresh = () => {
-      const requestRevision = ++revision;
-      void loadColabSummary().then((summary) => {
-        if (!disposed && revision === requestRevision) publishColabSummary(summary);
-      }).catch(() => undefined);
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
     };
-    const unlisten = listen<OAuthProfileSummary>("google-oauth-status", ({ payload }) => {
-      if (!disposed) publishColabSummary(payload);
-    }).catch(() => undefined);
-    refresh();
-    window.addEventListener("focus", refresh);
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
     return () => {
-      disposed = true;
-      window.removeEventListener(COLAB_STATUS_EVENT, updateStatus);
-      window.removeEventListener("focus", refresh);
-      void unlisten.then((stop) => stop?.());
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
     };
-  }, []);
+  }, [menuOpen]);
 
   const navItems = [
     { id: "dashboard", label: "Visão geral", icon: LayoutDashboard, action: () => navigate({ name: "dashboard" }) },
     { id: "experiments", label: "Experimentos", icon: FlaskConical, action: () => navigate({ name: "dashboard" }) },
-    { id: "colab", label: "Processamento", icon: CloudCog, action: () => navigate({ name: "colab" }) },
     { id: "about", label: "Sobre", icon: CircleHelp, action: () => navigate({ name: "about" }) },
   ];
+
+  async function logout() {
+    setLoggingOut(true);
+    setLogoutError(null);
+    try {
+      await onLogout();
+      setMenuOpen(false);
+    } catch (error) {
+      setLogoutError(typeof error === "string" ? error : error instanceof Error ? error.message : "Não foi possível sair da conta.");
+    } finally {
+      setLoggingOut(false);
+    }
+  }
 
   return (
     <div className="app-shell">
@@ -95,32 +84,32 @@ export function AppShell({ children }: { children: ReactNode }) {
               >
                 <Icon size={18} strokeWidth={1.8} />
                 <span>{item.label}</span>
-                {item.id === "colab" && (
-                  <span
-                    className={cn("nav-status-dot", colabSummary.connected && "connected")}
-                    title={colabSummary.connected ? `Conectado: ${colabSummary.accountEmail}` : "Não conectado"}
-                  />
-                )}
               </button>
             );
           })}
         </nav>
 
-        <div className="sidebar-card">
-          <div className="sidebar-card-icon"><Beaker size={17} /></div>
-          <div className="sidebar-card-title">MVP científico</div>
-          <p>Analise no Colab com A100/H100 e revise os pontos antes de interpretar as métricas.</p>
-          <button onClick={() => navigate({ name: "colab" })}>
-            Configurar Colab <ChevronRight size={14} />
-          </button>
-        </div>
-
-        <div className="sidebar-footer">
-          <button><Settings size={17} /> Preferências</button>
-          <div className="local-profile">
-            <div className="profile-avatar">{researcherInitials}</div>
-            <div title={researcherProfile.university}><strong>{researcherProfile.name || "Pesquisador local"}</strong><span>{researcherProfile.laboratory || "Dados neste dispositivo"}</span></div>
+        <div className="sidebar-footer" ref={menuRef}>
+          <div id="profile-menu" className={cn("profile-menu", menuOpen && "profile-menu-open")} inert={!menuOpen}>
+            <div className="profile-menu-identity" title={accountEmail ?? undefined}>{displayName}</div>
+            <button type="button" onClick={() => { navigate({ name: "colab" }); setMenuOpen(false); }}>
+              <Settings size={16} /> Configurações
+            </button>
+            <button type="button" onClick={() => void logout()} disabled={loggingOut}>
+              <LogOut size={16} /> {loggingOut ? "Saindo…" : "Logoff"}
+            </button>
+            {logoutError && <p className="profile-menu-error" role="alert">{logoutError}</p>}
           </div>
+          <button
+            type="button"
+            className={cn("profile-trigger", menuOpen && "profile-trigger-active")}
+            aria-label="Abrir menu do usuário"
+            aria-expanded={menuOpen}
+            aria-controls="profile-menu"
+            onClick={() => { setMenuOpen((open) => !open); setLogoutError(null); }}
+          >
+            <span className="profile-avatar">{researcherInitials}</span>
+          </button>
         </div>
       </aside>
 
@@ -130,14 +119,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="topbar-brand">Behavior Tracker</div>
           <div className="topbar-spacer" />
           <Badge tone="success" dot>Dados locais</Badge>
-          <div className="topbar-divider" />
-          <button
-            className={cn("colab-chip", colabSummary.connected && "colab-chip-connected")}
-            onClick={() => navigate({ name: "colab" })}
-            title={colabSummary.accountEmail ?? undefined}
-          >
-            <Activity size={15} /> {colabSummary.connected ? "Colab conectado" : "Colab não conectado"}
-          </button>
           <button className="topbar-new" onClick={() => navigate({ name: "new-experiment" })}>
             <Plus size={17} /> Novo experimento
           </button>
@@ -147,4 +128,3 @@ export function AppShell({ children }: { children: ReactNode }) {
     </div>
   );
 }
-

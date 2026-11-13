@@ -8,7 +8,6 @@ import {
   RefreshCw,
   Save,
   Trash2,
-  Unplug,
   UserRound,
 } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
@@ -24,7 +23,7 @@ import {
   type OAuthProfileSummary,
 } from "./connection";
 
-type ActiveAction = "load" | "save" | "connect" | "restore" | "check" | "disconnect" | "delete" | null;
+type ActiveAction = "load" | "save" | "connect" | "restore" | "check" | "delete" | null;
 
 function errorMessage(error: unknown) {
   return typeof error === "string" ? error : error instanceof Error ? error.message : "A operação não pôde ser concluída.";
@@ -155,9 +154,9 @@ export function ColabGate() {
     <div className="page narrow-page">
       <section className="page-heading">
         <div>
-          <div className="eyebrow">Processamento remoto</div>
-          <h1>Google Colab</h1>
-          <p>Identifique o pesquisador e conecte a conta usada para processar os vídeos.</p>
+          <div className="eyebrow">Conta e processamento remoto</div>
+          <h1>Configurações</h1>
+          <p>Identifique o pesquisador e gerencie a conta Google usada no Colab.</p>
         </div>
         {headingBadge}
       </section>
@@ -229,15 +228,6 @@ export function ColabGate() {
                   variant="secondary"
                 >
                   Atualizar disponibilidade
-                </Button>
-                <Button
-                  disabled={!desktopRuntime || activeAction !== null}
-                  icon={<Unplug size={15} />}
-                  loading={activeAction === "disconnect"}
-                  onClick={() => void runAction("disconnect", "disconnect_google_account", { profileId: COLAB_PROFILE_ID }, "Conta Google desconectada.")}
-                  variant="ghost"
-                >
-                  Desconectar
                 </Button>
               </>
             )}

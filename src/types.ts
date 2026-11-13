@@ -39,9 +39,11 @@ export interface VideoPreparation {
   uploadBytes: number;
   status: "optimized" | "original" | "unavailable";
   message: string;
-  policyVersion: "lossless-upload-1";
+  policyVersion: "lossless-upload-1" | "quality-upload-2";
   pixelVerified: boolean;
   frameCount: number | null;
+  uploadWidth?: number | null;
+  uploadHeight?: number | null;
 }
 
 export interface ArenaConfig {

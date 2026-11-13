@@ -12,15 +12,16 @@ Desenvolvido por **Gabriel Santos** e **Thiago Vargas**, em parceria entre o **L
 
 - Use o instalador do aplicativo correspondente ao sistema: Windows x64 (`.exe`), macOS Intel ou Apple Silicon (`.dmg`), Linux x64 (`.deb` ou `.AppImage`). Quando publicada, a versão do aplicativo estará em [Releases](https://github.com/CodesOfGabriel/behaviortracker/releases). A release do bundle Wistar contém modelos, não um instalador.
 - É necessária uma conta Google autorizada no projeto OAuth do aplicativo, com acesso ao Colab e a um runtime com GPU CUDA. A disponibilidade da GPU e as cotas dependem da conta.
-- `ffmpeg` e `ffprobe` permitem o preparo e a verificação local dos vídeos. Se não estiverem disponíveis, o aplicativo pode enviar o arquivo original.
+- Os instaladores incluem `ffmpeg` e `ffprobe` para preparar vídeos localmente. Acima de 100 MB, o app remove o áudio e recodifica em H.264 com limite de 1080p; confere a quantidade e os tempos dos frames antes do envio. Se a cópia não for menor ou a verificação falhar, usa o original. O tamanho final depende do conteúdo do vídeo.
+- Quando há redução de resolução, as marcações são convertidas para o vídeo enviado. No Campo Aberto, as coordenadas dos resultados voltam à escala original; no Nado Forçado, os arquivos da execução registram as duas resoluções e usam coordenadas do vídeo enviado.
 - Guarde o vídeo original e uma cópia dos arquivos exportados. O aplicativo não sincroniza experimentos entre computadores.
 
 ## Procedimento
 
-1. Em **Novo experimento**, escolha o protocolo, identifique os sujeitos e selecione um vídeo que o aplicativo consiga reproduzir.
-2. Para **Campo Aberto**, marque os quatro cantos da borda superior e os quatro cantos do piso; informe as dimensões reais do piso em centímetros e a área central. Para **Nado Forçado**, delimite uma região fixa que cubra cada cilindro da abertura ao fundo.
-3. Em **Processamento**, salve os dados do pesquisador e conecte a conta Google. Abra **Análise Completa** do experimento e selecione **Analisar no Colab**.
-4. Após a execução, confira o vídeo, os indicadores e os intervalos com dados insuficientes. Se houver várias execuções, selecione a que será interpretada. Exporte os arquivos da execução analisada.
+1. Abra o aplicativo e entre com a conta Google que será usada no Colab. No ícone do usuário, no rodapé da barra lateral, abra **Configurações** para registrar os dados do pesquisador e verificar a conexão. **Logoff** encerra a sessão Google neste dispositivo.
+2. Em **Novo experimento**, escolha o protocolo, identifique os sujeitos e selecione um vídeo que o aplicativo consiga reproduzir.
+3. Para **Campo Aberto**, marque os quatro cantos da borda superior e os quatro cantos do piso; informe as dimensões reais do piso em centímetros e a área central. Para **Nado Forçado**, delimite uma região fixa que cubra cada cilindro da abertura ao fundo.
+4. Abra **Análise Completa** do experimento e selecione **Analisar no Colab**. Após a execução, confira o vídeo, os indicadores e os intervalos com dados insuficientes. Se houver várias execuções, selecione a que será interpretada e exporte seus arquivos.
 
 ## Protocolos e resultados
 

@@ -30,7 +30,32 @@ export function preparingNewAnalysis(starting: boolean, liveJob: ColabJob | null
 }
 
 export function displayAnalysisMessage(message: string) {
-  return message.replace(/D\+F:\s*/g, "").replace(/\s+D\+F\b/g, "");
+  return message.replace(/\bD\+F\b\s*:?\s*/gi, "")
+    .replace(/\b\d+(?:[.,]\d+)?\s*%(?:\s*[-–]\s*\d+(?:[.,]\d+)?\s*%)*/g, "")
+    .replace(/\s*[·:]\s*$/g, "").replace(/\s{2,}/g, " ").trim();
+}
+
+export function diaryEvents(events: ColabJobEvent[], protocol: "open_field" | "forced_swim") {
+  const steps = protocol === "forced_swim" ? fstWorkflowSteps : workflowSteps;
+  const entries: { id: number; createdAt: string; status: ColabJobEvent["status"]; message: string }[] = [];
+  const seen = new Set<number>();
+  for (const event of events) {
+    const index = stageIndex(event.stage, protocol);
+    if (index < 0) {
+      if (event.status === "failed") entries.push({ id: event.id, createdAt: event.createdAt, status: event.status,
+        message: `Execução interrompida: ${displayAnalysisMessage(event.message) || "consulte o log técnico"}` });
+      continue;
+    }
+    if (event.status === "failed") {
+      entries.push({ id: event.id, createdAt: event.createdAt, status: event.status,
+        message: `Falha em ${steps[index].title.toLowerCase()}: ${displayAnalysisMessage(event.message) || "consulte o log técnico"}` });
+    } else if (!seen.has(index)) {
+      seen.add(index);
+      entries.push({ id: event.id, createdAt: event.createdAt, status: event.status,
+        message: `${steps[index].title}${event.status === "succeeded" ? " concluído" : " em andamento"}` });
+    }
+  }
+  return entries;
 }
 
 export function stageIndex(stage: string, protocol: "open_field" | "forced_swim" = "open_field") {

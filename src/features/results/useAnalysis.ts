@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 import { parseCanonicalPoseCsv } from "../../lib/csv";
 import { selectTrackingReview } from "../../lib/tracking-reviews";
+import { preparedGeometry, scaleArenaToUpload, scalePoseToOriginal } from "../colab/videoGeometry";
 import { useAppStore } from "../../store/AppStore";
 import type { OpenFieldExperiment, TrackingSelection } from "../../types";
 import {
-  checkVideoStaging, getHybridBundleStatus, loadColabJobs, loadColabResult,
+  checkVideoStaging, getColabJobPreparation, getHybridBundleStatus, loadColabJobs, loadColabResult,
   prepareVideo, startColabJob, waitForColabJob, type ColabJob,
 } from "../colab/analysis";
 import {
@@ -73,9 +74,13 @@ export function useAnalysis(experimentId: string) {
     setLoadingResult(true);
     setError(null);
     try {
-      const samples = selection.engine === "colab"
+      let samples = selection.engine === "colab"
         ? parseCanonicalPoseCsv(await loadColabResult(selection.jobId))
         : await loadLocalResult(selection.jobId);
+      if (selection.engine === "colab" && experiment) {
+        const preparation = await getColabJobPreparation(experimentId, selection.jobId);
+        if (preparation) samples = scalePoseToOriginal(samples, experiment.video, preparation);
+      }
       if (request !== sourceRequest.current) return;
       if (!samples.length) throw new Error("A execução não contém frames.");
       setTrackingData(experimentId, samples);
@@ -107,6 +112,7 @@ export function useAnalysis(experimentId: string) {
     if (!summary.connected) { setError("Conecte o Google Colab antes de iniciar a análise."); return; }
     const file = selectedFile ?? asset?.file;
     let preparation = selectedFile ? undefined : experiment.video.preparation;
+    if (preparation && preparation.originalBytes > 100_000_000 && preparation.policyVersion !== "quality-upload-2") preparation = undefined;
     if (!file && !preparation) {
       analysisRequested.current = true;
       fileRef.current?.click();
@@ -140,10 +146,11 @@ export function useAnalysis(experimentId: string) {
           setAnalysisActivity(experimentId, { message }));
         updateExperiment(experimentId, { video: { ...experiment.video, preparation } });
       }
+      const geometry = preparedGeometry(experiment.video, preparation);
       const started = await startColabJob(experimentId, preparation.uploadId, {
-        width: experiment.video.width, height: experiment.video.height,
+        width: geometry.width, height: geometry.height,
         durationSec: experiment.video.durationSec,
-      }, experiment.arena, experiment.analysisEngine ?? "wistar_superanimal_hybrid_v1", bundleId);
+      }, scaleArenaToUpload(experiment.arena, experiment.video, preparation), experiment.analysisEngine ?? "wistar_superanimal_hybrid_v1", bundleId);
       setHistory((current) => [started, ...current.filter((job) => job.jobId !== started.jobId)]);
       setSelectedHistoryId(started.jobId);
       const completed = await waitForColabJob(started.jobId, (job) => {

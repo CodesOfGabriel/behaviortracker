@@ -1,4 +1,4 @@
-//! Compactação local sem perda, com verificação dos pixels e tempos de cada frame.
+//! Preparação local do vídeo, com verificação de geometria, frames e tempos.
 use crate::{
     colab::{new_uuid_v4, prepare_tables, staging_directory, validate_local_id},
     oauth::{open_database, CommandResult},
@@ -28,12 +28,18 @@ pub struct VideoPreparation {
     pub policy_version: String,
     pub pixel_verified: bool,
     pub frame_count: Option<u64>,
+    #[serde(default)]
+    pub upload_width: Option<u32>,
+    #[serde(default)]
+    pub upload_height: Option<u32>,
 }
 
 pub(crate) fn binary(name: &str) -> Option<PathBuf> {
+    let bundled = std::env::current_exe().ok().and_then(|path| path.parent().map(|dir| dir.join(format!("behavetracker-{name}{}", std::env::consts::EXE_SUFFIX))));
     let candidates = std::env::var_os(format!("BEHAVETRACKER_{}", name.to_uppercase()))
         .map(PathBuf::from)
         .into_iter()
+        .chain(bundled)
         .chain([
             PathBuf::from(name),
             PathBuf::from(format!("/opt/homebrew/bin/{name}")),
@@ -338,6 +344,66 @@ fn identical_frames(first: &[(i64, String)], second: &[(i64, String)]) -> bool {
             .all(|(a, b)| a.1 == b.1 && (i128::from(a.0) - i128::from(b.0)).abs() <= 1000)
 }
 
+fn identical_timing(first: &[(i64, String)], second: &[(i64, String)]) -> bool {
+    !first.is_empty() && first.len() == second.len() && first.iter().zip(second)
+        .all(|(a, b)| (i128::from(a.0) - i128::from(b.0)).abs() <= 1000)
+}
+
+fn upload_dimensions(width: u32, height: u32) -> (u32, u32) {
+    let (max_width, max_height) = if width >= height { (1920, 1080) } else { (1080, 1920) };
+    if width <= max_width && height <= max_height { return ((width / 2 * 2).max(2), (height / 2 * 2).max(2)); }
+    let scale = (max_width as f64 / width as f64).min(max_height as f64 / height as f64);
+    let even = |dimension: u32| ((dimension as f64 * scale).floor() as u32 / 2 * 2).max(2);
+    (even(width), even(height))
+}
+
+fn optimize_quality(input: &Path, output: &Path, ffmpeg: &Path, ffprobe: &Path, width: u32, height: u32) -> CommandResult<(u64, u32, u32)> {
+    let info = probe(ffprobe, input)?;
+    let stream = &info["streams"][0];
+    if stream["width"].as_u64() != Some(width.into()) || stream["height"].as_u64() != Some(height.into()) {
+        return Err("Resolução diferente da calibração: original mantido".into());
+    }
+    if stream["side_data_list"].as_array().is_some_and(|items| items.iter().any(|v| v["rotation"].as_i64().is_some_and(|r| r != 0)))
+        || stream.pointer("/tags/rotate").and_then(Value::as_str).is_some_and(|v| v != "0") {
+        return Err("Vídeo com rotação: original mantido para preservar a geometria".into());
+    }
+    let (out_width, out_height) = upload_dimensions(width, height);
+    let size = fs::metadata(input).map_err(|_| "Vídeo indisponível")?.len();
+    let scale = format!("scale={out_width}:{out_height}:flags=lanczos");
+    let mut child = Command::new(ffmpeg)
+        .args(["-v", "error", "-nostdin", "-n", "-noautorotate", "-i"]).arg(input)
+        .args(["-map", "0:v:0", "-an", "-sn", "-dn", "-map_metadata", "-1", "-vf", &scale,
+            "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p",
+            "-threads", "2", "-fps_mode", "passthrough", "-movflags", "+faststart"])
+        .arg(output).stdout(Stdio::null()).stderr(Stdio::null()).spawn()
+        .map_err(|_| "Não foi possível iniciar o FFmpeg".to_string())?;
+    loop {
+        if let Some(status) = child.try_wait().map_err(|_| "Falha ao acompanhar a compactação")? {
+            if !status.success() { return Err("O FFmpeg não conseguiu preparar este vídeo".into()); }
+            break;
+        }
+        if fs::metadata(output).is_ok_and(|file| file.len() > size) {
+            let _ = child.kill(); let _ = child.wait();
+            return Err("A cópia otimizada ficaria maior; o original foi mantido".into());
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+    if fs::metadata(output).map_err(|_| "Cópia indisponível")?.len() >= size {
+        return Err("Compactação não reduziu o tamanho; original mantido".into());
+    }
+    let encoded = probe(ffprobe, output)?;
+    if encoded["streams"][0]["width"].as_u64() != Some(out_width.into())
+        || encoded["streams"][0]["height"].as_u64() != Some(out_height.into()) {
+        return Err("Resolução da cópia inesperada; original mantido".into());
+    }
+    let original = fingerprints(ffmpeg, input)?;
+    let compressed = fingerprints(ffmpeg, output)?;
+    if !identical_timing(&original, &compressed) {
+        return Err("Frames ou timestamps divergiram; original mantido".into());
+    }
+    Ok((original.len() as u64, out_width, out_height))
+}
+
 pub(crate) fn sha256(path: &Path) -> CommandResult<String> {
     let mut file =
         fs::File::open(path).map_err(|_| "Não foi possível abrir o vídeo".to_string())?;
@@ -535,27 +601,44 @@ pub(crate) fn prepare_staged_video(
         upload_bytes: size,
         status: "original".into(),
         message: "Original mantido".into(),
-        policy_version: "lossless-upload-1".into(),
+        policy_version: if size > 100_000_000 { "quality-upload-2" } else { "lossless-upload-1" }.into(),
         pixel_verified: false,
         frame_count: None,
+        upload_width: Some(width),
+        upload_height: Some(height),
     };
     if let (Some(ffmpeg), Some(ffprobe)) = (binary("ffmpeg"), binary("ffprobe")) {
         let prepared_id = new_uuid_v4();
         let output = staging_directory(app)?.join(format!("{prepared_id}.mp4"));
-        match optimize(Path::new(&input), &output, &ffmpeg, &ffprobe, width, height) {
-            Ok(frames) => {
+        let quality = size > 100_000_000;
+        let result = if quality {
+            optimize_quality(Path::new(&input), &output, &ffmpeg, &ffprobe, width, height)
+                .map(|(frames, w, h)| (frames, w, h, false))
+        } else {
+            optimize(Path::new(&input), &output, &ffmpeg, &ffprobe, width, height)
+                .map(|frames| (frames, width, height, true))
+        };
+        match result {
+            Ok((frames, upload_width, upload_height, pixel_verified)) => {
                 let bytes = fs::metadata(&output)
                     .map_err(|_| "Cópia preparada indisponível")?
                     .len();
                 let digest = sha256(&output)?;
                 connection.execute("INSERT INTO video_staging (upload_id,experiment_id,local_path,original_filename,expected_size,received_size,sha256,ready) VALUES (?1,?2,?3,?4,?5,?5,?6,1)",
-                    params![prepared_id, experiment_id, output.to_string_lossy(), format!("{filename}.lossless.mp4"), bytes as i64, digest]).map_err(|_| "Falha ao registrar a cópia preparada")?;
+                    params![prepared_id, experiment_id, output.to_string_lossy(), format!("{filename}.prepared.mp4"), bytes as i64, digest]).map_err(|_| "Falha ao registrar a cópia preparada")?;
                 report.upload_id = prepared_id;
                 report.upload_bytes = bytes;
                 report.status = "optimized".into();
-                report.pixel_verified = true;
+                report.pixel_verified = pixel_verified;
                 report.frame_count = Some(frames);
-                report.message = "Compactação sem perda verificada: mesmos pixels, frames e sincronização (tolerância de 1 ms).".into();
+                report.upload_width = Some(upload_width);
+                report.upload_height = Some(upload_height);
+                if quality {
+                    report.policy_version = "quality-upload-2".into();
+                    report.message = format!("Vídeo otimizado para envio: {upload_width} × {upload_height} px, áudio removido, frames e tempos conferidos. A compactação altera os pixels.");
+                } else {
+                    report.message = "Compactação sem perda verificada: mesmos pixels, frames e sincronização (tolerância de 1 ms).".into();
+                }
             }
             Err(reason) => {
                 report.message = reason;
@@ -585,6 +668,18 @@ pub async fn prepare_analysis_video(
     })
     .await
     .map_err(|_| "Preparação do vídeo interrompida".to_string())?
+}
+
+#[tauri::command]
+pub fn get_colab_job_preparation(app: AppHandle, experiment_id: String, job_id: String) -> CommandResult<Option<VideoPreparation>> {
+    validate_local_id(&experiment_id, "Experimento")?;
+    validate_local_id(&job_id, "Execução")?;
+    prepare_tables(&app)?;
+    let report: Option<String> = open_database(&app)?.query_row(
+        "SELECT p.report_json FROM colab_jobs j JOIN video_preparations p ON p.prepared_upload_id=j.upload_id WHERE j.job_id=?1 AND j.experiment_id=?2",
+        params![job_id, experiment_id], |row| row.get(0),
+    ).optional().map_err(|_| "Não foi possível consultar a preparação da execução")?;
+    report.map(|value| serde_json::from_str(&value).map_err(|_| "Preparação da execução ilegível".into())).transpose()
 }
 
 fn cut_diagnostic(
@@ -850,6 +945,35 @@ mod tests {
         assert!(!identical_frames(&[], &[]));
     }
     #[test]
+    fn quality_preparation_preserves_frame_timing_and_removes_audio() {
+        let (Some(ffmpeg), Some(ffprobe)) = (binary("ffmpeg"), binary("ffprobe")) else { return; };
+        assert_eq!(upload_dimensions(3840, 2160), (1920, 1080));
+        assert_eq!(upload_dimensions(2160, 3840), (1080, 1920));
+        assert_eq!(upload_dimensions(1280, 720), (1280, 720));
+        assert_eq!(upload_dimensions(1919, 1079), (1918, 1078));
+        let root = std::env::temp_dir().join(format!("behavetracker-quality-test-{}", new_uuid_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let input = root.join("source.nut");
+        let output = root.join("prepared.mp4");
+        let status = Command::new(&ffmpeg).args(["-v", "error", "-f", "lavfi", "-i", "testsrc2=size=160x120:rate=24",
+            "-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=48000", "-t", "1", "-c:v", "rawvideo",
+            "-c:a", "pcm_s16le", "-f", "nut"]).arg(&input).status().unwrap();
+        assert!(status.success());
+        assert_eq!(optimize_quality(&input, &output, &ffmpeg, &ffprobe, 160, 120).unwrap(), (24, 160, 120));
+        assert!(fs::metadata(&output).unwrap().len() < fs::metadata(&input).unwrap().len());
+        let streams = Command::new(&ffprobe).args(["-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0"])
+            .arg(&output).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&streams.stdout).trim(), "video");
+        assert!(identical_timing(&fingerprints(&ffmpeg, &input).unwrap(), &fingerprints(&ffmpeg, &output).unwrap()));
+        assert!(!identical_frames(&fingerprints(&ffmpeg, &input).unwrap(), &fingerprints(&ffmpeg, &output).unwrap()));
+        let high_res = root.join("high-resolution.nut");
+        let downscaled = root.join("downscaled.mp4");
+        assert!(Command::new(&ffmpeg).args(["-v", "error", "-f", "lavfi", "-i", "testsrc2=size=2048x1152:rate=2",
+            "-frames:v", "2", "-c:v", "rawvideo", "-f", "nut"]).arg(&high_res).status().unwrap().success());
+        assert_eq!(optimize_quality(&high_res, &downscaled, &ffmpeg, &ffprobe, 2048, 1152).unwrap(), (2, 1920, 1080));
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
     fn real_ffmpeg_lossless_roundtrip_preserves_decoded_pixels_and_timing() {
         let (Some(ffmpeg), Some(ffprobe)) = (binary("ffmpeg"), binary("ffprobe")) else {
             eprintln!("FFmpeg indisponível: integração não executada");
@@ -927,6 +1051,9 @@ mod tests {
             optimize(&input, &output, &ffmpeg, &ffprobe, 160, 120).unwrap(),
             12
         );
+        let quality = root.join("quality.mp4");
+        assert_eq!(optimize_quality(&input, &quality, &ffmpeg, &ffprobe, 160, 120).unwrap().0, 12);
+        assert!(identical_timing(&fingerprints(&ffmpeg, &input).unwrap(), &fingerprints(&ffmpeg, &quality).unwrap()));
         let frames = fingerprints(&ffmpeg, &output).unwrap();
         assert_eq!(frame_at_time(&input, 0.34).unwrap(), 3); // PTS = n²/24, não frame = t*FPS.
         assert!(frames[3].0 - frames[2].0 > frames[1].0 - frames[0].0);

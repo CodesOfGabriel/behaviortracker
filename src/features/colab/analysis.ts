@@ -1,5 +1,6 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import type { ArenaConfig, ForcedSwimExperiment, VideoPreparation } from "../../types";
+import { preparedGeometry, scaleTanksToUpload } from "./videoGeometry";
 
 const STAGING_CHUNK_SIZE = 4 * 1024 * 1024;
 export type HybridBundleId = "wistar_df_v1" | "wistar_df_v2";
@@ -99,17 +100,24 @@ export function startColabJob(experimentId: string, uploadId: string,
   });
 }
 
-export function startFstJob(experiment: ForcedSwimExperiment, uploadId: string) {
+export function startFstJob(experiment: ForcedSwimExperiment, preparation: VideoPreparation) {
+  const geometry = preparedGeometry(experiment.video, preparation);
   return invoke<ColabJob>("start_colab_analysis", { request: {
-    experimentId: experiment.id, uploadId,
-    workload: { width: experiment.video.width, height: experiment.video.height, durationSec: experiment.video.durationSec },
+    experimentId: experiment.id, uploadId: preparation.uploadId,
+    workload: { width: geometry.width, height: geometry.height, durationSec: experiment.video.durationSec },
     engineId: "fst_superanimal_quadruped_v1", fst: { title: experiment.title, group: experiment.group, notes: experiment.notes,
-      subjects: experiment.subjects, tanks: experiment.tanks },
+      sourceWidth: experiment.video.width, sourceHeight: experiment.video.height,
+      preparationPolicyVersion: preparation.policyVersion,
+      subjects: experiment.subjects, tanks: scaleTanksToUpload(experiment.tanks, experiment.video, preparation) },
   } });
 }
 
 export function getStagedVideoSha256(uploadId: string) {
   return invoke<string>("get_video_staging_sha256", { uploadId });
+}
+
+export function getColabJobPreparation(experimentId: string, jobId: string) {
+  return invoke<VideoPreparation | null>("get_colab_job_preparation", { experimentId, jobId });
 }
 
 export async function loadStagedVideo(experimentId: string, uploadId: string) {
@@ -129,7 +137,7 @@ export function loadFstManifest(jobId: string) {
 export async function prepareVideo(experimentId: string, file: File, metadata: { width: number; height: number },
   onProgress: (progress: number, message: string) => void): Promise<VideoPreparation> {
   const uploadId = await stageVideo(experimentId, file, onProgress);
-  onProgress(0, "Compactando sem perda e verificando os frames · o original permanece intacto");
+  onProgress(0, "Otimizando o vídeo para envio e conferindo os frames · o original permanece intacto");
   const result = await invoke<VideoPreparation>("prepare_analysis_video", { uploadId, width: metadata.width, height: metadata.height });
   onProgress(100, result.message);
   return result;
@@ -142,7 +150,7 @@ export async function prepareFstVideo(experimentId: string, file: File, metadata
   if (expectedOriginalSha256 && originalSha256 !== expectedOriginalSha256) {
     throw new Error("O SHA-256 do arquivo selecionado não corresponde ao vídeo original do experimento.");
   }
-  onProgress(0, "Verificando pixels e timestamps da preparação sem perda");
+  onProgress(0, "Otimizando o vídeo e conferindo a sincronização dos frames");
   const preparation = await invoke<VideoPreparation>("prepare_analysis_video", { uploadId: originalUploadId, width: metadata.width, height: metadata.height });
   onProgress(100, preparation.message);
   return { preparation, originalSha256 };

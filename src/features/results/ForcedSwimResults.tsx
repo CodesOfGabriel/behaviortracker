@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import { ArrowLeft, ArrowRight, CloudCog, Download, Info, Pause, Play, SkipBack, SkipForward } from "lucide-react";
+import { ArrowLeft, ArrowRight, Download, Info, Pause, Play, SkipBack, SkipForward } from "lucide-react";
 import { Button } from "../../components/ui/Button";
+import { EditorTabs } from "../../components/ui/EditorTabs";
 import { downloadText } from "../../lib/csv";
 import { formatDuration } from "../../lib/format";
 import { displayableFstPose, FST_ENGINE, FST_VERSION, validateForcedSwim, type FstResult } from "../../lib/fst";
@@ -29,6 +30,14 @@ function mean(values: (number|null)[]) {
   return valid.length?valid.reduce((a,b)=>a+b,0)/valid.length:null;
 }
 function showNumber(value:number|null,digits=3) {return value===null?"Dados insuficientes":value.toFixed(digits);}
+function jobStatus(status: ColabJob["status"]) {
+  switch (status) {
+    case "succeeded": return "Concluída";
+    case "failed": return "Interrompida";
+    case "running": return "Em andamento";
+    case "queued": return "Na fila";
+  }
+}
 
 export function ForcedSwimResults({experimentId}:{experimentId:string}) {
   const {getExperiment,navigate,assets,setAsset,updateForcedSwimExperiment}=useAppStore();
@@ -37,6 +46,7 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
   const [summary,setSummary]=useState<OAuthProfileSummary>(emptyColabSummary);
   const [history,setHistory]=useState<ColabJob[]>([]);
   const [selectedJobId,setSelectedJobId]=useState<string|null>(null);
+  const [view,setView]=useState<"results"|"runs">("results");
   const [result,setResult]=useState<FstResult|null>(null);
   const [loadingResult,setLoadingResult]=useState(false);
   const [busy,setBusy]=useState(false);
@@ -55,6 +65,7 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
   const fileRef=useRef<HTMLInputElement>(null);const playerRef=useRef<HTMLVideoElement>(null);
   const selectedJob=history.find(j=>j.jobId===selectedJobId)??history[0]??null;
   const active=history.find(j=>j.status==="running"||j.status==="queued");
+  const visibleView=selectedJob?.resultsReady?view:"runs";
   const frame=result?Math.max(0,Math.min(result.video.frameCount-1,Math.round(time*result.video.fps))):0;
   const frameData=useMemo(()=>result?.frames.filter(f=>f.frame===frame)??[],[result,frame]);
   const framePoses=useMemo(()=>result?.subjects.flatMap(s=>(result.poseArrays[s.animalId]?.[frame]??[]).map(([xPx,yPx,likelihood],i)=>({animalId:s.animalId,keypoint:result.keypointNames[i],xPx,yPx,likelihood})))??[],[result,frame]);
@@ -75,7 +86,8 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
     const refresh=()=>{void loadColabJobs(experimentId).then(jobs=>{
       if(!live)return;
       const fst=jobs.filter(j=>j.protocol==="forced_swim"&& !j.training && !j.diagnostic);
-      setHistory(fst);setSelectedJobId(id=>id??fst[0]?.jobId??null);
+      const preferred=fst.find(j=>j.status==="running"||j.status==="queued")??fst.find(j=>j.resultsReady)??fst[0];
+      setHistory(fst);setSelectedJobId(id=>id&&fst.some(j=>j.jobId===id)?id:preferred?.jobId??null);
       setClock(Date.now());
     }).catch(()=>undefined)};
     refresh();const timer=window.setInterval(refresh,2000);
@@ -102,9 +114,11 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
   const originalUrl=asset?.objectUrl??videoUrl;
   const run=async(file?:File)=>{
     if(!experiment||busy||active)return;
+    setView("runs");
     if(!isTauriRuntime()){setError("A análise FST requer o aplicativo desktop.");return}
     const validation=validateForcedSwim(experiment);if(validation){setError(validation);return}
     let preparation=file?undefined:experiment.video.preparation;
+    if(preparation&&preparation.originalBytes>100_000_000&&preparation.policyVersion!=="quality-upload-2")preparation=undefined;
     if(preparation&&!await checkVideoStaging(experimentId,preparation.uploadId))preparation=undefined;
     if(!preparation&&!file){fileRef.current?.click();return}
     setBusy(true);setError(null);setMessage("Validando conexão com o Colab");
@@ -123,7 +137,7 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
         setAsset(experimentId,{...asset,file:file!,objectUrl:URL.createObjectURL(file!)});
         updateForcedSwimExperiment(experimentId,current=>({video:{...current.video,preparation,sha256:digest}}));
       }
-      const job=await startFstJob(experiment,preparation.uploadId);
+      const job=await startFstJob(experiment,preparation);
       started=true;
       updateForcedSwimExperiment(experimentId,{status:"processing"});
       setHistory(current=>[job,...current.filter(j=>j.jobId!==job.jobId)]);setSelectedJobId(job.jobId);
@@ -132,6 +146,7 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
       const data=parseFstResult(await loadColabResult(done.jobId));
       if(experiment.video.sha256&&data.video.originalSha256!==experiment.video.sha256)throw new Error("O resultado não corresponde ao vídeo original do experimento.");
       setResult(data);
+      setView("results");
       updateForcedSwimExperiment(experimentId,{status:"review",trackingSelection:{engine:"colab",jobId:done.jobId}});
       if(done.status==="failed")setError(`Dados preservados; execução interrompida: ${done.error}`);
     }catch(reason){setError(String(reason));if(started)updateForcedSwimExperiment(experimentId,{status:"failed"})}
@@ -154,16 +169,30 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
     <input ref={fileRef} type="file" accept="video/*" className="sr-only" onChange={attach}/>
     <button className="back-link" onClick={()=>navigate({name:"dashboard"})}><ArrowLeft size={16}/> Experimentos</button>
     <section className="page-heading results-heading"><div><div className="eyebrow">Análise Completa · Forced Swim Test</div><h1>{experiment.title}</h1><p>{experiment.subjects.map(s=>`${s.animalId}: ${s.subjectId}`).join(" · ")} · {experiment.video.filename}</p></div>
-      <div className="results-actions"><Button variant="secondary" icon={<CloudCog size={16}/>} onClick={()=>navigate({name:"colab"})}>{summary.connected?"Colab conectado":"Conectar Colab"}</Button><Button disabled={busy||Boolean(active)||!summary.connected} onClick={()=>void run()}>{busy||active?"Processando…":"Analisar no Colab"}</Button></div></section>
+      <div className="results-actions"><Button disabled={busy||Boolean(active)||!summary.connected} onClick={()=>void run()}>{busy||active?"Processando…":"Analisar no Colab"}</Button></div></section>
     {error&&<div role="alert" className="validation-box invalid"><Info size={16}/>{error}</div>}
-    <AnalysisWorkflow job={selectedJob} protocol="forced_swim" preparing={busy&&!selectedJob} message={message} localError={error} elapsedSec={elapsedSec}/>
-    {history.length>0&&<section className="fst-history"><h2>Execuções</h2>{history.map(job=><button type="button" key={job.jobId} className={job.jobId===selectedJobId?"active":""} onClick={()=>setSelectedJobId(job.jobId)}><strong>{new Date(job.createdAt).toLocaleString("pt-BR")}</strong><span>{job.status} · {job.jobId.slice(0,8)}</span></button>)}</section>}
+    <EditorTabs<"results"|"runs"> id="fst-view" label="Áreas da análise FST" value={visibleView} onChange={setView}
+      items={selectedJob?.resultsReady?[{id:"results",label:"Resultados"},{id:"runs",label:"Execuções"}]:[{id:"runs",label:"Execuções"}]}/>
+    {visibleView==="runs"&&<div className="fst-runs-content" role="tabpanel" id="fst-view-runs-panel" aria-labelledby="fst-view-runs-tab">
+      <section className="fst-history" aria-label="Execuções realizadas">
+        {history.length ? history.map((job) => (
+          <button type="button" key={job.jobId} className={job.jobId===selectedJobId?"active":""}
+            aria-pressed={job.jobId===selectedJobId}
+            onClick={()=>{if(job.jobId!==selectedJobId){setResult(null);setSelectedJobId(job.jobId)}}}>
+            <strong>{new Date(job.createdAt).toLocaleString("pt-BR")}</strong>
+            <span>{jobStatus(job.status)} · {job.jobId.slice(0,8)}</span>
+          </button>
+        )) : <p>Nenhuma execução registrada.</p>}
+      </section>
+      {(selectedJob||busy)&&<AnalysisWorkflow job={selectedJob} protocol="forced_swim" logOnly preparing={busy&&!selectedJob} message={message} localError={error} elapsedSec={elapsedSec}/>}
+    </div>}
+    {visibleView==="results"&&<div className="fst-result-content" role="tabpanel" id="fst-view-results-panel" aria-labelledby="fst-view-results-tab">
     {loadingResult&&<p role="status">Carregando dados FST da execução…</p>}
     {result&&<>
       <section className="fst-player-panel"><div className="panel-header"><div><h2>Vídeo e observações</h2><p>{useOriginal?"Vídeo original com overlays sincronizados":"MP4 anotado da execução"} · {result.video.width} × {result.video.height} · {result.video.fps.toFixed(3)} FPS</p></div></div>
         <div className="fst-player" style={{aspectRatio:`${result.video.width}/${result.video.height}`}}>
           {(originalUrl||labeledVideo)?<video ref={playerRef} src={originalUrl||labeledVideo||undefined} controls onTimeUpdate={e=>setTime(e.currentTarget.currentTime)} onSeeked={e=>setTime(e.currentTarget.currentTime)}/>:<div className="fst-player-empty">Vídeo indisponível neste dispositivo. {labeledVideoError||"Os dados por frame permanecem abaixo."}</div>}
-          {useOriginal&&<svg className="fst-overlay" viewBox={`0 0 ${result.video.width} ${result.video.height}`} aria-label="Caixas e pontos sincronizados">
+          {useOriginal&&<svg className="fst-overlay" viewBox={`0 0 ${result.video.width} ${result.video.height}`} preserveAspectRatio="none" aria-label="Caixas e pontos sincronizados">
             {frameData.map((item,i)=>item.presence==="IN_TANK"?<g key={item.animalId}>
               {showBoxes&&item.bbox&&<rect x={item.bbox.x} y={item.bbox.y} width={item.bbox.width} height={item.bbox.height} fill="none" stroke={i?"#e9b85c":"#51ddce"} strokeWidth={Math.max(2,result.video.width/500)}/>}
               {showPoints&&framePoses.filter(p=>p.animalId===item.animalId&&displayableFstPose(p,result.tanks[i],item.presence)).map((p,k)=><circle key={k} cx={p.xPx!} cy={p.yPx!} r={Math.max(2,result.video.width/350)} fill={i?"#e9b85c":"#51ddce"}/>)}
@@ -192,5 +221,6 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
       </section>
       <section className="fst-exports"><h2>Exportações FST</h2><p>Arquivos da execução selecionada, separados das métricas de Campo Aberto.</p><div>{artifacts.map(file=><a key={file.name} href={file.url} download={file.name}><Download size={15}/>{file.name}</a>)}{labeledVideo&&<a href={labeledVideo} download="fst_annotated.mp4"><Download size={15}/>MP4 anotado</a>}</div><Button variant="secondary" disabled={!manifest} onClick={()=>downloadText(`fst-${result.runId}-manifest-reviewed.json`,JSON.stringify({...manifest,reviewExportedAt:new Date().toISOString(),manualAnnotations:annotations},null,2),"application/json")}>Exportar manifesto com revisão humana</Button></section>
     </>}
+    </div>}
   </div>;
 }

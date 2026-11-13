@@ -7,6 +7,7 @@ import {
   FileVideo2,
   FlaskConical,
   Info,
+  LoaderCircle,
   MousePointer2,
   Play,
   Ruler,
@@ -482,7 +483,7 @@ export function OpenFieldExperimentWizard({ onBack }: { onBack: () => void }) {
                   <Button variant="secondary" size="sm" disabled={loadingVideo} onClick={() => fileRef.current?.click()}>Trocar</Button>
                 </div>
               )}
-              {preparationMessage && <div className="video-preparation-note" role="status"><Info size={16} /><div><strong>{loadingVideo ? "Preparação local em andamento" : video?.preparation?.status === "optimized" ? "Vídeo otimizado sem perda" : "Qualidade original preservada"}</strong><p>{preparationMessage}</p>{video?.preparation && <small>Original: {formatBytes(video.preparation.originalBytes)} · envio: {formatBytes(video.preparation.uploadBytes)} · sem reduzir resolução/FPS</small>}</div></div>}
+              {preparationMessage && <div className="video-preparation-note" role="status" aria-live="polite">{loadingVideo ? <LoaderCircle size={18} className="video-preparation-spinner" aria-hidden="true" /> : <Info size={16} aria-hidden="true" />}<div><strong>{loadingVideo ? "Preparação local em andamento" : video?.preparation?.status === "optimized" ? "Vídeo otimizado para envio" : "Vídeo original preservado"}</strong><p>{preparationMessage}</p>{video?.preparation && <small>Original: {formatBytes(video.preparation.originalBytes)} · envio: {formatBytes(video.preparation.uploadBytes)} · {video.preparation.uploadWidth ?? video.width} × {video.preparation.uploadHeight ?? video.height} px · FPS preservado</small>}</div></div>}
               {videoError && <div className="form-error">{videoError}</div>}
               <div className="privacy-note"><Info size={16} /><span>O frame foi extraído apenas para a calibração. Ao reabrir o projeto, o app solicitará o arquivo se o caminho não estiver mais disponível.</span></div>
             </div>

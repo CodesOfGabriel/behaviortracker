@@ -18,7 +18,7 @@ it("mantém wizards de geometria independentes", () => {
   const fst = renderToString(createElement(AppStoreProvider, null, createElement(ForcedSwimExperimentWizard, { onBack: () => {} })));
   const oft = renderToString(createElement(AppStoreProvider, null, createElement(OpenFieldExperimentWizard, { onBack: () => {} })));
   expect(fst).toContain("Cilindros");
-  expect(fst).toContain("Sujeitos no mesmo vídeo");
+  expect(fst).not.toContain("Sujeitos no mesmo vídeo");
   expect(fst).not.toContain("Calibração espacial");
   expect(oft).toContain("Arena");
   expect(oft).toContain("Calibração espacial");

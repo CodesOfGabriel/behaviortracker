@@ -47,6 +47,7 @@ pub fn run() {
             colab::get_video_staging_sha256,
             colab::get_staged_video_path,
             video::prepare_analysis_video,
+            video::get_colab_job_preparation,
             video::check_video_staging,
             colab::start_colab_analysis,
             colab::hybrid_bundle_status,

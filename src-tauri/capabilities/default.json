@@ -3,6 +3,15 @@
   "identifier": "default",
   "description": "Permissões mínimas da janela principal do Behavior Tracker",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-close",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-start-dragging",
+    "core:window:allow-start-resize-dragging",
+    "core:window:allow-is-fullscreen",
+    "core:window:allow-set-fullscreen"
+  ]
 }
 

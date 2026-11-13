@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { BrandMark } from "../../components/BrandMark";
 import { isTauriRuntime } from "../colab/connection";
 import { version as packageVersion } from "../../../package.json";
 
@@ -20,20 +19,32 @@ export function About() {
 
   return (
     <div className="page narrow-page about-page">
-      <div className="page-heading">
-        <div>
-          <span className="eyebrow">APLICATIVO</span>
-          <h1>Sobre</h1>
+      <header className="about-intro">
+        <div className="about-intro-copy">
+          <span className="about-overline">SOBRE</span>
+          <h1>Behavior Tracker</h1>
+          <p>Aplicativo para organização de experimentos e análise de comportamento animal em vídeo.</p>
+          <div className="about-version"><span>VERSÃO</span><strong>{version}</strong></div>
         </div>
-      </div>
-      <section className="panel about-panel" aria-labelledby="about-title">
-        <BrandMark size={48} />
-        <div className="about-content">
-          <h2 id="about-title">Behavior Tracker</h2>
-          <p>
-            Desenvolvido por <strong>Gabriel Santos</strong> e <strong>Thiago Vargas</strong>, uma parceria entre o <strong>Laboratório Neurocell</strong> e o <strong>NeuroLab da Universidade Federal de Pelotas (UFPel)</strong>.
-          </p>
-          <div className="about-version">Versão <strong>{version}</strong></div>
+        <div className="about-intro-mark">
+          <img src="/RatLogo_white.png" alt="Logo do Behavior Tracker" />
+        </div>
+      </header>
+
+      <section className="about-authorship" aria-labelledby="about-authors-title">
+        <h2 id="about-authors-title">Desenvolvido por</h2>
+        <div className="about-author-list">
+          <p>Gabriel Santos</p>
+          <p>Thiago Vargas</p>
+        </div>
+      </section>
+
+      <section className="about-partnership" aria-labelledby="about-partners-title">
+        <h2 id="about-partners-title">Parceria institucional</h2>
+        <div className="about-institutions">
+          <div className="about-logo-frame"><img className="about-logo-neurocell" src="/neurocell.png" alt="Laboratório Neurocell" /></div>
+          <div className="about-logo-frame"><img className="about-logo-neurolab" src="/neurolab.png" alt="NeuroLab" /></div>
+          <div className="about-logo-frame"><img className="about-logo-ufpel" src="/ufpel.png" alt="Universidade Federal de Pelotas (UFPel)" /></div>
         </div>
       </section>
     </div>

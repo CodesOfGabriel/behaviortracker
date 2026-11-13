@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { defaultArena } from "../../lib/demo-data";
-import { loadColabVideo, prepareVideo, startColabJob } from "./analysis";
+import type { ForcedSwimExperiment, VideoPreparation } from "../../types";
+import { loadColabVideo, prepareVideo, startColabJob, startFstJob } from "./analysis";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn().mockResolvedValue({}), convertFileSrc: (path: string) => `asset://${path}` }));
 
@@ -25,6 +26,19 @@ describe("geometria enviada ao backend Colab", () => {
   it("preserva o bundle informado por um experimento antigo", async () => {
     await startColabJob("v1", "upload", { width: 1280, height: 720, durationSec: 10 }, defaultArena, "wistar_superanimal_hybrid_v1", "wistar_df_v1");
     expect((vi.mocked(invoke).mock.lastCall?.[1] as {request: {modelBundleId: string}}).request.modelBundleId).toBe("wistar_df_v1");
+  });
+  it("envia cilindros FST convertidos para o vídeo reduzido e registra a escala", async () => {
+    const preparation = { uploadId: "prepared", uploadWidth: 1920, uploadHeight: 1080,
+      policyVersion: "quality-upload-2" } as VideoPreparation;
+    const experiment = { id: "fst", title: "Nado", video: { width: 3840, height: 2160, durationSec: 10 },
+      subjects: [{ animalId: "animal_1", subjectId: "R1" }],
+      tanks: [{ tankId: "tank_1", animalId: "animal_1", subjectId: "R1", revision: 1,
+        roiPx: { x: 200, y: 100, width: 1000, height: 1800 } }] } as ForcedSwimExperiment;
+    await startFstJob(experiment, preparation);
+    const request = (vi.mocked(invoke).mock.lastCall?.[1] as { request: { workload: unknown; fst: { tanks: ForcedSwimExperiment["tanks"]; sourceWidth: number; sourceHeight: number; preparationPolicyVersion: string } } }).request;
+    expect(request.workload).toEqual({ width: 1920, height: 1080, durationSec: 10 });
+    expect(request.fst.tanks[0].roiPx).toEqual({ x: 100, y: 50, width: 500, height: 900 });
+    expect(request.fst).toMatchObject({ sourceWidth: 3840, sourceHeight: 2160, preparationPolicyVersion: "quality-upload-2" });
   });
   it("prepara a cópia local antes de iniciar qualquer upload remoto", async () => {
     vi.mocked(invoke).mockImplementation(async (command) => command === "begin_video_staging" ? { uploadId: "original" }
