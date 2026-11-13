@@ -109,7 +109,9 @@ export function LoginPage({ summary, checking, checkError, onSessionChange, onRe
         <p className="login-footer">Análise comportamental de roedores</p>
       </div>
       <div className="login-image" aria-hidden="true">
-        <img src="/open-field-background.png" alt="" />
+        <video autoPlay loop muted playsInline>
+          <source src="/rats_background.mp4" type="video/mp4" />
+        </video>
         <span className="login-image-caption">BEHAVIOR TRACKER <span>·</span> RESEARCH WORKSPACE</span>
       </div>
     </div>
