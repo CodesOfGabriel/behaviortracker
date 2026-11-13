@@ -1,0 +1,66 @@
+name: Deploy Behavior Tracker website
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: behaviortracker-web-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    env:
+      DEPLOY_HOST: 72.61.41.31
+      DEPLOY_USER: deploy
+      DEPLOY_ROOT: /srv/apps/.behaviortracker-deploy
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test -- --run
+      - run: npm run build
+      - name: Verify website files
+        shell: bash
+        run: |
+          set -euo pipefail
+          for page in index.html privacy/index.html terms/index.html legal.css; do
+            test -s "dist/$page"
+          done
+
+      - name: Configure SSH
+        shell: bash
+        env:
+          VPS_DEPLOY_SSH_KEY: ${{ secrets.VPS_DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$VPS_DEPLOY_SSH_KEY"
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$VPS_DEPLOY_SSH_KEY" > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+          install -m 600 ops/behaviortracker-known-hosts "$HOME/.ssh/known_hosts"
+
+      - name: Upload tested website
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          ssh -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_ROOT/incoming/$GITHUB_SHA'"
+          rsync -az --delete -e 'ssh -o BatchMode=yes' dist/ \
+            "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_ROOT/incoming/$GITHUB_SHA/"
+
+      - name: Update repository and publish website
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" \
+            "bash '$DEPLOY_ROOT/deploy.sh' '$GITHUB_SHA'"
