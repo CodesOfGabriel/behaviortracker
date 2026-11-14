@@ -496,6 +496,7 @@ input::placeholder, textarea::placeholder { color: #848484; }
 .video-preparation-note svg { flex: 0 0 auto; margin-top: 2px; }
 .video-preparation-note strong { color: var(--ink); }
 .video-preparation-note p { margin: 7px 0; line-height: 1.6; }
+.retained-workspace[hidden], .protocol-page[hidden] { display: none !important; }
 .video-preparation-note > div { flex: 1; min-width: 0; }
 .video-preparation-progress { margin: 10px 0; }
 .video-preparation-progress-label { display: flex; justify-content: space-between; gap: 12px; font-variant-numeric: tabular-nums; }

@@ -70,6 +70,8 @@ interface AppStoreValue {
   setTrackingData: (id: string, samples: PoseSample[]) => void;
   analysisActivity: Record<string, AnalysisActivity>;
   setAnalysisActivity: (id: string, update: Partial<AnalysisActivity>) => void;
+  draftPreparationActive: boolean;
+  setDraftPreparationActive: (active: boolean) => void;
 }
 
 export type LocalVideoProgress = { phase: "staging" | "checking" | "encoding" | "verifying" | "complete"; percent: number | null; remainingSec: number | null };
@@ -93,6 +95,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [assets, setAssets] = useState<Record<string, VideoAsset>>({});
   const [trackingData, setTrackingDataState] = useState<Record<string, PoseSample[]>>({});
   const [analysisActivity, setAnalysisActivityState] = useState<AppStoreValue["analysisActivity"]>({});
+  const [draftPreparationActive, setDraftPreparationActive] = useState(false);
   const setAnalysisActivity = useCallback((id: string, update: Partial<AnalysisActivity>) =>
     setAnalysisActivityState(current => ({ ...current, [id]: { ...(current[id] ?? { starting: false, message: "", error: null, startedAt: null }), ...update } })), []);
   const setTrackingData = useCallback((id: string, samples: PoseSample[]) =>
@@ -184,8 +187,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       setTrackingData,
       analysisActivity,
       setAnalysisActivity,
+      draftPreparationActive,
+      setDraftPreparationActive,
     }),
-    [researcherProfile, saveResearcherProfile, route, experiments, saveExperiment, updateExperiment, updateForcedSwimExperiment, deleteExperiment, openDemo, assets, trackingData, setTrackingData, analysisActivity, setAnalysisActivity],
+    [researcherProfile, saveResearcherProfile, route, experiments, saveExperiment, updateExperiment, updateForcedSwimExperiment, deleteExperiment, openDemo, assets, trackingData, setTrackingData, analysisActivity, setAnalysisActivity, draftPreparationActive],
   );
 
   return <AppStoreContext.Provider value={value}>{children}</AppStoreContext.Provider>;

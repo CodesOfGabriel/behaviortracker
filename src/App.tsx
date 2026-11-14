@@ -20,11 +20,21 @@ import { Results } from "./features/results/Results";
 import { ForcedSwimResults } from "./features/results/ForcedSwimResults";
 import { useAppStore } from "./store/AppStore";
 
-export default function App() {
-  const { route, getExperiment, navigate } = useAppStore();
+export default function App({ onReady }: { onReady?: () => void }) {
+  const { route, getExperiment, navigate, analysisActivity } = useAppStore();
   const [session, setSession] = useState<OAuthProfileSummary>(emptyColabSummary);
   const [checkingSession, setCheckingSession] = useState(true);
   const [sessionError, setSessionError] = useState<string | null>(null);
+  const [draftVisited, setDraftVisited] = useState(false);
+  const [draftGeneration, setDraftGeneration] = useState(0);
+
+  useEffect(() => {
+    if (!checkingSession) onReady?.();
+  }, [checkingSession, onReady]);
+
+  useEffect(() => {
+    if (route.name === "new-experiment") setDraftVisited(true);
+  }, [route.name]);
 
   const refreshSession = useCallback(async () => {
     if (!isTauriRuntime()) {
@@ -90,25 +100,33 @@ export default function App() {
   if (!session.connected) {
     return <LoginPage summary={session} checking={checkingSession} checkError={sessionError} onSessionChange={updateSession} onRetry={() => void refreshSession()} />;
   }
-  let content;
+  let content = null;
   switch (route.name) {
-    case "new-experiment":
-      content = <NewExperiment />;
-      break;
-    case "results":
-      content = getExperiment(route.experimentId)?.testType === "forced_swim"
-        ? <ForcedSwimResults key={route.experimentId} experimentId={route.experimentId} />
-        : <Results key={route.experimentId} experimentId={route.experimentId} />;
-      break;
     case "colab":
       content = <ColabGate />;
       break;
     case "about":
       content = <About />;
       break;
-    default:
+    case "dashboard":
       content = <Dashboard />;
   }
-  return <AppShell accountEmail={session.accountEmail} onLogout={logout}>{content}</AppShell>;
+  const visibleResultId = route.name === "results" ? route.experimentId : null;
+  // Mantém a análise ativa montada enquanto o usuário navega por outras páginas.
+  const retainedResultIds = [...new Set([
+    ...Object.entries(analysisActivity).filter(([id, activity]) => activity.starting && getExperiment(id)).map(([id]) => id),
+    ...(visibleResultId ? [visibleResultId] : []),
+  ])];
+  return <AppShell accountEmail={session.accountEmail} onLogout={logout}>
+    {content}
+    {(draftVisited || route.name === "new-experiment") &&
+      <div className="retained-workspace" hidden={route.name !== "new-experiment"}>
+        <NewExperiment key={draftGeneration} onComplete={() => { setDraftVisited(false); setDraftGeneration(current => current + 1); }} />
+      </div>}
+    {retainedResultIds.map(id => <div key={id} className="retained-workspace" hidden={visibleResultId !== id}>
+      {getExperiment(id)?.testType === "forced_swim"
+        ? <ForcedSwimResults experimentId={id} /> : <Results experimentId={id} />}
+    </div>)}
+  </AppShell>;
 }
 

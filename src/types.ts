@@ -14,7 +14,7 @@ export type ExperimentStatus =
 
 export type AppRoute =
   | { name: "dashboard" }
-  | { name: "new-experiment" }
+  | { name: "new-experiment"; resumePreparation?: boolean }
   | { name: "results"; experimentId: string }
   | { name: "colab" }
   | { name: "about" };

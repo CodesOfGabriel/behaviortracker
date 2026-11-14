@@ -3,7 +3,27 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#171c18" />
+    <meta name="theme-color" content="#000000" />
+    <link rel="preload" as="image" href="/loading.gif" />
+    <style>
+      html, body { margin: 0; min-height: 100%; background: #000; }
+      #root[inert] { pointer-events: none; }
+      #startup-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483647;
+        display: grid;
+        place-items: center;
+        background: #000;
+        opacity: 1;
+        transition: opacity 480ms ease;
+      }
+      #startup-splash img { display: block; width: min(256px, 48vmin); height: auto; }
+      #startup-splash.startup-splash-leaving { opacity: 0; }
+      @media (prefers-reduced-motion: reduce) {
+        #startup-splash { transition: none; }
+      }
+    </style>
     <link rel="icon" type="image/png" href="/RatLogo_white.png" />
     <meta
       name="description"
@@ -12,7 +32,10 @@
     <title>Behavior Tracker</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root" inert></div>
+    <div id="startup-splash" role="status" aria-label="Carregando Behavior Tracker">
+      <img src="/loading.gif" alt="" width="256" height="256" />
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

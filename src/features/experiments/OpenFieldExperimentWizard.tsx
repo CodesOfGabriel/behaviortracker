@@ -14,7 +14,7 @@ import {
   UploadCloud,
   Video,
 } from "lucide-react";
-import { useMemo, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { defaultArena, DEMO_VIDEO_HEIGHT, DEMO_VIDEO_WIDTH } from "../../lib/demo-data";
@@ -243,8 +243,8 @@ function ArenaPreview({
   );
 }
 
-export function OpenFieldExperimentWizard({ onBack }: { onBack: () => void }) {
-  const { navigate, saveExperiment } = useAppStore();
+export function OpenFieldExperimentWizard({ onBack, onComplete = () => {}, resumePreparation = false }: { onBack: () => void; onComplete?: () => void; resumePreparation?: boolean }) {
+  const { navigate, saveExperiment, setDraftPreparationActive } = useAppStore();
   const [draftId] = useState(() => crypto.randomUUID());
   const [step, setStep] = useState(0);
   const [title, setTitle] = useState("");
@@ -270,6 +270,10 @@ export function OpenFieldExperimentWizard({ onBack }: { onBack: () => void }) {
   const [capturingFrame, setCapturingFrame] = useState(false);
   const [frameCandidateSec, setFrameCandidateSec] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (resumePreparation && loadingVideo) setStep(1);
+  }, [resumePreparation, loadingVideo]);
 
   const arenaError = useMemo(
     () => video ? validateArenaRegions(arena, video.width, video.height, true) : null,
@@ -330,12 +334,14 @@ export function OpenFieldExperimentWizard({ onBack }: { onBack: () => void }) {
     const file = event.target.files?.[0];
     if (!file || loadingVideo) return;
     setLoadingVideo(true);
+    setDraftPreparationActive(true);
     setPreparationMessage("Lendo vídeo e capturando o frame de calibração…");
     setPreparationProgress(null);
     setVideoError(null);
     setFrameError(null);
-    const objectUrl = URL.createObjectURL(file);
+    let objectUrl = "";
     try {
+      objectUrl = URL.createObjectURL(file);
       const element = await openVideo(objectUrl);
       const initialFrameSec = Number.isFinite(element.duration) && element.duration > 0
         ? Math.min(element.duration * 0.35, Math.max(0, element.duration - 0.05))
@@ -371,10 +377,11 @@ export function OpenFieldExperimentWizard({ onBack }: { onBack: () => void }) {
       setArenaLayer("rim");
       setConfirmedRegions({ rim: false, floor: false });
     } catch (error) {
-      URL.revokeObjectURL(objectUrl);
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
       setVideoError(error instanceof Error ? error.message : "Não foi possível abrir o vídeo.");
     } finally {
       setLoadingVideo(false);
+      setDraftPreparationActive(false);
     }
   };
 
@@ -420,6 +427,7 @@ export function OpenFieldExperimentWizard({ onBack }: { onBack: () => void }) {
       corrections: [],
     };
     saveExperiment(experiment, asset);
+    onComplete();
     navigate({ name: "results", experimentId: id });
   };
 
@@ -429,8 +437,8 @@ export function OpenFieldExperimentWizard({ onBack }: { onBack: () => void }) {
       <section className="page-heading wizard-heading">
         <div>
           <div className="eyebrow">Novo experimento</div>
-          <h1>Configurar campo aberto</h1>
-          <p>Registre o protocolo, o vídeo e a geometria antes de analisar o rastreamento.</p>
+          <h1>{loadingVideo && step === 1 ? "Preparação do vídeo em andamento" : "Configurar campo aberto"}</h1>
+          <p>{loadingVideo && step === 1 ? "Acompanhe a otimização do arquivo antes de continuar." : "Registre o protocolo, o vídeo e a geometria antes de analisar o rastreamento."}</p>
         </div>
         <Badge tone="info">Rascunho local</Badge>
       </section>
