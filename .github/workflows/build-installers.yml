@@ -39,7 +39,7 @@ jobs:
     env:
       BEHAVETRACKER_TARGET: ${{ matrix.target }}
       BEHAVETRACKER_REQUIRE_STATIC: "1"
-      BEHAVETRACKER_GOOGLE_CLIENT_ID: 60117059630-9v3c4cv8dpb7iacag7qrkrhs6kilvh9t.apps.googleusercontent.com
+      BEHAVETRACKER_GOOGLE_CLIENT_ID: 60117059630-4eum1k4pv2pv8gnmk252hu7e37cd6ff7.apps.googleusercontent.com
       BEHAVETRACKER_GOOGLE_CLIENT_SECRET: ${{ secrets.BEHAVETRACKER_GOOGLE_CLIENT_SECRET }}
       GH_TOKEN: ${{ github.token }}
 
