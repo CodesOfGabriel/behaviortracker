@@ -52,7 +52,7 @@ function RoiEditor({ frame, width, height, tanks, activeIndex, onChange, onCompl
   </svg>;
 }
 
-export function ForcedSwimExperimentWizard({ onBack }: { onBack: () => void }) {
+export function ForcedSwimExperimentWizard({ onBack, onComplete = () => {} }: { onBack: () => void; onComplete?: () => void }) {
   const { navigate, saveExperiment } = useAppStore();
   const [id] = useState(() => crypto.randomUUID());
   const [step,setStep] = useState(0);
@@ -113,7 +113,7 @@ export function ForcedSwimExperimentWizard({ onBack }: { onBack: () => void }) {
       title:title.trim(),subjectId:subjects[0].trim(),group:group.trim()||undefined,notes:notes.trim()||undefined,testType:"forced_swim",status:"draft",createdAt:now,updatedAt:now,
       video,calibrationThumbnailDataUrl:asset.thumbnailDataUrl,subjects:subjects.map((s,i)=>({animalId:`animal_${i+1}`,subjectId:s.trim()})),tanks,annotations:[]};
     const validation=validateForcedSwim(experiment);if(validation){setError(validation);return;}
-    saveExperiment(experiment,asset);navigate({name:"results",experimentId:id});
+    saveExperiment(experiment,asset);onComplete();navigate({name:"results",experimentId:id});
   };
   return <div className="page wizard-page fst-wizard">
     <button className="back-link" onClick={() => step ? setStep(step-1) : onBack()}><ArrowLeft size={16} /> {step ? "Voltar à etapa anterior" : "Alterar protocolo"}</button>

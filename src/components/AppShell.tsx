@@ -4,6 +4,13 @@ import { useAppStore } from "../store/AppStore";
 import { BrandMark } from "./BrandMark";
 import { Badge } from "./ui/Badge";
 import { cn } from "../lib/format";
+import type { AppRoute } from "../types";
+
+export function experimentsSidebarRoute(draftPreparationActive: boolean, runningAnalysisIds: string[]): AppRoute {
+  if (runningAnalysisIds.length > 0) return { name: "results", experimentId: runningAnalysisIds[0] };
+  if (draftPreparationActive) return { name: "new-experiment", resumePreparation: true };
+  return { name: "dashboard" };
+}
 
 function isActive(routeName: string, current: string) {
   if (routeName === "dashboard") return current === "dashboard";
@@ -16,14 +23,17 @@ export function AppShell({ children, accountEmail, onLogout }: {
   accountEmail: string | null;
   onLogout: () => Promise<void>;
 }) {
-  const { route, navigate, analysisActivity } = useAppStore();
+  const { route, navigate, analysisActivity, draftPreparationActive, getExperiment } = useAppStore();
   const [menuOpen, setMenuOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const displayName = accountEmail || "Pesquisador";
   const researcherInitials = displayName.trim().split(/\s+|@/).filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join("") || "P";
-  const runningCount = Object.values(analysisActivity).filter((activity) => activity.starting).length;
+  const runningAnalysisIds = Object.entries(analysisActivity)
+    .filter(([id, activity]) => activity.starting && getExperiment(id))
+    .map(([id]) => id);
+  const runningCount = runningAnalysisIds.length + Number(draftPreparationActive);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -43,7 +53,7 @@ export function AppShell({ children, accountEmail, onLogout }: {
 
   const navItems = [
     { id: "dashboard", label: "Visão geral", icon: LayoutDashboard, action: () => navigate({ name: "dashboard" }) },
-    { id: "experiments", label: "Experimentos", icon: FlaskConical, action: () => navigate({ name: "dashboard" }) },
+    { id: "experiments", label: "Experimentos", icon: FlaskConical, action: () => navigate(experimentsSidebarRoute(draftPreparationActive, runningAnalysisIds)) },
     { id: "about", label: "Sobre", icon: CircleHelp, action: () => navigate({ name: "about" }) },
   ];
 
@@ -76,7 +86,7 @@ export function AppShell({ children, accountEmail, onLogout }: {
           {navItems.map((item) => {
             const Icon = item.icon;
             const label = item.id === "experiments" && runningCount > 0
-              ? `${item.label} · ${runningCount} ${runningCount === 1 ? "análise em execução" : "análises em execução"}`
+              ? `${item.label} · abrir ${runningAnalysisIds.length > 0 ? "análise" : "preparação do vídeo"} em andamento (${runningCount} ${runningCount === 1 ? "processo" : "processos"})`
               : item.label;
             return (
               <button
