@@ -23,6 +23,7 @@ const CLIENT_SECRET_SERVICE: &str = "com.behavetracker.desktop.google-oauth-clie
 const REFRESH_TOKEN_SERVICE: &str = "com.behavetracker.desktop.google-oauth-refresh";
 const OAUTH_STATUS_EVENT: &str = "google-oauth-status";
 const BUNDLED_CLIENT_ID: Option<&str> = option_env!("BEHAVETRACKER_GOOGLE_CLIENT_ID");
+const BUNDLED_CLIENT_SECRET: Option<&str> = option_env!("BEHAVETRACKER_GOOGLE_CLIENT_SECRET");
 
 pub(crate) type CommandResult<T> = Result<T, String>;
 
@@ -124,6 +125,32 @@ fn validate_client_secret(client_secret: &str) -> CommandResult<String> {
 
 fn bundled_client_id() -> Option<String> {
     BUNDLED_CLIENT_ID.and_then(|value| validate_client_id(value).ok())
+}
+
+fn bundled_client_secret() -> Option<String> {
+    BUNDLED_CLIENT_SECRET.and_then(|value| validate_client_secret(value).ok())
+}
+
+fn client_secret_for_with_bundled(
+    client_id: &str,
+    stored_secret: Option<String>,
+    bundled_id: Option<&str>,
+    bundled_secret: Option<&str>,
+) -> Option<String> {
+    if bundled_id == Some(client_id) {
+        bundled_secret.map(str::to_string).or(stored_secret)
+    } else {
+        stored_secret
+    }
+}
+
+fn client_secret_for(client_id: &str, stored_secret: Option<String>) -> Option<String> {
+    client_secret_for_with_bundled(
+        client_id,
+        stored_secret,
+        bundled_client_id().as_deref(),
+        bundled_client_secret().as_deref(),
+    )
 }
 
 fn token_entry(profile_id: &str) -> CommandResult<Entry> {
@@ -418,7 +445,10 @@ fn summary_from_database(app: &AppHandle, profile_id: &str) -> CommandResult<OAu
               WHERE profile_id = ?1",
             params![profile_id],
             |row| {
-                let has_client_secret: bool = row.get(2)?;
+                let has_client_secret: bool = row.get(2)?
+                    || (bundled_client_id().as_deref()
+                        == Some(row.get::<_, String>(1)?.as_str())
+                        && bundled_client_secret().is_some());
                 let _has_refresh_token: bool = row.get(3)?;
                 let account_email: Option<String> = row.get(4)?;
                 Ok(OAuthProfileSummary {
@@ -642,9 +672,9 @@ fn token_error_message(status: u16, body: &str, context: &str) -> String {
         .unwrap_or("");
     let detail = match code {
         "invalid_request" if description.contains("client_secret") =>
-            "O Google exige a credencial deste cliente. Use Recuperar conexão anterior para importar a configuração já salva neste Mac.",
+            "O Google exige a credencial deste cliente. Verifique a configuração OAuth e tente novamente.",
         "invalid_client" =>
-            "O Google não reconheceu as credenciais deste aplicativo. Recupere a configuração anterior e tente conectar novamente.",
+            "O Google não reconheceu as credenciais deste aplicativo. Tente conectar novamente.",
         "invalid_grant" =>
             "A autorização expirou ou foi revogada. Conecte a conta Google novamente.",
         "access_denied" => "O Google recusou a permissão solicitada.",
@@ -718,7 +748,8 @@ fn refresh_access_token(
 
 pub(crate) fn google_access_token(app: &AppHandle, profile_id: &str) -> CommandResult<String> {
     let configuration = summary_from_database(app, profile_id)?;
-    let (client_secret, refresh_token) = credentials_from_database(app, profile_id)?;
+    let (stored_client_secret, refresh_token) = credentials_from_database(app, profile_id)?;
+    let client_secret = client_secret_for(&configuration.client_id, stored_client_secret);
     let refresh_token =
         refresh_token.ok_or_else(|| "Conecte novamente a Conta Google.".to_string())?;
     let client = Client::builder()
@@ -740,7 +771,7 @@ fn legacy_keychain_secret(service: &str, profile_id: &str) -> CommandResult<Opti
         Ok(value) if value.trim().is_empty() => Ok(None),
         Ok(value) => Ok(Some(value)),
         Err(keyring::Error::NoEntry) => Ok(None),
-        Err(_) => Err("O macOS não liberou o acesso à credencial antiga. Permita uma vez para migrar a conexão.".into()),
+        Err(_) => Err("O sistema não liberou o acesso à credencial anterior. Permita o acesso para migrar a conexão.".into()),
     }
 }
 
@@ -756,7 +787,8 @@ fn restore_legacy_google_session_blocking(
     if existing.client_id.is_empty() {
         return Err("Salve o Client ID antes de recuperar a conexão anterior.".into());
     }
-    let (client_secret, refresh_token) = credentials_from_database(&app, &profile_id)?;
+    let (stored_client_secret, refresh_token) = credentials_from_database(&app, &profile_id)?;
+    let client_secret = client_secret_for(&existing.client_id, stored_client_secret);
     let legacy_client_secret = if client_secret.is_none() {
         legacy_keychain_secret(CLIENT_SECRET_SERVICE, &profile_id)?
     } else {
@@ -928,7 +960,8 @@ fn authorize_blocking(app: AppHandle, profile_id: String) -> CommandResult<OAuth
     if configuration.client_id.is_empty() {
         return Err("Salve o Client ID antes de conectar a Conta Google.".into());
     }
-    let (client_secret, _) = credentials_from_database(&app, &profile_id)?;
+    let (stored_client_secret, _) = credentials_from_database(&app, &profile_id)?;
+    let client_secret = client_secret_for(&configuration.client_id, stored_client_secret);
     let listener = TcpListener::bind("127.0.0.1:0")
         .map_err(|_| "Não foi possível abrir o callback OAuth local.".to_string())?;
     let port = listener
@@ -1011,7 +1044,8 @@ fn check_eligibility_blocking(
     profile_id: String,
 ) -> CommandResult<OAuthProfileSummary> {
     let configuration = summary_from_database(&app, &profile_id)?;
-    let (client_secret, refresh_token) = credentials_from_database(&app, &profile_id)?;
+    let (stored_client_secret, refresh_token) = credentials_from_database(&app, &profile_id)?;
+    let client_secret = client_secret_for(&configuration.client_id, stored_client_secret);
     let refresh_token =
         refresh_token.ok_or_else(|| "Conecte novamente a Conta Google.".to_string())?;
     let client = Client::builder()
@@ -1308,6 +1342,35 @@ mod tests {
     }
 
     #[test]
+    fn bundled_client_can_be_created_without_previous_database_credentials() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE google_oauth_profiles (
+                   profile_id TEXT PRIMARY KEY, google_client_id TEXT NOT NULL,
+                   client_secret TEXT, refresh_token TEXT,
+                   has_client_secret INTEGER DEFAULT 0, has_refresh_token INTEGER DEFAULT 0
+                 );",
+            )
+            .unwrap();
+        configure_bundled_client(
+            &connection,
+            "local-default",
+            "managed.apps.googleusercontent.com",
+            || Ok(()),
+        )
+        .unwrap();
+        let client_id: String = connection
+            .query_row(
+                "SELECT google_client_id FROM google_oauth_profiles WHERE profile_id = 'local-default'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(client_id, "managed.apps.googleusercontent.com");
+    }
+
+    #[test]
     fn does_not_claim_connected_without_a_token_or_for_a_changed_client() {
         let connection = test_connection();
         assert!(persist_google_session_with_store(
@@ -1344,8 +1407,30 @@ mod tests {
             r#"{"error":"invalid_request","error_description":"client_secret is missing.","access_token":"do-not-display"}"#,
             "Conexão não concluída",
         );
-        assert!(message.contains("Recuperar conexão anterior"));
+        assert!(message.contains("Verifique a configuração OAuth"));
         assert!(!message.contains("do-not-display"));
+    }
+
+    #[test]
+    fn managed_client_uses_embedded_secret_without_previous_credentials() {
+        let secret = super::client_secret_for_with_bundled(
+            "managed.apps.googleusercontent.com",
+            None,
+            Some("managed.apps.googleusercontent.com"),
+            Some("embedded-secret"),
+        );
+        assert_eq!(secret.as_deref(), Some("embedded-secret"));
+    }
+
+    #[test]
+    fn custom_client_keeps_using_its_stored_secret() {
+        let secret = super::client_secret_for_with_bundled(
+            "custom.apps.googleusercontent.com",
+            Some("stored-secret".into()),
+            Some("managed.apps.googleusercontent.com"),
+            Some("embedded-secret"),
+        );
+        assert_eq!(secret.as_deref(), Some("stored-secret"));
     }
 
     #[test]
