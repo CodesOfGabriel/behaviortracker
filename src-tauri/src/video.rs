@@ -11,11 +11,27 @@ use std::{
     fs,
     io::{BufRead, BufReader, Read},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
-    thread,
-    time::{Duration, Instant},
+    process::{Child, Command, Stdio},
+    time::Instant,
 };
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
+
+const VIDEO_PREPARATION_PROGRESS_EVENT: &str = "video-preparation-progress";
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VideoPreparationProgress<'a> {
+    upload_id: &'a str,
+    phase: &'a str,
+    percent: Option<u8>,
+    remaining_sec: Option<u64>,
+}
+
+fn emit_preparation_progress(app: &AppHandle, upload_id: &str, phase: &str,
+    percent: Option<u8>, remaining_sec: Option<u64>) {
+    let _ = app.emit(VIDEO_PREPARATION_PROGRESS_EVENT,
+        VideoPreparationProgress { upload_id, phase, percent, remaining_sec });
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -265,11 +281,21 @@ fn fingerprints(program: &Path, input: &Path) -> CommandResult<Vec<(i64, String)
     fingerprints_window(program, input, None)
 }
 
+fn fingerprints_with_progress(program: &Path, input: &Path, on_frame: &mut impl FnMut(usize))
+    -> CommandResult<Vec<(i64, String)>> {
+    fingerprints_window_with_progress(program, input, None, on_frame)
+}
+
 fn fingerprints_window(
     program: &Path,
     input: &Path,
     window: Option<(f64, f64)>,
 ) -> CommandResult<Vec<(i64, String)>> {
+    fingerprints_window_with_progress(program, input, window, &mut |_| {})
+}
+
+fn fingerprints_window_with_progress(program: &Path, input: &Path, window: Option<(f64, f64)>,
+    on_frame: &mut impl FnMut(usize)) -> CommandResult<Vec<(i64, String)>> {
     let mut command = Command::new(program);
     command.args(["-v", "error", "-noautorotate"]);
     if let Some((start, _)) = window {
@@ -323,6 +349,7 @@ fn fingerprints_window(
                 fields[2].parse::<i64>().map_err(|_| "Timestamp inválido")?,
                 fields[5].to_string(),
             ));
+            if frames.len() % 30 == 0 { on_frame(frames.len()); }
             if frames.len() > 2_000_000 {
                 return Err("Vídeo excede o limite local de validação de frames".into());
             }
@@ -330,6 +357,7 @@ fn fingerprints_window(
         if frames.is_empty() {
             return Err("Vídeo sem frames decodificáveis".into());
         }
+        on_frame(frames.len());
         Ok(frames)
     })();
     if result.is_err() {
@@ -366,7 +394,80 @@ fn upload_dimensions(width: u32, height: u32) -> (u32, u32) {
     (even(width), even(height))
 }
 
+fn source_duration(info: &Value) -> Option<f64> {
+    info.pointer("/streams/0/duration").and_then(Value::as_str)
+        .and_then(|value| value.parse::<f64>().ok())
+        .or_else(|| info.pointer("/format/duration").and_then(Value::as_str)
+            .and_then(|value| value.parse::<f64>().ok()))
+        .filter(|value| value.is_finite() && *value > 0.0)
+}
+
+fn source_frame_estimate(info: &Value) -> Option<usize> {
+    if let Some(frames) = info.pointer("/streams/0/nb_frames").and_then(Value::as_str)
+        .and_then(|value| value.parse::<usize>().ok()).filter(|value| *value > 0) {
+        return Some(frames);
+    }
+    let (num, den) = info.pointer("/streams/0/avg_frame_rate").and_then(Value::as_str)?
+        .split_once('/')?;
+    let fps = num.parse::<f64>().ok()? / den.parse::<f64>().ok()?;
+    let frames = (source_duration(info)? * fps).round();
+    if frames.is_finite() && (1.0..=2_000_000.0).contains(&frames) { Some(frames as usize) }
+    else { None }
+}
+
+fn report_frame_progress(frames: usize, expected: Option<usize>, start: u8, end: u8,
+    progress: &mut impl FnMut(&str, Option<u8>, Option<u64>)) {
+    if let Some(expected) = expected.filter(|value| *value > 0) {
+        let fraction = (frames as f64 / expected as f64).clamp(0.0, 1.0);
+        let percent = start + ((end - start) as f64 * fraction).floor() as u8;
+        progress("verifying", Some(percent.min(end - 1)), None);
+    }
+}
+
+fn run_encode_with_progress(mut child: Child, output: &Path, max_bytes: u64,
+    duration: Option<f64>, progress: &mut impl FnMut(&str, Option<u8>, Option<u64>))
+    -> CommandResult<()> {
+    let started = Instant::now();
+    let mut position_us = None;
+    let read_result: CommandResult<()> = (|| {
+        for line in BufReader::new(child.stdout.take().ok_or("Progresso do FFmpeg indisponível")?).lines() {
+            let line = line.map_err(|_| "Falha ao acompanhar a compactação")?;
+            if let Some(value) = line.strip_prefix("out_time_us=")
+                .or_else(|| line.strip_prefix("out_time_ms=")) {
+                position_us = value.parse::<u64>().ok();
+            }
+            if line == "progress=continue" || line == "progress=end" {
+                if fs::metadata(output).is_ok_and(|file| file.len() > max_bytes) {
+                    return Err("A cópia preparada ficaria maior que o original".into());
+                }
+                if let (Some(us), Some(duration)) = (position_us, duration) {
+                    let fraction = (us as f64 / 1_000_000.0 / duration).clamp(0.0, 1.0);
+                    let percent = ((fraction * 80.0).floor() as u8).min(79);
+                    let remaining = if fraction > 0.02 && started.elapsed().as_secs() >= 3 {
+                        Some(((started.elapsed().as_secs_f64() / fraction) * (1.0 - fraction)).ceil() as u64)
+                    } else { None };
+                    progress("encoding", Some(percent), remaining);
+                }
+            }
+        }
+        Ok(())
+    })();
+    if read_result.is_err() { let _ = child.kill(); }
+    let status = child.wait().map_err(|_| "Falha ao concluir a compactação")?;
+    read_result?;
+    if !status.success() { return Err("O FFmpeg não conseguiu preparar este vídeo".into()); }
+    Ok(())
+}
+
+#[cfg(test)]
 fn optimize_quality(input: &Path, output: &Path, ffmpeg: &Path, ffprobe: &Path, width: u32, height: u32) -> CommandResult<(u64, u32, u32)> {
+    optimize_quality_with_progress(input, output, ffmpeg, ffprobe, width, height, &mut |_, _, _| {})
+}
+
+fn optimize_quality_with_progress(input: &Path, output: &Path, ffmpeg: &Path, ffprobe: &Path,
+    width: u32, height: u32, progress: &mut impl FnMut(&str, Option<u8>, Option<u64>))
+    -> CommandResult<(u64, u32, u32)> {
+    progress("checking", None, None);
     let info = probe(ffprobe, input)?;
     let stream = &info["streams"][0];
     if stream["width"].as_u64() != Some(width.into()) || stream["height"].as_u64() != Some(height.into()) {
@@ -379,24 +480,16 @@ fn optimize_quality(input: &Path, output: &Path, ffmpeg: &Path, ffprobe: &Path, 
     let (out_width, out_height) = upload_dimensions(width, height);
     let size = fs::metadata(input).map_err(|_| "Vídeo indisponível")?.len();
     let scale = format!("scale={out_width}:{out_height}:flags=lanczos");
-    let mut child = Command::new(ffmpeg)
-        .args(["-v", "error", "-nostdin", "-n", "-noautorotate", "-i"]).arg(input)
+    progress("encoding", Some(0), None);
+    let child = Command::new(ffmpeg)
+        .args(["-v", "error", "-nostdin", "-n", "-stats_period", "0.5", "-progress", "pipe:1",
+            "-noautorotate", "-i"]).arg(input)
         .args(["-map", "0:v:0", "-an", "-sn", "-dn", "-map_metadata", "-1", "-vf", &scale,
             "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p",
             "-threads", "2", "-fps_mode", "passthrough", "-movflags", "+faststart"])
-        .arg(output).stdout(Stdio::null()).stderr(Stdio::null()).spawn()
+        .arg(output).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()
         .map_err(|_| "Não foi possível iniciar o FFmpeg".to_string())?;
-    loop {
-        if let Some(status) = child.try_wait().map_err(|_| "Falha ao acompanhar a compactação")? {
-            if !status.success() { return Err("O FFmpeg não conseguiu preparar este vídeo".into()); }
-            break;
-        }
-        if fs::metadata(output).is_ok_and(|file| file.len() > size) {
-            let _ = child.kill(); let _ = child.wait();
-            return Err("A cópia otimizada ficaria maior; o original foi mantido".into());
-        }
-        thread::sleep(Duration::from_millis(200));
-    }
+    run_encode_with_progress(child, output, size, source_duration(&info), progress)?;
     if fs::metadata(output).map_err(|_| "Cópia indisponível")?.len() >= size {
         return Err("Compactação não reduziu o tamanho; original mantido".into());
     }
@@ -405,8 +498,14 @@ fn optimize_quality(input: &Path, output: &Path, ffmpeg: &Path, ffprobe: &Path, 
         || encoded["streams"][0]["height"].as_u64() != Some(out_height.into()) {
         return Err("Resolução da cópia inesperada; original mantido".into());
     }
-    let original = fingerprints(ffmpeg, input)?;
-    let compressed = fingerprints(ffmpeg, output)?;
+    let expected = source_frame_estimate(&info);
+    progress("verifying", Some(80), None);
+    let original = fingerprints_with_progress(ffmpeg, input,
+        &mut |frames| report_frame_progress(frames, expected, 80, 90, progress))?;
+    progress("verifying", Some(90), None);
+    let compressed = fingerprints_with_progress(ffmpeg, output,
+        &mut |frames| report_frame_progress(frames, Some(original.len()), 90, 99, progress))?;
+    progress("verifying", Some(99), None);
     if !identical_timing(&original, &compressed) {
         return Err("Frames ou timestamps divergiram; original mantido".into());
     }
@@ -436,9 +535,13 @@ fn encode(
     output: &Path,
     pixel_format: &str,
     original_bytes: u64,
+    duration: Option<f64>,
+    progress: &mut impl FnMut(&str, Option<u8>, Option<u64>),
 ) -> CommandResult<()> {
-    let mut child = Command::new(program)
-        .args(["-v", "error", "-nostdin", "-n", "-noautorotate", "-i"])
+    progress("encoding", Some(0), None);
+    let child = Command::new(program)
+        .args(["-v", "error", "-nostdin", "-n", "-stats_period", "0.5", "-progress", "pipe:1",
+            "-noautorotate", "-i"])
         .arg(input)
         .args([
             "-map",
@@ -464,31 +567,14 @@ fn encode(
             "+faststart",
         ])
         .arg(output)
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
         .map_err(|_| "Não foi possível iniciar o FFmpeg".to_string())?;
-    loop {
-        if let Some(status) = child
-            .try_wait()
-            .map_err(|_| "Falha ao acompanhar a compactação")?
-        {
-            return if status.success() {
-                Ok(())
-            } else {
-                Err("A compactação sem perda não é compatível com este vídeo".into())
-            };
-        }
-        // Não termina uma cópia que já ficou maior que o original.
-        if fs::metadata(output).is_ok_and(|file| file.len() > original_bytes) {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err("A cópia sem perda ficaria maior; o original foi mantido".into());
-        }
-        thread::sleep(Duration::from_millis(200));
-    }
+    run_encode_with_progress(child, output, original_bytes, duration, progress)
 }
 
+#[cfg(test)]
 fn optimize(
     input: &Path,
     output: &Path,
@@ -497,6 +583,13 @@ fn optimize(
     width: u32,
     height: u32,
 ) -> CommandResult<u64> {
+    optimize_with_progress(input, output, ffmpeg, ffprobe, width, height, &mut |_, _, _| {})
+}
+
+fn optimize_with_progress(input: &Path, output: &Path, ffmpeg: &Path, ffprobe: &Path,
+    width: u32, height: u32, progress: &mut impl FnMut(&str, Option<u8>, Option<u64>))
+    -> CommandResult<u64> {
+    progress("checking", None, None);
     let info = probe(ffprobe, input)?;
     let stream = info
         .pointer("/streams/0")
@@ -533,7 +626,7 @@ fn optimize(
         return Err("Formato de pixel preservado: compactação conservadora indisponível".into());
     }
     let size = fs::metadata(input).map_err(|_| "Vídeo indisponível")?.len();
-    encode(ffmpeg, input, output, pixel_format, size)?;
+    encode(ffmpeg, input, output, pixel_format, size, source_duration(&info), progress)?;
     if fs::metadata(output)
         .map_err(|_| "Cópia indisponível")?
         .len()
@@ -556,8 +649,14 @@ fn optimize(
             return Err(format!("Metadado visual {field} mudou; original mantido"));
         }
     }
-    let original = fingerprints(ffmpeg, input)?;
-    let compressed = fingerprints(ffmpeg, output)?;
+    let expected = source_frame_estimate(&info);
+    progress("verifying", Some(80), None);
+    let original = fingerprints_with_progress(ffmpeg, input,
+        &mut |frames| report_frame_progress(frames, expected, 80, 90, progress))?;
+    progress("verifying", Some(90), None);
+    let compressed = fingerprints_with_progress(ffmpeg, output,
+        &mut |frames| report_frame_progress(frames, Some(original.len()), 90, 99, progress))?;
+    progress("verifying", Some(99), None);
     if !identical_frames(&original, &compressed) {
         return Err("Frames ou timestamps divergiram; original mantido".into());
     }
@@ -663,8 +762,16 @@ fn same_presentation_timing(first: &[f64], second: &[f64]) -> bool {
     same_packet_timing(&first, &second)
 }
 
+#[cfg(test)]
 fn adaptive_prepare(input: &Path, output: &Path, ffmpeg: &Path, ffprobe: &Path,
     width: u32, height: u32) -> CommandResult<AdaptivePreparation> {
+    adaptive_prepare_with_progress(input, output, ffmpeg, ffprobe, width, height, &mut |_, _, _| {})
+}
+
+fn adaptive_prepare_with_progress(input: &Path, output: &Path, ffmpeg: &Path, ffprobe: &Path,
+    width: u32, height: u32, progress: &mut impl FnMut(&str, Option<u8>, Option<u64>))
+    -> CommandResult<AdaptivePreparation> {
+    progress("checking", None, None);
     let info = probe(ffprobe, input)?;
     valid_adaptive_source(&info, width, height)?;
     let duration = info["streams"][0]["duration"].as_str()
@@ -717,14 +824,41 @@ fn adaptive_prepare(input: &Path, output: &Path, ffmpeg: &Path, ffprobe: &Path,
     encoders.push("libx264");
     let before = packet_timestamps(ffprobe, input)?;
     for encoder in encoders {
+        progress("encoding", Some(0), None);
         let mut command = Command::new(ffmpeg);
-        command.args(["-v", "error", "-nostdin", "-n", "-noautorotate", "-i"])
+        command.args(["-v", "error", "-nostdin", "-n", "-stats_period", "0.5",
+            "-progress", "pipe:1", "-noautorotate", "-i"])
             .arg(input).args(["-map", "0:v:0", "-an", "-sn", "-dn", "-c:v", encoder,
                 "-pix_fmt", "yuv420p", "-fps_mode", "passthrough", "-movflags", "+faststart"]);
         if encoder == "libx264" { command.args(["-preset", "fast", "-crf", "18"]); }
         else { command.args(["-b:v", "8M"]); }
-        let status = command.arg(output).stdout(Stdio::null()).stderr(Stdio::null()).status();
+        let status = command.arg(output).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()
+            .and_then(|mut child| {
+                let started = Instant::now();
+                if let Some(stdout) = child.stdout.take() {
+                    let mut position_us = None;
+                    for line in BufReader::new(stdout).lines() {
+                        let line = line?;
+                        if let Some(value) = line.strip_prefix("out_time_us=")
+                            .or_else(|| line.strip_prefix("out_time_ms=")) {
+                            position_us = value.parse::<u64>().ok();
+                        }
+                        if line == "progress=continue" || line == "progress=end" {
+                            if let Some(us) = position_us {
+                                let fraction = (us as f64 / 1_000_000.0 / duration).clamp(0.0, 1.0);
+                                let percent = (fraction * 95.0).floor() as u8;
+                                let remaining = if fraction > 0.02 && started.elapsed().as_secs() >= 3 {
+                                    Some(((started.elapsed().as_secs_f64() / fraction) * (1.0 - fraction)).ceil() as u64)
+                                } else { None };
+                                progress("encoding", Some(percent), remaining);
+                            }
+                        }
+                    }
+                }
+                child.wait()
+            });
         if status.is_ok_and(|status| status.success()) {
+            progress("verifying", Some(95), None);
             let checked = (|| {
                 let encoded = probe(ffprobe, output)?;
                 valid_adaptive_source(&encoded, width, height)?;
@@ -753,6 +887,12 @@ pub(crate) fn prepare_staged_video_with_policy(
     height: u32,
     fst_adaptive: bool,
 ) -> CommandResult<VideoPreparation> {
+    prepare_staged_video_with_progress(app, upload_id, width, height, fst_adaptive, &mut |_, _, _| {})
+}
+
+fn prepare_staged_video_with_progress(app: &AppHandle, upload_id: &str, width: u32, height: u32,
+    fst_adaptive: bool, progress: &mut impl FnMut(&str, Option<u8>, Option<u64>))
+    -> CommandResult<VideoPreparation> {
     validate_local_id(upload_id, "Upload")?;
     prepare_tables(app)?;
     let connection = open_database(app)?;
@@ -807,6 +947,7 @@ pub(crate) fn prepare_staged_video_with_policy(
         cache_hit: false,
     };
     if fst_adaptive {
+        progress("checking", None, None);
         let started = Instant::now();
         let original_digest: String = connection.query_row(
             "SELECT sha256 FROM video_staging WHERE upload_id=?1 AND ready=1",
@@ -867,7 +1008,8 @@ pub(crate) fn prepare_staged_video_with_policy(
         let ffmpeg = binary("ffmpeg").ok_or("FFmpeg é necessário para preparar o vídeo FST")?;
         let prepared_id = new_uuid_v4();
         let output = staging_directory(app)?.join(format!("{prepared_id}.mp4"));
-        let result = adaptive_prepare(Path::new(&input), &output, &ffmpeg, &ffprobe, width, height);
+        let result = adaptive_prepare_with_progress(Path::new(&input), &output, &ffmpeg,
+            &ffprobe, width, height, progress);
         let outcome = match result {
             Ok(value) => value,
             Err(error) => { let _ = fs::remove_file(&output); return Err(error); }
@@ -902,10 +1044,12 @@ pub(crate) fn prepare_staged_video_with_policy(
         let output = staging_directory(app)?.join(format!("{prepared_id}.mp4"));
         let quality = size > 100_000_000;
         let result = if quality {
-            optimize_quality(Path::new(&input), &output, &ffmpeg, &ffprobe, width, height)
+            optimize_quality_with_progress(Path::new(&input), &output, &ffmpeg, &ffprobe,
+                width, height, progress)
                 .map(|(frames, w, h)| (frames, w, h, false))
         } else {
-            optimize(Path::new(&input), &output, &ffmpeg, &ffprobe, width, height)
+            optimize_with_progress(Path::new(&input), &output, &ffmpeg, &ffprobe,
+                width, height, progress)
                 .map(|frames| (frames, width, height, true))
         };
         match result {
@@ -955,7 +1099,12 @@ pub async fn prepare_analysis_video(
     fst_adaptive: Option<bool>,
 ) -> CommandResult<VideoPreparation> {
     tauri::async_runtime::spawn_blocking(move || {
-        prepare_staged_video_with_policy(&app, &upload_id, width, height, fst_adaptive.unwrap_or(false))
+        let result = prepare_staged_video_with_progress(&app, &upload_id, width, height,
+            fst_adaptive.unwrap_or(false), &mut |phase, percent, remaining_sec| {
+                emit_preparation_progress(&app, &upload_id, phase, percent, remaining_sec);
+            });
+        if result.is_ok() { emit_preparation_progress(&app, &upload_id, "complete", Some(100), Some(0)); }
+        result
     })
     .await
     .map_err(|_| "Preparação do vídeo interrompida".to_string())?
@@ -1295,7 +1444,11 @@ mod tests {
             "-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=48000", "-t", "1", "-c:v", "rawvideo",
             "-c:a", "pcm_s16le", "-f", "nut"]).arg(&input).status().unwrap();
         assert!(status.success());
-        assert_eq!(optimize_quality(&input, &output, &ffmpeg, &ffprobe, 160, 120).unwrap(), (24, 160, 120));
+        let mut updates = Vec::new();
+        assert_eq!(optimize_quality_with_progress(&input, &output, &ffmpeg, &ffprobe, 160, 120,
+            &mut |phase, percent, _| updates.push((phase.to_string(), percent))).unwrap(), (24, 160, 120));
+        assert!(updates.iter().any(|(phase, percent)| phase == "encoding" && percent.is_some()));
+        assert!(updates.iter().any(|(phase, percent)| phase == "verifying" && *percent == Some(99)));
         assert!(fs::metadata(&output).unwrap().len() < fs::metadata(&input).unwrap().len());
         let streams = Command::new(&ffprobe).args(["-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0"])
             .arg(&output).output().unwrap();
@@ -1338,10 +1491,11 @@ mod tests {
             .status()
             .unwrap();
         assert!(result.success());
-        assert_eq!(
-            optimize(&input, &output, &ffmpeg, &ffprobe, 160, 120).unwrap(),
-            24
-        );
+        let mut updates = Vec::new();
+        assert_eq!(optimize_with_progress(&input, &output, &ffmpeg, &ffprobe, 160, 120,
+            &mut |phase, percent, _| updates.push((phase.to_string(), percent))).unwrap(), 24);
+        assert!(updates.iter().any(|(phase, percent)| phase == "encoding" && percent.is_some()));
+        assert!(updates.iter().any(|(phase, percent)| phase == "verifying" && *percent == Some(99)));
         assert!(fs::metadata(&output).unwrap().len() < fs::metadata(&input).unwrap().len());
         assert!(optimize(&input, &root.join("wrong.mp4"), &ffmpeg, &ffprobe, 320, 240).is_err());
         let protected_digest = sha256(&output).unwrap();

@@ -1,16 +1,76 @@
 """CPU contract tests for FST presence and checkpoint isolation."""
 import tempfile
 import unittest
+import sys
+from contextlib import nullcontext
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import cv2
 import numpy as np
 
 from fst_presence import calculate_empty_reference, classify_presence_rows, debounce_presence, detect_presence_video, static_body_evidence
-from fst_pipeline import _checkpoint, _review_windows, _save_checkpoint, _validate
+from fst_pipeline import _checkpoint, _extract_pose, _infer, _pose_context, _pose_input_box, _review_windows, _save_checkpoint, _validate
 
 
 class FstPipelineTests(unittest.TestCase):
+    def test_pose_input_uses_body_location_and_preserves_missing_observations(self):
+        rect = (10, 20, 210, 320)
+        row = SimpleNamespace(presence_state='IN_TANK', body_bbox_local=(50, 40, 90, 80))
+        box = _pose_input_box(row, rect)
+        self.assertEqual(box, (42., 32., 56., 56.))
+        np.testing.assert_array_equal(_pose_context(box)['bboxes'], [[42, 32, 56, 56]])
+        self.assertEqual(_pose_context(None)['bboxes'].shape, (0, 4))
+        self.assertIsNone(_pose_input_box(SimpleNamespace(presence_state='IN_TANK', body_bbox_local=None), rect))
+        self.assertIsNone(_pose_input_box(SimpleNamespace(presence_state='UNCERTAIN', body_bbox_local=row.body_bbox_local), rect))
+        self.assertIsNone(_extract_pose({'bodypart': {'poses': np.empty((0, 39, 3))}}))
+
+    def test_inference_receives_per_frame_boxes_and_keeps_gaps(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            video = root / 'frames.avi'
+            writer = cv2.VideoWriter(str(video), cv2.VideoWriter_fourcc(*'MJPG'), 10, (200, 300))
+            self.assertTrue(writer.isOpened())
+            for _ in range(4):
+                writer.write(np.zeros((300, 200, 3), np.uint8))
+            writer.release()
+            boxes = [None, (20., 30., 50., 60.), None, (80., 90., 40., 50.)]
+            observed = []
+
+            class FakeIterator:
+                def __init__(self, _path):
+                    self.context = None
+
+                def get_n_frames(self, robust=False):
+                    return 4
+
+                def set_context(self, context):
+                    self.context = context
+
+            def infer(video, pose_runner, detector_runner):
+                observed.extend(item['bboxes'].copy() for item in video.context)
+                return [{'bodypart': {'poses': np.ones((1, 39, 3), np.float32)}}
+                    for _ in video.context]
+
+            pep = SimpleNamespace(VideoIterator=FakeIterator, video_inference=infer)
+            fake_torch = SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: True,
+                get_device_properties=lambda _: SimpleNamespace(total_memory=8 * 2**30),
+                empty_cache=lambda: None), backends=SimpleNamespace(cudnn=SimpleNamespace()),
+                inference_mode=nullcontext)
+            fake_writer = SimpleNamespace(isOpened=lambda: True, write=lambda _frame: None, release=lambda: None)
+            with patch.dict(sys.modules, {'torch': fake_torch}), \
+                    patch('fst_pipeline._runner', return_value=(pep, object(), [f'k{i}' for i in range(39)])), \
+                    patch('fst_pipeline.cv2.VideoWriter', return_value=fake_writer):
+                arrays, _, _ = _infer(video, root, {'animal_1': (0, 0, 200, 300)}, 10, 4,
+                                      'fingerprint', {'animal_1': boxes})
+            self.assertEqual(len(observed), 4)
+            self.assertEqual(observed[0].shape, (0, 4))
+            np.testing.assert_array_equal(observed[1], [[20, 30, 50, 60]])
+            np.testing.assert_array_equal(observed[3], [[80, 90, 40, 50]])
+            np.testing.assert_array_equal(arrays['animal_1'][:, 0, 2], [0, 1, 0, 1])
+            self.assertTrue(np.isnan(arrays['animal_1'][0, :, :2]).all())
+
     def test_empty_or_reflection_never_confirms_presence(self):
         self.assertEqual(set(debounce_presence([False] * 30, 10)[0]), {'UNCERTAIN'})
         image = np.zeros((300, 200, 3), np.uint8)

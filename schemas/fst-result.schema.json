@@ -7,7 +7,7 @@
   "properties": {
     "schemaVersion": { "const": "fst-result-1" }, "protocol": { "const": "forced_swim" },
     "engineId": { "const": "fst_superanimal_quadruped_v1" }, "analysisVersion": { "const": "fst-0.1" },
-    "runId": { "type": "string" },
+    "runId": { "type": "string" }, "pipelineRevision": { "type": "string" },
     "video": { "type": "object", "required": ["sha256", "originalSha256", "width", "height", "fps", "frameCount", "filename"], "properties": { "sourceWidth": { "type": ["integer", "null"] }, "sourceHeight": { "type": ["integer", "null"] }, "sourceToUploadScaleX": { "type": ["number", "null"] }, "sourceToUploadScaleY": { "type": ["number", "null"] }, "preparationPolicyVersion": { "type": ["string", "null"] } } },
     "subjects": { "type": "array", "minItems": 1, "maxItems": 2 },
     "tanks": { "type": "array", "minItems": 1, "maxItems": 2 },

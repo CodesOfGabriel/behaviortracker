@@ -8,6 +8,8 @@ Política `fst-adaptive-1`, aplicada somente ao FST quando a análise é iniciad
 
 A disponibilidade do encoder é verificada executando a conversão no binário empacotado. A política não depende de um nome de GPU ou da versão declarada do FFmpeg.
 
+Durante a conversão, o FFmpeg publica o tempo de vídeo já codificado. O desktop emite progresso para o upload em curso; a interface mostra uma barra preenchida até 95% e uma estimativa baseada na velocidade observada. Os últimos 5% ficam reservados para conferir quadros, timestamps, hash e registro da cópia. A estimativa cobre a conversão, não a verificação nem o envio ao Colab. Cópia local e inspeção de compatibilidade aparecem como etapas separadas.
+
 O arquivo original nunca é sobrescrito. Vídeos com rotação, resolução divergente da calibração, tempos inválidos ou resolução ímpar que exija conversão são rejeitados com uma mensagem específica. A política de Campo Aberto continua independente.
 
 Preparações anteriores são reutilizadas pelo SHA-256 do original, dimensões e versão da política. O relatório guarda método, encoder, duração local e uso de cache. Se houver uma cópia convertida, o cache a vincula ao novo experimento por link local ou cópia, preservando o original de cada seleção.

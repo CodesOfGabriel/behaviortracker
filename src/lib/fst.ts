@@ -45,10 +45,10 @@ export interface FstFrame {
 }
 export interface FstResult {
   schemaVersion: "fst-result-1"; protocol: "forced_swim"; engineId: typeof FST_ENGINE;
-  analysisVersion: typeof FST_VERSION; runId: string; video: { sha256: string; originalSha256: string; width: number; height: number; sourceWidth?: number | null; sourceHeight?: number | null; sourceToUploadScaleX?: number | null; sourceToUploadScaleY?: number | null; preparationPolicyVersion?: string | null; fps: number; frameCount: number; filename: string };
+  analysisVersion: typeof FST_VERSION; pipelineRevision?: string; runId: string; video: { sha256: string; originalSha256: string; width: number; height: number; sourceWidth?: number | null; sourceHeight?: number | null; sourceToUploadScaleX?: number | null; sourceToUploadScaleY?: number | null; preparationPolicyVersion?: string | null; fps: number; frameCount: number; filename: string };
   subjects: ForcedSwimExperiment["subjects"]; tanks: TankConfig[]; frames: FstFrame[];
   keypointNames: string[]; poseArrays: Record<string, [number | null, number | null, number][][]>;
-  quality: Record<string, { presenceSec: number; anatomicalCoverage: number; insufficientDataSec: number }>;
+  quality: Record<string, { presenceSec: number; anatomicalCoverage: number; insufficientDataSec: number; localizedSec?: number; localizedShareOfPresence?: number }>;
   reviewShortlist: { animalId: string; startSec: number; endSec: number; reason: "LOWER_OBSERVED_MOTION" | "HIGHER_OBSERVED_MOTION" | "TRACKING_INSUFFICIENT"; relativeMotion: number | null; meanPoseCoverage: number }[];
   insufficientIntervals: Record<string, { startSec: number; endSec: number }[]>;
   annotations?: FstAnnotation[];

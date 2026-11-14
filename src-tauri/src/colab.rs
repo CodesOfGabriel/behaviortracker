@@ -2461,7 +2461,7 @@ fn prepare_fst_environment(app: &AppHandle, job: &str, session: &str, directory:
     update_job(app, job, "running", "environment_check", 52, "Validando DeepLabCut 3.0.2, HRNet-w32 e CUDA para FST")?;
     let code = "import os,sys,subprocess,importlib.metadata\nos.environ['HF_HUB_DISABLE_XET']='1'\nos.environ['HF_HUB_DOWNLOAD_TIMEOUT']='120'\nos.environ['HF_HUB_ETAG_TIMEOUT']='30'\ntry:\n    version=importlib.metadata.version('deeplabcut')\nexcept importlib.metadata.PackageNotFoundError:\n    version=None\nif version!='3.0.2': subprocess.check_call([sys.executable,'-m','pip','install','-q','deeplabcut==3.0.2'])\nimport torch,cv2,numpy,pandas,deeplabcut\nimport deeplabcut.pose_estimation_pytorch as pep\nfrom deeplabcut.pose_estimation_pytorch.modelzoo.inference_helpers import create_superanimal_inference_runners\nif not torch.cuda.is_available(): raise RuntimeError('CUDA indisponível para FST')\nif not hasattr(pep,'VideoIterator') or not hasattr(pep,'video_inference'): raise RuntimeError('API DLC 3 incompatível')\nprint('BEHAVETRACKER_FST_ENV_OK '+deeplabcut.__version__+' '+torch.cuda.get_device_name(0))";
     run_background_task(app, job, session, directory, "setup", code)?;
-    update_job(app, job, "running", "environment_ready", 60, "Ambiente FST validado · detector desativado")?;
+    update_job(app, job, "running", "environment_ready", 60, "Ambiente FST validado · localização visual antes da HRNet")?;
     Ok(())
 }
 
@@ -2807,9 +2807,9 @@ fn run_analysis(
             &app,
             &job_id,
             "running",
-            "inference",
+            if fst.is_some() { "presence" } else { "inference" },
             65,
-            if fst.is_some() { "FST · inferência HRNet-w32 por cilindro, presença visual e indicadores por animal" } else if engine_id == "wistar_superanimal_hybrid_v1" { "Executando pipeline · detector Wistar + HRNet adaptada · resultados experimentais" } else if custom_model.is_some(){"Executando modelo personalizado experimental · confiança anatômica não calibrada; revise as posições"} else if diagnostic.is_some() { "Diagnóstico curto · medindo detector e pose separadamente, sem recuperação ou adaptação" } else if arena
+            if fst.is_some() { "FST · localização visual por cilindro, HRNet-w32 e indicadores por animal" } else if engine_id == "wistar_superanimal_hybrid_v1" { "Executando pipeline · detector Wistar + HRNet adaptada · resultados experimentais" } else if custom_model.is_some(){"Executando modelo personalizado experimental · confiança anatômica não calibrada; revise as posições"} else if diagnostic.is_some() { "Diagnóstico curto · medindo detector e pose separadamente, sem recuperação ou adaptação" } else if arena
                 .as_ref()
                 .is_some_and(|geometry| geometry.rim_corners_px.is_some())
             {
@@ -2888,7 +2888,7 @@ fn run_analysis(
             )?;
         }
         if let Some(fst) = &fst {
-            let mut artifacts = vec!["presence.csv".to_string(),"presence_events.csv".to_string(),"presence_summary.csv".to_string(),"activity.csv".to_string(),"boxes.csv".to_string(),
+            let mut artifacts = vec!["presence.csv".to_string(),"presence_events.csv".to_string(),"presence_summary.csv".to_string(),"pose_input_boxes.csv".to_string(),"activity.csv".to_string(),"boxes.csv".to_string(),
                 "activity_windows_1s.csv".to_string(),"activity_windows_3s.csv".to_string(),"review_shortlist.csv".to_string(),
                 "run_manifest.json".to_string(),"execution_report.json".to_string()];
             for subject in &fst.subjects {
@@ -3220,7 +3220,7 @@ pub fn get_fst_job_artifacts(app: AppHandle, job_id: String) -> CommandResult<Ve
         return Err("Esta execução não possui artefatos FST disponíveis.".into());
     }
     let directory=app.path().app_data_dir().map_err(|_|"Pasta de resultados indisponível")?.join("results");
-    let names=["result.json","presence.csv","presence_events.csv","presence_summary.csv","activity.csv","boxes.csv","activity_windows_1s.csv","activity_windows_3s.csv","review_shortlist.csv","run_manifest.json","execution_report.json",
+    let names=["result.json","presence.csv","presence_events.csv","presence_summary.csv","pose_input_boxes.csv","activity.csv","boxes.csv","activity_windows_1s.csv","activity_windows_3s.csv","review_shortlist.csv","run_manifest.json","execution_report.json",
         "animal_1_pose_raw.csv","animal_1_pose_raw.npz","animal_2_pose_raw.csv","animal_2_pose_raw.npz"];
     let mut result=Vec::new();
     for name in names {

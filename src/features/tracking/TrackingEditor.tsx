@@ -554,7 +554,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
       videoFileRef.current?.click();
       return;
     }
-    setAnalysisActivity(experimentId, { starting: true, message: "Verificando a conexão com o Colab", error: null });
+    setAnalysisActivity(experimentId, { starting: true, message: "Verificando a conexão com o Colab", error: null, videoProgress: null });
     setAnalysisJob(null);
     setSelectedJobId(null);
     setJobClock(Date.now());
@@ -583,9 +583,13 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
       }
       updateExperiment(experiment.id, { status: "processing" });
       if (!preparation) {
-        preparation = await prepareVideo(experiment.id, videoFile!, experiment.video, (_progress, message) => setAnalysisActivity(experimentId, { message }));
+        preparation = await prepareVideo(experiment.id, videoFile!, experiment.video, (percent, message, detail) =>
+          setAnalysisActivity(experimentId, { message, videoProgress: detail
+            ? { phase: detail.phase, percent: detail.percent, remainingSec: detail.remainingSec }
+            : percent === 100 ? { phase: "complete", percent: 100, remainingSec: 0 } : null }));
         updateExperiment(experiment.id, { video: { ...experiment.video, preparation } });
       }
+      setAnalysisActivity(experimentId, { videoProgress: null });
       setAnalysisActivity(experimentId, { message: preparation.message });
       const started = await startColabJob(experiment.id, preparation.uploadId, {
         width: experiment.video.width,
@@ -614,7 +618,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
       setAnalysisActivity(experimentId, { error: message, message });
       updateExperiment(experiment.id, { status: "failed" });
     } finally {
-      setAnalysisActivity(experimentId, { starting: false });
+      setAnalysisActivity(experimentId, { starting: false, videoProgress: null });
     }
   };
 
@@ -678,7 +682,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
       </div>
       <section hidden={workspaceTab!=="runs"} role="tabpanel" id="workspace-runs-panel" aria-labelledby="workspace-runs-tab" className="execution-workspace">
         <h2>Execuções no Colab</h2>
-        <AnalysisWorkflow job={visibleJob} preparing={preparingAnalysis} message={analysisMessage} localError={!visibleJob ? analysisError ?? csvError : null} elapsedSec={elapsedSec}/>
+        <AnalysisWorkflow job={visibleJob} preparing={preparingAnalysis} message={analysisMessage} localError={!visibleJob ? analysisError ?? csvError : null} elapsedSec={elapsedSec} localProgress={analysisActivity[experimentId]?.videoProgress}/>
         {!analysisHistory.length&&!analysisStarting&&<p>Nenhuma execução registrada. Use “Analisar no Colab” para começar.</p>}
         <div className="analysis-history-list">{analysisHistory.map((job)=><button type="button" className={`analysis-run analysis-run-${job.status}`} key={job.jobId} aria-pressed={visibleJob?.jobId===job.jobId} onClick={()=>setSelectedJobId(job.jobId)}>
           <div className="analysis-run-status">{job.status==="succeeded"?<CheckCircle2 size={16}/>:job.status==="failed"?<AlertCircle size={16}/>:<CloudCog size={16}/>}</div>
@@ -692,7 +696,7 @@ export function TrackingEditor({ experimentId }: { experimentId: string }) {
           <h2>Processar o vídeo no Google Colab</h2>
           <p>Acompanhe o envio, a GPU alocada e o rastreamento do animal. Cada checkpoint avança após uma confirmação real da execução.</p>
           <AnalysisWorkflow job={visibleJob} preparing={preparingAnalysis}
-            message={analysisMessage} localError={!visibleJob ? analysisError ?? csvError : null} elapsedSec={elapsedSec} />
+            message={analysisMessage} localError={!visibleJob ? analysisError ?? csvError : null} elapsedSec={elapsedSec} localProgress={analysisActivity[experimentId]?.videoProgress} />
           {!analysisBusy && (
             <div className="tracking-empty-actions">
               <Button className="analyze-button" size="lg" disabled={!colabSummary.connected} icon={<CloudCog size={19} />} onClick={() => void runColabAnalysis()}>

@@ -68,9 +68,12 @@ interface AppStoreValue {
   setAsset: (id: string, asset: VideoAsset) => void;
   trackingData: Record<string, PoseSample[]>;
   setTrackingData: (id: string, samples: PoseSample[]) => void;
-  analysisActivity: Record<string, { starting: boolean; message: string; error: string | null; startedAt: number | null }>;
-  setAnalysisActivity: (id: string, update: Partial<{ starting: boolean; message: string; error: string | null; startedAt: number | null }>) => void;
+  analysisActivity: Record<string, AnalysisActivity>;
+  setAnalysisActivity: (id: string, update: Partial<AnalysisActivity>) => void;
 }
+
+export type LocalVideoProgress = { phase: "staging" | "checking" | "encoding" | "verifying" | "complete"; percent: number | null; remainingSec: number | null };
+type AnalysisActivity = { starting: boolean; message: string; error: string | null; startedAt: number | null; videoProgress?: LocalVideoProgress | null };
 
 const AppStoreContext = createContext<AppStoreValue | null>(null);
 
@@ -90,7 +93,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [assets, setAssets] = useState<Record<string, VideoAsset>>({});
   const [trackingData, setTrackingDataState] = useState<Record<string, PoseSample[]>>({});
   const [analysisActivity, setAnalysisActivityState] = useState<AppStoreValue["analysisActivity"]>({});
-  const setAnalysisActivity = useCallback((id: string, update: Partial<{ starting: boolean; message: string; error: string | null; startedAt: number | null }>) =>
+  const setAnalysisActivity = useCallback((id: string, update: Partial<AnalysisActivity>) =>
     setAnalysisActivityState(current => ({ ...current, [id]: { ...(current[id] ?? { starting: false, message: "", error: null, startedAt: null }), ...update } })), []);
   const setTrackingData = useCallback((id: string, samples: PoseSample[]) =>
     setTrackingDataState(current => ({ ...current, [id]: samples })), []);
