@@ -54,6 +54,7 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
   const [loadingResult,setLoadingResult]=useState(false);
   const [error,setError]=useState<string|null>(null);
   const [videoUrl,setVideoUrl]=useState<string|null>(null);
+  const [videoSize,setVideoSize]=useState<{src:string;width:number;height:number}|null>(null);
   const [labeledVideo,setLabeledVideo]=useState<string|null>(null);
   const [labeledVideoError,setLabeledVideoError]=useState<string|null>(null);
   const [artifacts,setArtifacts]=useState<{name:string;path:string;url:string}[]>([]);
@@ -116,6 +117,7 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
     return()=>{live=false};
   },[experimentId,experiment?.video.preparation]);
   const originalUrl=asset?.objectUrl??videoUrl;
+  const videoSource=originalUrl??labeledVideo;
   const run=async(file?:File)=>{
     if(!experiment||busy||active)return;
     setView("runs");
@@ -124,7 +126,7 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
     let preparation=file?undefined:experiment.video.preparation;
     if(preparation&&preparation.policyVersion!=="fst-adaptive-1")preparation=undefined;
     if(!preparation&&!file){file=asset?.file;if(!file){fileRef.current?.click();return}}
-    setAnalysisActivity(experimentId,{starting:true,message:"Validando conexão com o Colab",error:null,startedAt:Date.now()});setError(null);
+    setAnalysisActivity(experimentId,{starting:true,message:"Validando conexão com o Colab",error:null,startedAt:Date.now(),videoProgress:null});setError(null);
     let started=false;
     try{
       if(preparation&&!await checkVideoStaging(experimentId,preparation.uploadId))preparation=undefined;
@@ -134,7 +136,10 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
       if(connection.providerError)throw new Error(connection.providerError);
       if(connection.eligibleGpuCount<1)throw new Error("Nenhuma GPU elegível disponível.");
       if(!preparation){
-        const prepared=await prepareFstVideo(experimentId,file!,experiment.video,(_p,m)=>setAnalysisActivity(experimentId,{message:m}),experiment.video.sha256);
+        const prepared=await prepareFstVideo(experimentId,file!,experiment.video,(percent,message,detail)=>
+          setAnalysisActivity(experimentId,{message,videoProgress:detail
+            ? {phase:detail.phase,percent:detail.percent,remainingSec:detail.remainingSec}
+            : percent===100 ? {phase:"complete",percent:100,remainingSec:0} : null}),experiment.video.sha256);
         preparation=prepared.preparation;
         const digest=prepared.originalSha256;
         if(experiment.video.sha256&&digest!==experiment.video.sha256)throw new Error("O arquivo selecionado não corresponde ao vídeo original deste experimento.");
@@ -142,6 +147,7 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
         setAsset(experimentId,{...asset,file:file!,objectUrl:URL.createObjectURL(file!)});
         updateForcedSwimExperiment(experimentId,current=>({video:{...current.video,preparation,sha256:digest}}));
       }
+      setAnalysisActivity(experimentId,{videoProgress:null});
       const job=await startFstJob(experiment,preparation);
       started=true;
       updateForcedSwimExperiment(experimentId,{status:"processing"});
@@ -154,8 +160,8 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
       setView("results");
       updateForcedSwimExperiment(experimentId,{status:"review",trackingSelection:{engine:"colab",jobId:done.jobId}});
       if(done.status==="failed")setError(`Dados preservados; execução interrompida: ${done.error}`);
-    }catch(reason){const failure=String(reason);setError(failure);setAnalysisActivity(experimentId,{error:failure,message:failure});if(started)updateForcedSwimExperiment(experimentId,{status:"failed"})}
-    finally{setAnalysisActivity(experimentId,{starting:false})}
+    }catch(reason){const failure=String(reason);setError(failure);setAnalysisActivity(experimentId,{error:failure,message:failure,videoProgress:null});if(started)updateForcedSwimExperiment(experimentId,{status:"failed"})}
+    finally{setAnalysisActivity(experimentId,{starting:false,videoProgress:null})}
   };
   const attach=(event:ChangeEvent<HTMLInputElement>)=>{
     const file=event.target.files?.[0];event.target.value="";if(!file||!experiment)return;
@@ -170,13 +176,15 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
   };
   if(!experiment)return <div className="page not-found"><h1>Experimento não encontrado</h1><Button onClick={()=>navigate({name:"dashboard"})}>Voltar</Button></div>;
   const useOriginal=Boolean(originalUrl);
+  const displayedWidth=videoSize?.src===videoSource?videoSize.width:result?.video.width??1;
+  const displayedHeight=videoSize?.src===videoSource?videoSize.height:result?.video.height??1;
   return <div className="page results-page fst-results">
     <input ref={fileRef} type="file" accept="video/*" className="sr-only" onChange={attach}/>
     <button className="back-link" onClick={()=>navigate({name:"dashboard"})}><ArrowLeft size={16}/> Experimentos</button>
     <section className="page-heading results-heading"><div><div className="eyebrow">Análise Completa · Forced Swim Test</div><h1>{experiment.title}</h1><p>{experiment.subjects.map(s=>`${s.animalId}: ${s.subjectId}`).join(" · ")} · {experiment.video.filename}</p></div>
       <div className="results-actions"><Button disabled={busy||Boolean(active)||!summary.connected} onClick={()=>void run()}>{busy||active?"Processando…":"Analisar no Colab"}</Button></div></section>
     {(error??activity?.error)&&<div role="alert" className="validation-box invalid"><Info size={16}/>{error??activity?.error}</div>}
-    {(busy||active)&&<AnalysisWorkflow job={workflowJob} protocol="forced_swim" logOnly preparing={busy&&!active} message={message} localError={error??activity?.error??null} elapsedSec={elapsedSec} startedAt={busy?activity?.startedAt:null}/>}
+    {(busy||active)&&<AnalysisWorkflow job={workflowJob} protocol="forced_swim" logOnly preparing={busy&&!active} message={message} localError={error??activity?.error??null} elapsedSec={elapsedSec} startedAt={busy?activity?.startedAt:null} localProgress={activity?.videoProgress}/>}
     <EditorTabs<"results"|"runs"> id="fst-view" label="Áreas da análise FST" value={visibleView} onChange={setView}
       items={selectedJob?.resultsReady?[{id:"results",label:"Resultados"},{id:"runs",label:"Execuções"}]:[{id:"runs",label:"Execuções"}]}/>
     {visibleView==="runs"&&<div className="fst-runs-content" role="tabpanel" id="fst-view-runs-panel" aria-labelledby="fst-view-runs-tab">
@@ -195,26 +203,27 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
     {visibleView==="results"&&<div className="fst-result-content" role="tabpanel" id="fst-view-results-panel" aria-labelledby="fst-view-results-tab">
     {loadingResult&&<p role="status">Carregando dados FST da execução…</p>}
     {result&&<>
-      <section className="fst-player-panel"><div className="panel-header"><div><h2>Vídeo e observações</h2><p>{useOriginal?"Vídeo original com overlays sincronizados":"MP4 anotado da execução"} · {result.video.width} × {result.video.height} · {result.video.fps.toFixed(3)} FPS</p></div></div>
-        <div className="fst-player" style={{aspectRatio:`${result.video.width}/${result.video.height}`}}>
-          {(originalUrl||labeledVideo)?<video ref={playerRef} src={originalUrl||labeledVideo||undefined} controls onTimeUpdate={e=>setTime(e.currentTarget.currentTime)} onSeeked={e=>setTime(e.currentTarget.currentTime)}/>:<div className="fst-player-empty">Vídeo indisponível neste dispositivo. {labeledVideoError||"Os dados por frame permanecem abaixo."}</div>}
+      <section className="fst-player-panel"><div className="panel-header"><div><h2>Vídeo e observações</h2><p>{useOriginal?"Vídeo original com overlays sincronizados":"MP4 anotado da execução"} · {result.video.width} × {result.video.height} · {result.video.fps.toFixed(3)} FPS</p><p>{result.pipelineRevision==="visual-body-prepose-1"?"Pose guiada por caixa visual do corpo · método experimental":"Pose guiada pela ROI do cilindro · execução anterior"}</p></div></div>
+        <div className="fst-player" style={{aspectRatio:`${displayedWidth}/${displayedHeight}`,maxWidth:`${690*displayedWidth/displayedHeight}px`}}>
+          {videoSource?<video ref={playerRef} src={videoSource} controls onLoadedMetadata={e=>{if(e.currentTarget.videoWidth>0&&e.currentTarget.videoHeight>0)setVideoSize({src:videoSource,width:e.currentTarget.videoWidth,height:e.currentTarget.videoHeight})}} onTimeUpdate={e=>setTime(e.currentTarget.currentTime)} onSeeked={e=>setTime(e.currentTarget.currentTime)}/>:<div className="fst-player-empty">Vídeo indisponível neste dispositivo. {labeledVideoError||"Os dados por frame permanecem abaixo."}</div>}
           {useOriginal&&<svg className="fst-overlay" viewBox={`0 0 ${result.video.width} ${result.video.height}`} preserveAspectRatio="none" aria-label="Caixas e pontos sincronizados">
-            {frameData.map((item,i)=>item.presence==="IN_TANK"?<g key={item.animalId}>
+            {frameData.map((item,i)=>{const tank=result.tanks.find(value=>value.animalId===item.animalId);if(!tank)return null;return item.presence==="IN_TANK"?<g key={item.animalId}>
               {showBoxes&&item.bbox&&<rect x={item.bbox.x} y={item.bbox.y} width={item.bbox.width} height={item.bbox.height} fill="none" stroke={i?"#e9b85c":"#51ddce"} strokeWidth={Math.max(2,result.video.width/500)}/>}
-              {showPoints&&framePoses.filter(p=>p.animalId===item.animalId&&displayableFstPose(p,result.tanks[i],item.presence)).map((p,k)=><circle key={k} cx={p.xPx!} cy={p.yPx!} r={Math.max(2,result.video.width/350)} fill={i?"#e9b85c":"#51ddce"}/>)}
-              <text x={item.bbox?.x??result.tanks[i].roiPx.x} y={Math.max(22,(item.bbox?.y??result.tanks[i].roiPx.y)-8)} fill="#fff" stroke="#111" strokeWidth="3" paintOrder="stroke" fontSize={Math.max(15,result.video.width/75)}>{item.animalId}</text>
-            </g>:<text key={item.animalId} x={result.tanks[i].roiPx.x+5} y={result.tanks[i].roiPx.y+22} fill={item.presence==="UNCERTAIN"?"#e9b85c":"#bbb"} stroke="#111" strokeWidth="3" paintOrder="stroke" fontSize={Math.max(15,result.video.width/75)}>{item.animalId}: {item.presence}</text>)}
+              {showPoints&&framePoses.filter(p=>p.animalId===item.animalId&&displayableFstPose(p,tank,item.presence)).map((p,k)=><circle key={k} cx={p.xPx!} cy={p.yPx!} r={Math.max(2,result.video.width/350)} fill={i?"#e9b85c":"#51ddce"}/>)}
+              <text x={item.bbox?.x??tank.roiPx.x} y={Math.max(22,(item.bbox?.y??tank.roiPx.y)-8)} fill="#fff" stroke="#111" strokeWidth="3" paintOrder="stroke" fontSize={Math.max(15,result.video.width/75)}>{item.animalId}</text>
+            </g>:<text key={item.animalId} x={tank.roiPx.x+5} y={tank.roiPx.y+22} fill={item.presence==="UNCERTAIN"?"#e9b85c":"#bbb"} stroke="#111" strokeWidth="3" paintOrder="stroke" fontSize={Math.max(15,result.video.width/75)}>{item.animalId}: {item.presence}</text>})}
           </svg>}
         </div>
         <div className="fst-player-controls"><Button variant="secondary" onClick={()=>seek(time-1/result.video.fps)} icon={<SkipBack size={15}/>}>Frame anterior</Button><Button variant="secondary" onClick={()=>{const p=playerRef.current;if(!p)return;if(p.paused)void p.play();else p.pause()}} icon={playerRef.current?.paused?<Play size={15}/>:<Pause size={15}/>}>Pausar / reproduzir</Button><Button variant="secondary" onClick={()=>seek(time+1/result.video.fps)} icon={<SkipForward size={15}/>}>Próximo frame</Button><span>Frame {frame+1}/{result.video.frameCount} · {time.toFixed(2)} s</span></div>
         <input className="fst-seek" type="range" min="0" max={result.video.frameCount-1} step="1" value={frame} aria-label="Buscar frame" onChange={e=>seek(Number(e.target.value)/result.video.fps)}/>
+        {useOriginal&&<p className="fst-note">Caixas e pontos usam as coordenadas da análise e acompanham as dimensões reais do vídeo exibido. Revise o MP4 anotado e os dados por frame em casos de dúvida.</p>}
         <div className="fst-visibility"><label><input type="checkbox" checked={showBoxes} onChange={e=>setShowBoxes(e.target.checked)}/> Caixas dinâmicas</label><label><input type="checkbox" checked={showPoints} onChange={e=>setShowPoints(e.target.checked)}/> Pontos anatômicos</label></div>
         {!useOriginal&&<p className="fst-note">A visibilidade das caixas e pontos no MP4 anotado é fixa. Reanexe o vídeo original para controlar os overlays.</p>}
       </section>
       <section className="fst-animals"><h2>Resultados por animal</h2><div className="fst-animal-tabs">{result.subjects.map(s=><button key={s.animalId} className={selectedAnimal===s.animalId?"active":""} onClick={()=>setSelectedAnimal(s.animalId)}>{s.animalId} · {s.subjectId}</button>)}</div>
         {result.subjects.map(s=>{const values=result.frames.filter(f=>f.animalId===s.animalId);const confirmed=values.filter(f=>f.presence==="IN_TANK");const quality=result.quality[s.animalId];const bins=Array.from({length:Math.min(120,values.length)},(_,i)=>values[Math.min(values.length-1,Math.floor(i*values.length/Math.min(120,values.length)))]);
           return <article key={s.animalId} className={`fst-animal-card ${selectedAnimal===s.animalId?"selected":""}`}>
-            <h3>{s.animalId} · {s.subjectId}</h3><div className="fst-metrics"><div><span>Tempo de vídeo</span><strong>{formatDuration(result.video.frameCount/result.video.fps)}</strong></div><div><span>Presença confirmada</span><strong>{formatDuration(quality?.presenceSec??0)}</strong></div><div><span>Cobertura anatômica com presença</span><strong>{((quality?.anatomicalCoverage??0)*100).toFixed(1)}%</strong></div><div><span>Movimento corporal relativo</span><strong>{showNumber(mean(confirmed.map(f=>f.relativeMotion)))}</strong><small>diagonais da ROI/s · observado</small></div><div><span>Alteração de silhueta</span><strong>{showNumber(mean(confirmed.map(f=>f.silhouetteChange)))}</strong><small>fração/s · observado</small></div><div><span>Movimento do centro corporal</span><strong>{showNumber(mean(confirmed.map(f=>f.centroidMotion)))}</strong><small>diagonais da ROI/s · observado</small></div><div><span>Dados insuficientes</span><strong>{formatDuration(quality?.insufficientDataSec??0)}</strong></div><div><span>Classificação automática</span><strong>NOT_CLASSIFIED</strong></div></div>
+            <h3>{s.animalId} · {s.subjectId}</h3><div className="fst-metrics"><div><span>Tempo de vídeo</span><strong>{formatDuration(result.video.frameCount/result.video.fps)}</strong></div><div><span>Presença confirmada</span><strong>{formatDuration(quality?.presenceSec??0)}</strong></div><div><span>Caixa visual com presença</span><strong>{quality?.localizedShareOfPresence===undefined?"—":`${(quality.localizedShareOfPresence*100).toFixed(1)}%`}</strong><small>heurística visual · conferir frames</small></div><div><span>Cobertura anatômica com presença</span><strong>{((quality?.anatomicalCoverage??0)*100).toFixed(1)}%</strong></div><div><span>Movimento corporal relativo</span><strong>{showNumber(mean(confirmed.map(f=>f.relativeMotion)))}</strong><small>diagonais da ROI/s · observado</small></div><div><span>Alteração de silhueta</span><strong>{showNumber(mean(confirmed.map(f=>f.silhouetteChange)))}</strong><small>fração/s · observado</small></div><div><span>Movimento do centro corporal</span><strong>{showNumber(mean(confirmed.map(f=>f.centroidMotion)))}</strong><small>diagonais da ROI/s · observado</small></div><div><span>Dados insuficientes</span><strong>{formatDuration(quality?.insufficientDataSec??0)}</strong></div><div><span>Classificação automática</span><strong>NOT_CLASSIFIED</strong></div></div>
             <div className="fst-timeline-label">Presença</div><div className="fst-timeline" role="img" aria-label={`Presença temporal de ${s.animalId}`}>{bins.map((item,i)=><button key={i} type="button" title={`${item.timestampSec.toFixed(1)} s · ${item.presence}`} style={{background:presenceColor[item.presence]}} onClick={()=>seek(item.timestampSec)}/>)}</div>
             <div className="fst-timeline-label">Atividade visual</div><div className="fst-timeline" role="img" aria-label={`Atividade observada de ${s.animalId}`}>{bins.map((item,i)=><button key={i} type="button" title={`${item.timestampSec.toFixed(1)} s · ${item.presence==="IN_TANK"?(item.relativeMotion===null?"tracking insuficiente":`movimento relativo ${item.relativeMotion.toFixed(3)}`):item.presence}`} style={{background:item.presence!=="IN_TANK"?presenceColor[item.presence]:item.relativeMotion===null?"#87749b":"#27b98f",opacity:item.presence==="IN_TANK"&&item.relativeMotion!==null?Math.min(1,.35+item.relativeMotion*4):1}} onClick={()=>seek(item.timestampSec)}/>)}</div><div className="fst-timeline-legend"><span>● Presente</span><span>● Ausente</span><span>● Incerto</span><span className="tracking-gap">● Tracking insuficiente</span></div>
             {selectedAnimal===s.animalId&&<p className="fst-note">A intensidade da segunda faixa representa atividade visual observada; roxo indica tracking insuficiente. Nenhuma faixa equivale a imobilidade, natação ou escalada classificadas.</p>}

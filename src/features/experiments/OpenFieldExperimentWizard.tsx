@@ -19,8 +19,8 @@ import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { defaultArena, DEMO_VIDEO_HEIGHT, DEMO_VIDEO_WIDTH } from "../../lib/demo-data";
 import { centerPolygonPx, pointsToSvg, validateArenaRegions } from "../../lib/geometry";
-import { formatBytes, formatDuration } from "../../lib/format";
-import { useAppStore } from "../../store/AppStore";
+import { formatBytes, formatDuration, formatElapsedClock } from "../../lib/format";
+import { useAppStore, type LocalVideoProgress } from "../../store/AppStore";
 import type { ArenaConfig, OpenFieldExperiment, Point, VideoAsset, VideoMetadata } from "../../types";
 import { getHybridBundleAvailability, importHybridBundle, LATEST_HYBRID_BUNDLE_ID, prepareVideo } from "../colab/analysis";
 import type { HybridBundleStatus } from "../colab/analysis";
@@ -266,6 +266,7 @@ export function OpenFieldExperimentWizard({ onBack }: { onBack: () => void }) {
   const [frameError, setFrameError] = useState<string | null>(null);
   const [loadingVideo, setLoadingVideo] = useState(false);
   const [preparationMessage, setPreparationMessage] = useState("");
+  const [preparationProgress, setPreparationProgress] = useState<LocalVideoProgress | null>(null);
   const [capturingFrame, setCapturingFrame] = useState(false);
   const [frameCandidateSec, setFrameCandidateSec] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -330,6 +331,7 @@ export function OpenFieldExperimentWizard({ onBack }: { onBack: () => void }) {
     if (!file || loadingVideo) return;
     setLoadingVideo(true);
     setPreparationMessage("Lendo vídeo e capturando o frame de calibração…");
+    setPreparationProgress(null);
     setVideoError(null);
     setFrameError(null);
     const objectUrl = URL.createObjectURL(file);
@@ -351,7 +353,12 @@ export function OpenFieldExperimentWizard({ onBack }: { onBack: () => void }) {
         lastModified: file.lastModified,
       };
       if (isTauriRuntime()) {
-        metadata.preparation = await prepareVideo(draftId, file, metadata, (_progress, message) => setPreparationMessage(message));
+        metadata.preparation = await prepareVideo(draftId, file, metadata, (percent, message, detail) => {
+          setPreparationMessage(message);
+          setPreparationProgress(detail
+            ? { phase: detail.phase, percent: detail.percent, remainingSec: detail.remainingSec }
+            : percent === 100 ? { phase: "complete", percent: 100, remainingSec: 0 } : null);
+        });
       } else setPreparationMessage("A compactação local está disponível no aplicativo desktop. A prévia web mantém o original.");
       if (asset.objectUrl) URL.revokeObjectURL(asset.objectUrl);
       setVideo(metadata);
@@ -483,7 +490,11 @@ export function OpenFieldExperimentWizard({ onBack }: { onBack: () => void }) {
                   <Button variant="secondary" size="sm" disabled={loadingVideo} onClick={() => fileRef.current?.click()}>Trocar</Button>
                 </div>
               )}
-              {preparationMessage && <div className="video-preparation-note" role="status" aria-live="polite">{loadingVideo ? <LoaderCircle size={18} className="video-preparation-spinner" aria-hidden="true" /> : <Info size={16} aria-hidden="true" />}<div><strong>{loadingVideo ? "Preparação local em andamento" : video?.preparation?.status === "optimized" ? "Vídeo otimizado para envio" : "Vídeo original preservado"}</strong><p>{preparationMessage}</p>{video?.preparation && <small>Original: {formatBytes(video.preparation.originalBytes)} · envio: {formatBytes(video.preparation.uploadBytes)} · {video.preparation.uploadWidth ?? video.width} × {video.preparation.uploadHeight ?? video.height} px · FPS preservado</small>}</div></div>}
+              {preparationMessage && <div className="video-preparation-note">{loadingVideo ? <LoaderCircle size={18} className="video-preparation-spinner" aria-hidden="true" /> : <Info size={16} aria-hidden="true" />}<div><strong>{loadingVideo ? "Preparação local em andamento" : video?.preparation?.status === "optimized" ? "Vídeo otimizado para envio" : "Vídeo original preservado"}</strong><p role="status" aria-live="polite">{preparationMessage}</p>{loadingVideo && preparationProgress && <div className="video-preparation-progress">
+                <div className="video-preparation-progress-label"><span>{preparationProgress.phase === "staging" ? "Cópia local" : preparationProgress.phase === "checking" ? "Inspeção inicial" : preparationProgress.phase === "verifying" ? "Conferência dos frames" : preparationProgress.phase === "complete" ? "Concluído" : "Otimização"}</span><strong>{preparationProgress.percent == null ? "Preparando" : `${preparationProgress.percent}%`}</strong></div>
+                <div className={`video-preparation-progress-track ${preparationProgress.percent == null ? "workflow-progress-indeterminate" : ""}`} role="progressbar" aria-label="Preparação do vídeo" aria-valuemin={0} aria-valuemax={100} aria-valuenow={preparationProgress.percent ?? undefined}><span style={preparationProgress.percent == null ? undefined : { width: `${preparationProgress.percent}%` }} /></div>
+                {preparationProgress.phase === "encoding" && preparationProgress.remainingSec != null && <small>Tempo restante estimado da otimização: {formatElapsedClock(preparationProgress.remainingSec)}</small>}
+              </div>}{video?.preparation && <small>Original: {formatBytes(video.preparation.originalBytes)} · envio: {formatBytes(video.preparation.uploadBytes)} · {video.preparation.uploadWidth ?? video.width} × {video.preparation.uploadHeight ?? video.height} px · FPS preservado</small>}</div></div>}
               {videoError && <div className="form-error">{videoError}</div>}
               <div className="privacy-note"><Info size={16} /><span>O frame foi extraído apenas para a calibração. Ao reabrir o projeto, o app solicitará o arquivo se o caminho não estiver mais disponível.</span></div>
             </div>

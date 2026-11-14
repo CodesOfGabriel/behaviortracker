@@ -118,7 +118,7 @@ export function useAnalysis(experimentId: string) {
       fileRef.current?.click();
       return;
     }
-    setAnalysisActivity(experimentId, { starting: true, message: "Verificando a conexão com o Colab", error: null, startedAt: Date.now() });
+    setAnalysisActivity(experimentId, { starting: true, message: "Verificando a conexão com o Colab", error: null, startedAt: Date.now(), videoProgress: null });
     setError(null);
     setSelectedHistoryId(null);
     try {
@@ -142,10 +142,13 @@ export function useAnalysis(experimentId: string) {
       }
       updateExperiment(experimentId, { status: "processing" });
       if (!preparation) {
-        preparation = await prepareVideo(experimentId, file!, experiment.video, (_progress, message) =>
-          setAnalysisActivity(experimentId, { message }));
+        preparation = await prepareVideo(experimentId, file!, experiment.video, (percent, message, detail) =>
+          setAnalysisActivity(experimentId, { message, videoProgress: detail
+            ? { phase: detail.phase, percent: detail.percent, remainingSec: detail.remainingSec }
+            : percent === 100 ? { phase: "complete", percent: 100, remainingSec: 0 } : null }));
         updateExperiment(experimentId, { video: { ...experiment.video, preparation } });
       }
+      setAnalysisActivity(experimentId, { videoProgress: null });
       const geometry = preparedGeometry(experiment.video, preparation);
       const started = await startColabJob(experimentId, preparation.uploadId, {
         width: geometry.width, height: geometry.height,
@@ -171,7 +174,7 @@ export function useAnalysis(experimentId: string) {
       setAnalysisActivity(experimentId, { error: message, message });
       updateExperiment(experimentId, { status: "failed" });
     } finally {
-      setAnalysisActivity(experimentId, { starting: false });
+      setAnalysisActivity(experimentId, { starting: false, videoProgress: null });
     }
   };
 
@@ -197,6 +200,7 @@ export function useAnalysis(experimentId: string) {
   return {
     fileRef, attachFile, run, selectSource, history, activeJob, busy, summary,
     error: error ?? activity.error, message: activity.message, startedAt: activity.starting ? activity.startedAt : null,
+    videoProgress: activity.videoProgress,
     loadingResult, selectedHistoryId, setSelectedHistoryId,
     elapsedSec: Math.max(0, (ended - started) / 1000) || 0,
   };

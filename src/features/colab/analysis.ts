@@ -1,5 +1,6 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import type { ArenaConfig, ForcedSwimExperiment, VideoPreparation } from "../../types";
+import { listen } from "@tauri-apps/api/event";
 import { preparedGeometry, scaleTanksToUpload } from "./videoGeometry";
 
 const STAGING_CHUNK_SIZE = 4 * 1024 * 1024;
@@ -64,13 +65,15 @@ export function checkVideoStaging(experimentId: string, uploadId: string) {
 export async function stageVideo(
   experimentId: string,
   file: File,
-  onProgress: (progress: number, message: string) => void,
+  onProgress: (progress: number, message: string, detail?: VideoPreparationProgress) => void,
 ) {
   const staging = await invoke<VideoStaging>("begin_video_staging", {
     experimentId,
     filename: file.name,
     expectedSize: file.size,
   });
+
+  onProgress(0, "Copiando vídeo para o desktop", { uploadId: staging.uploadId, phase: "staging", percent: 0, remainingSec: null });
 
   let offset = 0;
   while (offset < file.size) {
@@ -80,13 +83,16 @@ export async function stageVideo(
       headers: { "x-upload-id": staging.uploadId, "x-offset": String(offset) },
     });
     offset = end;
+    const percent = Math.min(99, Math.round((offset / file.size) * 100));
     onProgress(
-      Math.round((offset / file.size) * 100),
-      `Preparando vídeo no desktop · ${Math.round((offset / file.size) * 100)}%`,
+      percent,
+      "Copiando vídeo para o desktop",
+      { uploadId: staging.uploadId, phase: "staging", percent, remainingSec: null },
     );
   }
 
   await invoke<VideoStaging>("finish_video_staging", { uploadId: staging.uploadId });
+  onProgress(100, "Cópia local concluída", { uploadId: staging.uploadId, phase: "staging", percent: 100, remainingSec: 0 });
   return staging.uploadId;
 }
 
@@ -135,23 +141,51 @@ export function loadFstManifest(jobId: string) {
 }
 
 export async function prepareVideo(experimentId: string, file: File, metadata: { width: number; height: number },
-  onProgress: (progress: number, message: string) => void): Promise<VideoPreparation> {
+  onProgress: (progress: number, message: string, detail?: VideoPreparationProgress) => void): Promise<VideoPreparation> {
   const uploadId = await stageVideo(experimentId, file, onProgress);
-  onProgress(0, "Otimizando o vídeo para envio e conferindo os frames · o original permanece intacto");
-  const result = await invoke<VideoPreparation>("prepare_analysis_video", { uploadId, width: metadata.width, height: metadata.height });
+  onProgress(0, "Verificando o vídeo antes da otimização · o original permanece intacto");
+  const unlisten = await listenToPreparation(uploadId, onProgress);
+  let result: VideoPreparation;
+  try {
+    result = await invoke<VideoPreparation>("prepare_analysis_video", { uploadId, width: metadata.width, height: metadata.height });
+  } finally {
+    unlisten();
+  }
   onProgress(100, result.message);
   return result;
 }
 
+export type VideoPreparationProgress = { uploadId: string; phase: "staging" | "checking" | "encoding" | "verifying" | "complete"; percent: number | null; remainingSec: number | null };
+
+async function listenToPreparation(uploadId: string,
+  onProgress: (progress: number, message: string, detail?: VideoPreparationProgress) => void) {
+  return listen<VideoPreparationProgress>("video-preparation-progress", event => {
+    const detail = event.payload;
+    if (detail.uploadId !== uploadId) return;
+    const message = detail.phase === "encoding" ? "Otimizando vídeo para envio"
+      : detail.phase === "verifying" ? "Conferindo frames e tempos"
+      : detail.phase === "complete" ? "Preparação concluída" : "Verificando compatibilidade do vídeo";
+    onProgress(detail.percent ?? 0, message, detail);
+  }).catch(() => () => {});
+}
+
 export async function prepareFstVideo(experimentId: string, file: File, metadata: { width: number; height: number },
-  onProgress: (progress: number, message: string) => void, expectedOriginalSha256?: string) {
+  onProgress: (progress: number, message: string, detail?: VideoPreparationProgress) => void, expectedOriginalSha256?: string) {
   const originalUploadId = await stageVideo(experimentId, file, onProgress);
   const originalSha256 = await getStagedVideoSha256(originalUploadId);
   if (expectedOriginalSha256 && originalSha256 !== expectedOriginalSha256) {
     throw new Error("O SHA-256 do arquivo selecionado não corresponde ao vídeo original do experimento.");
   }
   onProgress(0, "Verificando compatibilidade e preparando o vídeo FST, se necessário");
-  const preparation = await invoke<VideoPreparation>("prepare_analysis_video", { uploadId: originalUploadId, width: metadata.width, height: metadata.height, fstAdaptive: true });
+  const unlisten = await listenToPreparation(originalUploadId, (percent, message, detail) =>
+    onProgress(percent, detail?.phase === "encoding" ? "Convertendo vídeo para H.264"
+      : detail?.phase === "verifying" ? "Conferindo quadros e timestamps" : message, detail));
+  let preparation: VideoPreparation;
+  try {
+    preparation = await invoke<VideoPreparation>("prepare_analysis_video", { uploadId: originalUploadId, width: metadata.width, height: metadata.height, fstAdaptive: true });
+  } finally {
+    unlisten();
+  }
   onProgress(100, `${preparation.message}${preparation.cacheHit ? " · Cache reutilizado" : ""}`);
   return { preparation, originalSha256 };
 }

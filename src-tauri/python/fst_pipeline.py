@@ -16,7 +16,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from fst_presence import calculate_empty_reference, detect_presence_video, estimate_body_box
+from fst_presence import calculate_empty_reference, detect_presence_video
 
 ENGINE = 'fst_superanimal_quadruped_v1'
 VERSION = 'fst-0.1'
@@ -24,6 +24,9 @@ VALID_SCORE = 0.60
 DRAW_SCORE = 0.35
 MIN_MOTION_POINTS = 3
 CHUNK_SECONDS = 20
+POSE_BOX_MARGIN = 0.18
+POSE_BOX_MIN_MARGIN = 8
+POSE_INPUT_POLICY = 'visual-body-prepose-1'
 
 
 def _sha(path):
@@ -108,6 +111,28 @@ def _validate(config, width, height):
     return rects
 
 
+def _pose_input_box(presence_row, rect):
+    """Return a local xywh body box; missing visual evidence means no pose input."""
+    if presence_row.presence_state != 'IN_TANK' or presence_row.body_bbox_local is None:
+        return None
+    x1, y1, x2, y2 = [float(v) for v in presence_row.body_bbox_local]
+    width, height = rect[2] - rect[0], rect[3] - rect[1]
+    if not all(math.isfinite(v) for v in (x1, y1, x2, y2)) or x2 <= x1 or y2 <= y1:
+        return None
+    pad_x = max(POSE_BOX_MIN_MARGIN, (x2 - x1) * POSE_BOX_MARGIN)
+    pad_y = max(POSE_BOX_MIN_MARGIN, (y2 - y1) * POSE_BOX_MARGIN)
+    x1, y1 = max(0., x1 - pad_x), max(0., y1 - pad_y)
+    x2, y2 = min(float(width), x2 + pad_x), min(float(height), y2 + pad_y)
+    if x2 - x1 < 2 or y2 - y1 < 2:
+        return None
+    return (x1, y1, x2 - x1, y2 - y1)
+
+
+def _pose_context(box):
+    return {'bboxes': np.asarray([box], dtype=np.float32) if box is not None
+            else np.empty((0, 4), dtype=np.float32)}
+
+
 def _runner(batch):
     import deeplabcut.pose_estimation_pytorch as pep
     from deeplabcut.pose_estimation_pytorch.modelzoo.inference_helpers import create_superanimal_inference_runners
@@ -127,7 +152,7 @@ def _runner(batch):
     return pep, runner, names
 
 
-def _infer(video, cache, rects, fps, n_frames, fingerprint):
+def _infer(video, cache, rects, fps, n_frames, fingerprint, pose_boxes):
     import torch
     assert torch.cuda.is_available(), 'CUDA is required for FST inference'
     torch.backends.cudnn.benchmark = True
@@ -178,8 +203,8 @@ def _infer(video, cache, rects, fps, n_frames, fingerprint):
                         video_it=pep.VideoIterator(str(clip))
                         if video_it.get_n_frames(robust=True) != count:
                             raise RuntimeError(f'ROI clip frame count mismatch: {animal} {chunk}')
-                        bbox=np.array([[0,0,cw,ch]],dtype=np.float32)
-                        video_it.set_context([{'bboxes':bbox.copy()} for _ in range(count)])
+                        start = chunk * chunk_frames
+                        video_it.set_context([_pose_context(box) for box in pose_boxes[animal][start:start+count]])
                         try:
                             with torch.inference_mode():
                                 result=pep.video_inference(video=video_it,pose_runner=runner,detector_runner=None)
@@ -193,7 +218,8 @@ def _infer(video, cache, rects, fps, n_frames, fingerprint):
                             pep,runner,names=_runner(batch)
                     if len(result)!=count:
                         raise RuntimeError(f'DLC returned {len(result)} poses, expected {count}')
-                    shapes=[_extract_pose(pred) for pred in result]
+                    shapes=[_extract_pose(pred) if pose_boxes[animal][start+i] is not None else None
+                            for i,pred in enumerate(result)]
                     good=[p for p in shapes if p is not None]
                     k=good[0].shape[0] if good else len(names) or 39
                     if k != 39 or any(p.shape!=(k,3) for p in good):
@@ -301,8 +327,32 @@ def run(video_path, output_path, config):
         raise RuntimeError('Invalid video dimensions, FPS, or length')
     rects=_validate(config,width,height)
     print('BEHAVETRACKER_FST_PHASE=validating_tanks',flush=True)
+    print('BEHAVETRACKER_FST_PHASE=presence',flush=True)
+    references=calculate_empty_reference(video,rects,n_frames,fps)
+    presence=detect_presence_video(video,rects,references,n_frames,fps)
+    presence.to_csv(out/'presence.csv',index=False)
+    state_lookup={(row.animal_id,int(row.frame)):row for row in presence.itertuples(index=False)}
+    pose_boxes={animal:[_pose_input_box(state_lookup[(animal,i)],rect) for i in range(n_frames)]
+                for animal,rect in rects.items()}
+    with (out/'pose_input_boxes.csv').open('w',newline='') as handle:
+        writer=csv.writer(handle)
+        writer.writerow(['animal_id','frame','timestamp_sec','presence','method','x_crop','y_crop',
+                         'width','height','x_video','y_video','body_area_fraction'])
+        for animal,boxes in pose_boxes.items():
+            x1,y1,_,_=rects[animal]
+            for i,box in enumerate(boxes):
+                row=state_lookup[(animal,i)]
+                method=('VISUAL_STATIC' if row.static_candidate else 'VISUAL_TEMPORAL') if box else 'NO_BOX'
+                writer.writerow([animal,i,i/fps,row.presence_state,method,
+                                 *(box if box else [None]*4),
+                                 box[0]+x1 if box else None,box[1]+y1 if box else None,
+                                 row.body_score])
     fingerprint_data={'videoSha256':sha,'rects':{a:list(r) for a,r in rects.items()},'model':'superanimal_quadruped/hrnet_w32',
                       'deeplabcutVersion':deeplabcut.__version__,'engine':ENGINE,'algorithmVersion':VERSION,
+                      'poseInputPolicy':POSE_INPUT_POLICY,'poseBoxMargin':POSE_BOX_MARGIN,
+                      'poseBoxMinMargin':POSE_BOX_MIN_MARGIN,
+                      'inferenceCodeSha256':_sha(Path(__file__)),
+                      'presenceCodeSha256':_sha(Path(__file__).with_name('fst_presence.py')),
                       'frameCount':n_frames,'fps':fps}
     fingerprint=hashlib.sha256(json.dumps(fingerprint_data,sort_keys=True).encode()).hexdigest()
     cache=Path('/content/behavetracker/fst-cache')/fingerprint
@@ -313,12 +363,8 @@ def run(video_path, output_path, config):
     cache_config.write_text(json.dumps(fingerprint_data,indent=2))
     print('BEHAVETRACKER_FST_PHASE=inference',flush=True)
     print(f'BEHAVETRACKER_FST_FRAMES={next(iter(rects))}:0/{n_frames}',flush=True)
-    arrays,names,batch=_infer(video,cache,rects,fps,n_frames,fingerprint)
+    arrays,names,batch=_infer(video,cache,rects,fps,n_frames,fingerprint,pose_boxes)
     if len(names)!=39:names=[f'keypoint_{i:02d}' for i in range(39)]
-    print('BEHAVETRACKER_FST_PHASE=presence',flush=True)
-    references=calculate_empty_reference(video,rects,n_frames,fps)
-    presence=detect_presence_video(video,rects,references,n_frames,fps)
-    presence.to_csv(out/'presence.csv',index=False)
     events=[];presence_summary=[]
     for animal,group in presence.groupby('animal_id',sort=True):
         previous=None
@@ -335,7 +381,6 @@ def run(video_path, output_path, config):
     import pandas as pd
     pd.DataFrame(events).to_csv(out/'presence_events.csv',index=False)
     pd.DataFrame(presence_summary).to_csv(out/'presence_summary.csv',index=False)
-    state_lookup={(row.animal_id,int(row.frame)):row for row in presence.itertuples(index=False)}
     print('BEHAVETRACKER_FST_PHASE=indicators',flush=True)
     pose_arrays={};frames=[];quality={};activity_rows=[];box_rows=[]
     for animal,arr in arrays.items():
@@ -356,54 +401,48 @@ def run(video_path, output_path, config):
         pose_arrays[animal]=packed
         diag=math.hypot(x2-x1,y2-y1)
         previous_fraction=None
-        covered=[];insufficient=0;confirmed=0
-        cap=cv2.VideoCapture(str(video));box_state={'box':None,'miss':0}
-        if not cap.isOpened():raise RuntimeError('Cannot reopen video for FST indicators')
-        try:
-            for i in range(n_frames):
-                ok,frame=cap.read()
-                if not ok:raise RuntimeError(f'Cannot read indicator frame {i}')
-                p=state_lookup[(animal,i)]
-                present=p.presence_state=='IN_TANK'
-                if not present:box_state={'box':None,'miss':0}
-                valid=(np.isfinite(arr[i,:,:2]).all(axis=1)&np.isfinite(arr[i,:,2])&(arr[i,:,2]>=VALID_SCORE)
-                       &(arr[i,:,0]>=0)&(arr[i,:,0]<x2-x1)&(arr[i,:,1]>=0)&(arr[i,:,1]<y2-y1))
-                coverage=float(np.mean(valid))
-                relative=centroid=None
-                if i>0 and present and state_lookup[(animal,i-1)].presence_state=='IN_TANK':
-                    prior=(np.isfinite(arr[i-1,:,:2]).all(axis=1)&np.isfinite(arr[i-1,:,2])&(arr[i-1,:,2]>=VALID_SCORE)
-                           &(arr[i-1,:,0]>=0)&(arr[i-1,:,0]<x2-x1)&(arr[i-1,:,1]>=0)&(arr[i-1,:,1]<y2-y1))
-                    pairs=valid&prior
-                    delta=arr[i,pairs,:2]-arr[i-1,pairs,:2]
-                    delta=delta[np.linalg.norm(delta,axis=1)<diag*.25]
-                    if len(delta)>=MIN_MOTION_POINTS:
-                        shift=np.median(delta,axis=0)
-                        relative=float(np.median(np.linalg.norm(delta-shift,axis=1))*fps/diag)
-                        centroid=float(np.linalg.norm(shift)*fps/diag)
-                fraction=float(p.foreground_fraction)
-                silhouette=abs(fraction-previous_fraction)*fps if previous_fraction is not None and present else None
-                previous_fraction=fraction if present else None
-                box=None
-                if present:
-                    confirmed+=1;covered.append(coverage)
-                    local_box,method,support=estimate_body_box(frame,rects[animal],arr[i],box_state,fps)
-                    if local_box is not None:
-                        bx1,by1,bx2,by2=local_box
-                        confidence=float(min(1,max(0,float(p.body_score)*4+support/39*.3)))
-                        if method=='HOLD':confidence=min(confidence,.25)
-                        box={'x':_finite(bx1+x1),'y':_finite(by1+y1),'width':_finite(bx2-bx1),
-                             'height':_finite(by2-by1),'confidence':confidence,'method':method}
-                if present and relative is None:insufficient+=1
-                frame_row={'frame':i,'timestampSec':i/fps,'animalId':animal,'presence':p.presence_state,
-                           'bodyScore':float(p.body_score),'silhouetteChange':silhouette,'bbox':box,
-                           'poseCoverage':coverage,'relativeMotion':relative,'centroidMotion':centroid,
-                           'classification':'NOT_CLASSIFIED'}
-                frames.append(frame_row)
-                activity_rows.append([animal,i,i/fps,p.presence_state,coverage,relative,centroid,silhouette,'NOT_CLASSIFIED'])
-                box_rows.append([animal,i,i/fps,p.presence_state,*([box[k] for k in ('x','y','width','height','confidence','method')] if box else [None]*6)])
-        finally:cap.release()
+        covered=[];insufficient=0;confirmed=0;localized=0
+        for i in range(n_frames):
+            p=state_lookup[(animal,i)]
+            present=p.presence_state=='IN_TANK'
+            valid=(np.isfinite(arr[i,:,:2]).all(axis=1)&np.isfinite(arr[i,:,2])&(arr[i,:,2]>=VALID_SCORE)
+                   &(arr[i,:,0]>=0)&(arr[i,:,0]<x2-x1)&(arr[i,:,1]>=0)&(arr[i,:,1]<y2-y1))
+            coverage=float(np.mean(valid))
+            relative=centroid=None
+            if i>0 and present and state_lookup[(animal,i-1)].presence_state=='IN_TANK':
+                prior=(np.isfinite(arr[i-1,:,:2]).all(axis=1)&np.isfinite(arr[i-1,:,2])&(arr[i-1,:,2]>=VALID_SCORE)
+                       &(arr[i-1,:,0]>=0)&(arr[i-1,:,0]<x2-x1)&(arr[i-1,:,1]>=0)&(arr[i-1,:,1]<y2-y1))
+                pairs=valid&prior
+                delta=arr[i,pairs,:2]-arr[i-1,pairs,:2]
+                delta=delta[np.linalg.norm(delta,axis=1)<diag*.25]
+                if len(delta)>=MIN_MOTION_POINTS:
+                    shift=np.median(delta,axis=0)
+                    relative=float(np.median(np.linalg.norm(delta-shift,axis=1))*fps/diag)
+                    centroid=float(np.linalg.norm(shift)*fps/diag)
+            fraction=float(p.foreground_fraction)
+            silhouette=abs(fraction-previous_fraction)*fps if previous_fraction is not None and present else None
+            previous_fraction=fraction if present else None
+            box=None
+            if present:
+                confirmed+=1;covered.append(coverage)
+                local_box=pose_boxes[animal][i]
+                if local_box is not None:
+                    localized+=1
+                    bx,by,bw,bh=local_box
+                    box={'x':_finite(bx+x1),'y':_finite(by+y1),'width':_finite(bw),
+                         'height':_finite(bh),'confidence':float(p.body_score),
+                         'method':'VISUAL_STATIC' if p.static_candidate else 'VISUAL_TEMPORAL'}
+            if present and relative is None:insufficient+=1
+            frame_row={'frame':i,'timestampSec':i/fps,'animalId':animal,'presence':p.presence_state,
+                       'bodyScore':float(p.body_score),'silhouetteChange':silhouette,'bbox':box,
+                       'poseCoverage':coverage,'relativeMotion':relative,'centroidMotion':centroid,
+                       'classification':'NOT_CLASSIFIED'}
+            frames.append(frame_row)
+            activity_rows.append([animal,i,i/fps,p.presence_state,coverage,relative,centroid,silhouette,'NOT_CLASSIFIED'])
+            box_rows.append([animal,i,i/fps,p.presence_state,*([box[k] for k in ('x','y','width','height','confidence','method')] if box else [None]*6)])
         quality[animal]={'presenceSec':confirmed/fps,'anatomicalCoverage':float(np.mean(covered)) if covered else 0,
-                         'insufficientDataSec':insufficient/fps}
+                         'insufficientDataSec':insufficient/fps,'localizedSec':localized/fps,
+                         'localizedShareOfPresence':localized/confirmed if confirmed else 0}
     frames.sort(key=lambda x:(x['frame'],x['animalId']))
     insufficient_intervals={}
     for animal in rects:
@@ -423,6 +462,7 @@ def run(video_path, output_path, config):
         writer=csv.writer(handle);writer.writerow(['animal_id','frame','timestamp_sec','presence','x','y','width','height','confidence','method']);writer.writerows(box_rows)
     shortlist=_review_windows(frames,rects.keys(),fps,out)
     result={'schemaVersion':'fst-result-1','protocol':'forced_swim','engineId':ENGINE,'analysisVersion':VERSION,
+            'pipelineRevision':POSE_INPUT_POLICY,
             'runId':config['runId'],'video':{'sha256':sha,'originalSha256':config['video']['originalSha256'],'width':width,'height':height,'fps':fps,'frameCount':n_frames,'filename':config['video']['filename'],
                 'sourceWidth':config['video'].get('sourceWidth'),'sourceHeight':config['video'].get('sourceHeight'),
                 'sourceToUploadScaleX':width/config['video']['sourceWidth'] if config['video'].get('sourceWidth') else None,
@@ -436,7 +476,9 @@ def run(video_path, output_path, config):
               'title':config.get('title'),'group':config.get('group'),'notes':config.get('notes'),'video':result['video'],
               'subjects':config['subjects'],'tanks':config['tanks'],'model':fingerprint_data['model'],
               'deeplabcutVersion':deeplabcut.__version__,'modelFingerprint':fingerprint,
-              'inferenceRoiMode':'full_cylinder_fixed','detector':'none','validScore':VALID_SCORE,'drawScore':DRAW_SCORE,
+              'inferenceRoiMode':'visual_body_bbox_prepose','detector':'unvalidated_visual_heuristic',
+              'poseInputPolicy':POSE_INPUT_POLICY,'poseBoxMargin':POSE_BOX_MARGIN,
+              'poseBoxMinMargin':POSE_BOX_MIN_MARGIN,'validScore':VALID_SCORE,'drawScore':DRAW_SCORE,
               'presenceAlgorithm':'fst-v6.4-visual-presence-plus-static-start-1','classification':'NOT_CLASSIFIED',
               'checkpointCache':str(cache),'checkpointKey':fingerprint,'finalBatchSize':batch}
     (out/'run_manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2))

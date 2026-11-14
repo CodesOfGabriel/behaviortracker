@@ -1,19 +1,21 @@
 import { ArrowRight, Check, CircleAlert, Clock3, CloudDownload, Cpu, FileVideo, LoaderCircle, ScanSearch, ShieldCheck, UploadCloud, WandSparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { formatElapsedClock } from "../../lib/format";
+import type { LocalVideoProgress } from "../../store/AppStore";
 import type { ColabJob } from "./analysis";
 import { loadColabLog } from "./analysis";
 import { checkpoints, diaryEvents, displayAnalysisMessage, gpuMessage, reportedFrameProgress, stageIndex } from "./workflow";
 
 const icons = [FileVideo, Cpu, UploadCloud, ShieldCheck, WandSparkles, ScanSearch, CloudDownload];
 
-export function AnalysisWorkflow({ job, preparing, message, localError, elapsedSec, startedAt, protocol: requestedProtocol = "open_field", logOnly = false }: {
+export function AnalysisWorkflow({ job, preparing, message, localError, elapsedSec, startedAt, localProgress, protocol: requestedProtocol = "open_field", logOnly = false }: {
   job: ColabJob | null;
   preparing: boolean;
   message: string;
   localError: string | null;
   elapsedSec: number;
   startedAt?: number | null;
+  localProgress?: LocalVideoProgress | null;
   protocol?: "open_field" | "forced_swim";
   logOnly?: boolean;
 }) {
@@ -21,6 +23,10 @@ export function AnalysisWorkflow({ job, preparing, message, localError, elapsedS
   const steps = checkpoints(job, preparing, Boolean(!job && localError), protocol);
   const events = job?.events ?? [];
   const progress = job?.status === "succeeded" ? 100 : Math.min(100, Math.max(0, job?.progress ?? 0, ...events.map((event) => event.progress)));
+  const localPercent = localProgress?.percent;
+  const shownProgress = job ? Math.round(progress) : localPercent == null ? null : Math.round(localPercent);
+  const progressLabel = !job && localProgress?.phase === "staging" ? "Cópia local do vídeo"
+    : !job && localProgress ? "Preparação do vídeo" : "Progresso da análise";
   const compactEvents = diaryEvents(events, protocol);
   const failed = job?.status === "failed" || (!job && localError);
   const active = preparing || job?.status === "running" || job?.status === "queued";
@@ -85,10 +91,12 @@ export function AnalysisWorkflow({ job, preparing, message, localError, elapsedS
         </div>}
       </div>
       {(job || preparing) && <div className="workflow-progress-overview">
-        <div className="workflow-progress-label"><span>Progresso da análise</span><strong>{job ? `${Math.round(progress)}%` : "Preparando"}</strong></div>
-        <div className={`workflow-progress ${!job && active ? "workflow-progress-indeterminate" : ""}`} role="progressbar" aria-label="Progresso da análise" aria-valuemin={0} aria-valuemax={100} aria-valuenow={job ? Math.round(progress) : undefined}>
-          <span style={job ? { width: `${progress}%` } : undefined} />
+        <div className="workflow-progress-label"><span>{progressLabel}</span><strong>{shownProgress == null ? "Preparando" : `${shownProgress}%`}</strong></div>
+        <div className={`workflow-progress ${shownProgress == null && active ? "workflow-progress-indeterminate" : ""}`} role="progressbar" aria-label={progressLabel} aria-valuemin={0} aria-valuemax={100} aria-valuenow={shownProgress ?? undefined}>
+          <span style={shownProgress == null ? undefined : { width: `${shownProgress}%` }} />
         </div>
+        {!job && localProgress?.phase === "encoding" && localProgress.remainingSec != null &&
+          <p className="workflow-progress-eta">Conversão: tempo restante estimado de {formatElapsedClock(localProgress.remainingSec)}</p>}
       </div>}
       {frameProgress && <div className="workflow-frames" aria-label={`Frames reportados pelo Colab para ${frameProgress.scope}`}>
         <div><span>Frames analisados · {frameProgress.scope}</span><strong>{frameProgress.processed.toLocaleString("pt-BR")} <small>/ {frameProgress.total.toLocaleString("pt-BR")}</small></strong></div>
