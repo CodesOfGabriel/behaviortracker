@@ -1,5 +1,5 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import type { ArenaConfig, ForcedSwimExperiment, VideoPreparation } from "../../types";
+import type { ArenaConfig, ForcedSwimExperiment, RadialMazeExperiment, VideoPreparation } from "../../types";
 import { listen } from "@tauri-apps/api/event";
 import { preparedGeometry, scaleTanksToUpload } from "./videoGeometry";
 
@@ -36,9 +36,9 @@ export type ColabJob = {
   resultsReady?: boolean;
   training?: boolean;
   customModel?: boolean;
-  engineId?: "superanimal_video_adapt_b_legacy" | "wistar_superanimal_hybrid_v1" | "fst_superanimal_quadruped_v1";
+  engineId?: "superanimal_video_adapt_b_legacy" | "wistar_superanimal_hybrid_v1" | "fst_superanimal_quadruped_v1" | "wistar_ram_hybrid_v1";
   modelBundleId?: string | null;
-  protocol?: "open_field" | "forced_swim" | null;
+  protocol?: "open_field" | "forced_swim" | "radial_arm_maze" | null;
 };
 
 export type DiagnosticRange = { startSec: number; endSec: number };
@@ -118,6 +118,21 @@ export function startFstJob(experiment: ForcedSwimExperiment, preparation: Video
   } });
 }
 
+export function startRamJob(experiment: RadialMazeExperiment, preparation: VideoPreparation) {
+  const geometry = preparedGeometry(experiment.video, preparation);
+  const polygon = experiment.geometry.walkablePolygonPx;
+  if (!polygon || polygon.length < 3) throw new Error("Selecione toda a área analisável do labirinto antes de iniciar o Colab.");
+  return invoke<ColabJob>("start_colab_analysis", { request: {
+    experimentId: experiment.id, uploadId: preparation.uploadId,
+    workload: { width: geometry.width, height: geometry.height, durationSec: experiment.video.durationSec },
+    engineId: "wistar_ram_hybrid_v1", modelBundleId: LATEST_HYBRID_BUNDLE_ID,
+    ram: { revision: experiment.geometry.revision, walkableMaskVersion: experiment.geometry.walkableMaskVersion,
+      walkablePolygonPx: polygon.map(point => ({ x: point.x * geometry.scaleX, y: point.y * geometry.scaleY })),
+      sourceWidth: experiment.video.width, sourceHeight: experiment.video.height,
+      preparationPolicyVersion: preparation.policyVersion },
+  } });
+}
+
 export function getStagedVideoSha256(uploadId: string) {
   return invoke<string>("get_video_staging_sha256", { uploadId });
 }
@@ -133,6 +148,11 @@ export async function loadStagedVideo(experimentId: string, uploadId: string) {
 
 export async function loadFstArtifacts(jobId: string) {
   const files = await invoke<{ name: string; path: string }[]>("get_fst_job_artifacts", { jobId });
+  return files.map(file => ({ ...file, url: convertFileSrc(file.path) }));
+}
+
+export async function loadRamArtifacts(jobId: string) {
+  const files = await invoke<{ name: string; path: string }[]>("get_ram_job_artifacts", { jobId });
   return files.map(file => ({ ...file, url: convertFileSrc(file.path) }));
 }
 

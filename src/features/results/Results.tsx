@@ -31,6 +31,7 @@ import { loadColabVideo } from "../colab/analysis";
 import { isTauriRuntime } from "../colab/connection";
 import { AnalysisWorkflow } from "../colab/AnalysisWorkflow";
 import { useAnalysis } from "./useAnalysis";
+import { LocalAnalysisPanel } from "../local/LocalAnalysisPanel";
 import type { OftMetrics, OpenFieldExperiment } from "../../types";
 
 function metricValue(value: number | null, suffix: string, digits = 1) {
@@ -118,6 +119,7 @@ export function Results({ experimentId }: { experimentId: string }) {
   );
   const metrics = reviewedMetrics;
   const samples = reviewedReference;
+  const localMetricsReady = experiment?.trackingSelection?.engine !== "opencv" || samples.some(metricEligible);
 
   if (!experiment) {
     return <div className="page not-found"><h1>Experimento não encontrado</h1><Button onClick={() => navigate({ name: "dashboard" })}>Voltar</Button></div>;
@@ -130,12 +132,15 @@ export function Results({ experimentId }: { experimentId: string }) {
         <section className="page-heading results-heading">
           <div><div className="eyebrow">Análise Completa · Open Field Test</div><h1>{experiment.title}</h1><p>{experiment.subjectId} · Aguardando resultado do tracking</p></div>
           <div className="results-actions">
-            <Button disabled={analysis.busy || analysis.loadingResult || !analysis.summary.connected} onClick={() => void analysis.run()}>{analysis.busy ? "Processando…" : "Analisar no Colab"}</Button>
+            <Button variant="secondary" onClick={() => navigate({ name: "validation", experimentId })}>Referência humana</Button>
+            <Button disabled={analysis.busy || analysis.loadingResult} onClick={() => void analysis.run()}>{analysis.busy ? "Processando…" : "Analisar no Colab"}</Button>
+            {!analysis.summary.connected && <Button variant="secondary" onClick={() => navigate({ name: "colab" })}>Conectar Colab</Button>}
           </div>
         </section>
         {analysis.error && <div className="validation-box invalid"><AlertTriangle size={16} />{analysis.error}</div>}
-        <AnalysisWorkflow job={analysis.activeJob} preparing={analysis.busy && !analysis.activeJob} message={analysis.message}
-          localError={analysis.error} elapsedSec={analysis.elapsedSec} startedAt={analysis.startedAt} localProgress={analysis.videoProgress} />
+        <LocalAnalysisPanel experiment={experiment} selectSource={analysis.selectSource} colabBusy={analysis.busy && analysis.activityEngine !== "opencv"} />
+        {analysis.activityEngine !== "opencv" && <AnalysisWorkflow job={analysis.activeJob} preparing={analysis.busy && !analysis.activeJob} message={analysis.message}
+          localError={analysis.error} elapsedSec={analysis.elapsedSec} startedAt={analysis.startedAt} localProgress={analysis.videoProgress} />}
         {analysis.loadingResult && <p role="status">Carregando resultado salvo…</p>}
         {analysis.history.length > 0 && <div className="analysis-history-list">{analysis.history.map((job) =>
           <button type="button" className={`analysis-run analysis-run-${job.status}`} key={job.jobId}
@@ -223,15 +228,19 @@ export function Results({ experimentId }: { experimentId: string }) {
           <p>{experiment.subjectId}{experiment.group ? ` · ${experiment.group}` : ""} · Método {METRIC_POLICY.version}</p>
         </div>
         <div className="results-actions">
-          <Button variant="secondary" disabled={analysis.busy || !analysis.summary.connected} onClick={() => void analysis.run()}>{analysis.busy ? "Processando…" : "Reprocessar"}</Button>
+          <Button variant="secondary" onClick={() => navigate({ name: "validation", experimentId })}>Referência humana</Button>
+          <Button variant="secondary" disabled={analysis.busy} onClick={() => void analysis.run()}>{analysis.busy ? "Processando…" : "Reprocessar no Colab"}</Button>
+          {!analysis.summary.connected && <Button variant="secondary" onClick={() => navigate({ name: "colab" })}>Conectar Colab</Button>}
           <Button variant="secondary" icon={<Download size={16} />} onClick={() => setShowExport((current) => !current)}>Exportar</Button>
-          <Button icon={<Check size={16} />} disabled={analysis.busy} onClick={() => updateExperiment(experiment.id, { status: "completed" })}>Concluir análise</Button>
+          <Button icon={<Check size={16} />} disabled={analysis.busy || !localMetricsReady} onClick={() => updateExperiment(experiment.id, { status: "completed" })}>Concluir análise</Button>
         </div>
       </section>
       {analysis.error && <div className="validation-box invalid"><AlertTriangle size={16} />{analysis.error}</div>}
-      {analysis.busy && <AnalysisWorkflow job={analysis.activeJob} preparing={!analysis.activeJob} message={analysis.message}
+      <LocalAnalysisPanel experiment={experiment} selectSource={analysis.selectSource} colabBusy={analysis.busy && analysis.activityEngine !== "opencv"} />
+      {analysis.busy && analysis.activityEngine !== "opencv" && <AnalysisWorkflow job={analysis.activeJob} preparing={!analysis.activeJob} message={analysis.message}
         localError={analysis.error} elapsedSec={analysis.elapsedSec} startedAt={analysis.startedAt} localProgress={analysis.videoProgress} />}
-      {analysis.history.filter((job) => job.resultsReady || job.status === "succeeded").length > 1 &&
+      {(analysis.history.filter((job) => job.resultsReady || job.status === "succeeded").length > 1
+        || (experiment.trackingSelection?.engine === "opencv" && analysis.history.some(job => job.resultsReady || job.status === "succeeded"))) &&
         <label className="results-source-select">Execução exibida
           <select value={experiment.trackingSelection?.engine === "colab" ? experiment.trackingSelection.jobId : ""}
             onChange={(event) => void analysis.selectSource({ engine: "colab", jobId: event.target.value })}>

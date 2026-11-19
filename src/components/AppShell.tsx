@@ -1,10 +1,96 @@
-import { Activity, CircleHelp, FlaskConical, LayoutDashboard, LogOut, Plus, Settings } from "lucide-react";
+import { Activity, CircleHelp, ExternalLink, FlaskConical, LayoutDashboard, LogOut, Plus, RefreshCw, Settings } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../store/AppStore";
 import { BrandMark } from "./BrandMark";
 import { Badge } from "./ui/Badge";
 import { cn } from "../lib/format";
+import { COLAB_PROFILE_ID, isTauriRuntime, publishColabSummary, type OAuthProfileSummary } from "../features/colab/connection";
 import type { AppRoute } from "../types";
+
+const COLAB_HOME = "https://colab.research.google.com/";
+
+function colabPlan(tier: string | null) {
+  switch (tier) {
+    case "SUBSCRIPTION_TIER_FREE": return "Colab gratuito";
+    case "SUBSCRIPTION_TIER_PRO": return "Colab Pro";
+    case "SUBSCRIPTION_TIER_PRO_PLUS": return "Colab Pro+";
+    default: return "Plano indisponível";
+  }
+}
+
+function ColabAccountIndicator({ summary }: { summary: OAuthProfileSummary }) {
+  const [open, setOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const indicatorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!indicatorRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  if (!summary.connected) return null;
+  const plan = colabPlan(summary.subscriptionTier);
+
+  async function refresh() {
+    setRefreshing(true);
+    setError(null);
+    try {
+      publishColabSummary(await invoke<OAuthProfileSummary>("check_colab_eligibility", { profileId: COLAB_PROFILE_ID }));
+    } catch (reason) {
+      setError(typeof reason === "string" ? reason : reason instanceof Error ? reason.message : "Não foi possível atualizar o plano.");
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  async function openColab() {
+    if (!isTauriRuntime()) {
+      window.open(COLAB_HOME, "_blank", "noopener,noreferrer");
+      return;
+    }
+    try {
+      await invoke("open_colab_home");
+    } catch (reason) {
+      setError(typeof reason === "string" ? reason : "Não foi possível abrir o Colab.");
+    }
+  }
+
+  return (
+    <div className="topbar-colab" ref={indicatorRef}>
+      <button type="button" className="topbar-colab-trigger" aria-label={`${plan}. Unidades totais e restantes indisponíveis pela API. Abrir detalhes.`} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? "topbar-colab-details" : undefined} onClick={() => { setOpen(value => !value); setError(null); }}>
+        <span className="topbar-colab-plan">{plan}</span>
+        <span className="topbar-colab-units">Total — <span aria-hidden="true">·</span> Restante —</span>
+      </button>
+      {open && <div className="topbar-colab-popover" id="topbar-colab-details" role="dialog" aria-label="Assinatura do Colab">
+        <strong>{plan}</strong>
+        <dl>
+          <div><dt>Unidades totais</dt><dd>—</dd></div>
+          <div><dt>Unidades restantes</dt><dd>—</dd></div>
+        </dl>
+        <p>A API oficial informa o plano, mas não fornece o total nem o saldo de unidades. Confira os valores atuais no Colab.</p>
+        {summary.providerError && <p className="topbar-colab-error" role="alert">{summary.providerError}</p>}
+        {error && <p className="topbar-colab-error" role="alert">{error}</p>}
+        <div className="topbar-colab-actions">
+          <button type="button" disabled={refreshing} onClick={() => void refresh()}><RefreshCw size={13} className={refreshing ? "login-spinner" : undefined} /> {refreshing ? "Atualizando…" : "Atualizar plano"}</button>
+          <button type="button" onClick={() => void openColab()}>Abrir Colab <ExternalLink size={13} /></button>
+        </div>
+      </div>}
+    </div>
+  );
+}
 
 export function experimentsSidebarRoute(draftPreparationActive: boolean, runningAnalysisIds: string[]): AppRoute {
   if (runningAnalysisIds.length > 0) return { name: "results", experimentId: runningAnalysisIds[0] };
@@ -18,8 +104,9 @@ function isActive(routeName: string, current: string) {
   return current === routeName;
 }
 
-export function AppShell({ children, accountEmail, onLogout }: {
+export function AppShell({ children, colabSummary, accountEmail, onLogout }: {
   children: ReactNode;
+  colabSummary: OAuthProfileSummary;
   accountEmail: string | null;
   onLogout: () => Promise<void>;
 }) {
@@ -134,6 +221,7 @@ export function AppShell({ children, accountEmail, onLogout }: {
           <div className="mobile-brand"><BrandMark size={30} /><span>Behavior Tracker</span></div>
           <div className="topbar-brand">Behavior Tracker</div>
           <div className="topbar-spacer" />
+          <ColabAccountIndicator summary={colabSummary} />
           <Badge tone="success" dot>Dados locais</Badge>
           <button className="topbar-new" onClick={() => navigate({ name: "new-experiment" })}>
             <Plus size={17} /> Novo experimento

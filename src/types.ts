@@ -2,7 +2,7 @@ export type Point = { x: number; y: number };
 export type BoundingBox = { x: number; y: number; width: number; height: number };
 export type TrackingSelection = { engine: "opencv" | "colab"; jobId: string };
 export type Quadrilateral = [Point, Point, Point, Point];
-export type AnalysisEngineId = "superanimal_video_adapt_b_legacy" | "wistar_superanimal_hybrid_v1" | "fst_superanimal_quadruped_v1";
+export type AnalysisEngineId = "superanimal_video_adapt_b_legacy" | "wistar_superanimal_hybrid_v1" | "fst_superanimal_quadruped_v1" | "wistar_ram_hybrid_v1";
 
 export type ExperimentStatus =
   | "draft"
@@ -15,6 +15,8 @@ export type ExperimentStatus =
 export type AppRoute =
   | { name: "dashboard" }
   | { name: "new-experiment"; resumePreparation?: boolean }
+  | { name: "edit-ram"; experimentId: string }
+  | { name: "validation"; experimentId: string }
   | { name: "results"; experimentId: string }
   | { name: "colab" }
   | { name: "about" };
@@ -130,7 +132,41 @@ export interface ForcedSwimExperiment {
   subjects: ForcedSwimSubject[]; tanks: TankConfig[];
   annotations: FstAnnotation[]; trackingSelection?: TrackingSelection;
 }
-export type Experiment = OpenFieldExperiment | ForcedSwimExperiment;
+export type ArmId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+export interface RadialArm {
+  id: ArmId;
+  polygonPx: Point[];
+  entryGatePx: [Point, Point];
+  distalGatePx: [Point, Point];
+  cupPolygonPx: Point[];
+  baited: boolean;
+}
+export interface RadialMazeGeometry {
+  revision: number;
+  walkablePolygonPx?: Point[];
+  centerPolygonPx: Point[];
+  arms: RadialArm[];
+  walkableMaskVersion: string;
+  referenceFrameSec: number;
+}
+export interface RamVisitPolicy {
+  minimumArmDwellSec: number;
+  minimumCenterDwellSec: number;
+  minimumDistalDwellSec: number;
+  unknownGapToleranceSec: number;
+  choiceCriterion: "arm_entry" | "distal_reached";
+}
+export interface RadialMazeExperiment {
+  id: string; schemaVersion: "1.0"; analysisMethodVersion: "ram-1.0";
+  analysisEngine: "wistar_ram_hybrid_v1"; modelBundleId: string;
+  title: string; subjectId: string; group?: string; notes?: string;
+  testType: "radial_arm_maze"; status: ExperimentStatus; createdAt: string; updatedAt: string;
+  video: VideoMetadata; calibrationThumbnailDataUrl?: string;
+  geometry: RadialMazeGeometry; visitPolicy: RamVisitPolicy;
+  geometryHistory?: RadialMazeGeometry[];
+  corrections: CorrectionEvent[]; trackingSelection?: TrackingSelection;
+}
+export type Experiment = OpenFieldExperiment | ForcedSwimExperiment | RadialMazeExperiment;
 
 export interface VideoAsset {
   objectUrl?: string;

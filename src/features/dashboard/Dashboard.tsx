@@ -63,7 +63,7 @@ export function Dashboard() {
         <div>
           <div className="eyebrow">Laboratório local</div>
           <h1>Seus experimentos</h1>
-          <p>Prepare e documente análises de Campo Aberto e Nado Forçado com rastreabilidade.</p>
+          <p>Prepare e documente análises de Campo Aberto, Nado Forçado e Labirinto Radial com rastreabilidade.</p>
         </div>
         <Button size="lg" icon={<Plus size={18} />} onClick={() => navigate({ name: "new-experiment" })}>
           Novo experimento
@@ -126,7 +126,7 @@ export function Dashboard() {
                         {analysisActivity[experiment.id]?.starting ? "Processando em segundo plano" : statusLabels[experiment.status]}
                       </Badge>
                     </div>
-                    <p>{experiment.testType === "forced_swim" ? experiment.subjects.map(s => s.subjectId).join(" · ") : experiment.subjectId}{experiment.group ? ` · ${experiment.group}` : ""}</p>
+                    <p>{experiment.testType === "forced_swim" ? experiment.subjects.map(s => s.subjectId).join(" · ") : experiment.subjectId}{experiment.group ? ` · ${experiment.group}` : ""}{experiment.testType === "radial_arm_maze" ? " · Labirinto Radial" : ""}</p>
                     <div className="experiment-meta">
                       <span>{formatDate(experiment.updatedAt)}</span>
                       <span>{formatDuration(experiment.video.durationSec)} de vídeo</span>
@@ -157,7 +157,7 @@ export function Dashboard() {
             <ol className="workflow-list">
               {[
                 ["01", "Configure", "Vídeo, sujeito e protocolo"],
-                ["02", "Configure", "Arena ou cilindros conforme o protocolo"],
+                ["02", "Configure", "Geometria própria de cada protocolo"],
                 ["03", "Analise", "Tracking e métricas"],
                 ["04", "Exporte", "Métricas e proveniência"],
               ].map(([number, title, description]) => (

@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://behavetracker.local/schemas/ram-experiment.schema.json",
+  "title": "BehaveTracker Radial Arm Maze Experiment",
+  "type": "object",
+  "required": ["id", "schemaVersion", "analysisMethodVersion", "analysisEngine", "modelBundleId", "testType", "title", "subjectId", "status", "video", "geometry", "visitPolicy", "corrections"],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "schemaVersion": { "const": "1.0" },
+    "analysisMethodVersion": { "const": "ram-1.0" },
+    "analysisEngine": { "const": "wistar_ram_hybrid_v1" },
+    "modelBundleId": { "type": "string", "minLength": 1 },
+    "testType": { "const": "radial_arm_maze" },
+    "title": { "type": "string", "minLength": 1 },
+    "subjectId": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["draft", "processing", "review", "completed", "blocked", "failed"] },
+    "video": { "type": "object", "required": ["filename", "sizeBytes", "width", "height", "durationSec", "timingSource"], "properties": {
+      "filename": { "type": "string", "minLength": 1 },
+      "sizeBytes": { "type": "integer", "minimum": 0 },
+      "width": { "type": "integer", "minimum": 80 },
+      "height": { "type": "integer", "minimum": 80 },
+      "durationSec": { "type": "number", "exclusiveMinimum": 0 },
+      "fps": { "type": ["number", "null"] },
+      "timingSource": { "enum": ["browser-estimate", "ffprobe", "synthetic"] },
+      "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+    } },
+    "geometry": { "$ref": "#/$defs/geometry" },
+    "geometryHistory": { "type": "array", "items": { "$ref": "#/$defs/geometry" } },
+    "visitPolicy": { "$ref": "#/$defs/policy" },
+    "corrections": { "type": "array" }
+  },
+  "$defs": {
+    "point": { "type": "object", "required": ["x", "y"], "properties": { "x": { "type": "number" }, "y": { "type": "number" } }, "additionalProperties": false },
+    "polygon": { "type": "array", "minItems": 3, "items": { "$ref": "#/$defs/point" } },
+    "gate": { "type": "array", "prefixItems": [{ "$ref": "#/$defs/point" }, { "$ref": "#/$defs/point" }], "minItems": 2, "maxItems": 2 },
+    "arm": { "type": "object", "required": ["id", "cupPolygonPx", "baited"], "properties": {
+      "id": { "type": "integer", "minimum": 1, "maximum": 8 },
+      "polygonPx": { "type": "array", "items": { "$ref": "#/$defs/point" } },
+      "entryGatePx": { "$ref": "#/$defs/gate" },
+      "distalGatePx": { "$ref": "#/$defs/gate" },
+      "cupPolygonPx": { "$ref": "#/$defs/polygon" },
+      "baited": { "type": "boolean" }
+    } },
+    "geometry": { "type": "object", "required": ["revision", "arms", "walkableMaskVersion", "referenceFrameSec"], "properties": {
+      "revision": { "type": "integer", "minimum": 1 },
+      "centerPolygonPx": { "type": "array", "items": { "$ref": "#/$defs/point" } },
+      "walkablePolygonPx": { "$ref": "#/$defs/polygon" },
+      "arms": { "type": "array", "minItems": 8, "maxItems": 8, "items": { "$ref": "#/$defs/arm" } },
+      "walkableMaskVersion": { "type": "string", "minLength": 1 },
+      "referenceFrameSec": { "type": "number", "minimum": 0 }
+    }, "oneOf": [
+      { "required": ["walkablePolygonPx"] },
+      { "required": ["centerPolygonPx"], "not": { "required": ["walkablePolygonPx"] }, "properties": {
+        "centerPolygonPx": { "$ref": "#/$defs/polygon" },
+        "arms": { "items": { "required": ["polygonPx", "entryGatePx", "distalGatePx"], "properties": { "polygonPx": { "$ref": "#/$defs/polygon" } } } }
+      } }
+    ] },
+    "policy": { "type": "object", "required": ["minimumArmDwellSec", "minimumCenterDwellSec", "minimumDistalDwellSec", "unknownGapToleranceSec", "choiceCriterion"], "properties": {
+      "minimumArmDwellSec": { "type": "number", "minimum": 0, "maximum": 30 },
+      "minimumCenterDwellSec": { "type": "number", "minimum": 0, "maximum": 30 },
+      "minimumDistalDwellSec": { "type": "number", "minimum": 0, "maximum": 30 },
+      "unknownGapToleranceSec": { "type": "number", "minimum": 0, "maximum": 30 },
+      "choiceCriterion": { "enum": ["arm_entry", "distal_reached"] }
+    } }
+  }
+}

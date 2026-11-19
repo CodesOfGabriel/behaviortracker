@@ -101,6 +101,8 @@ pub struct StartAnalysisRequest {
     #[serde(default)]
     fst: Option<FstConfiguration>,
     #[serde(default)]
+    ram: Option<RamConfiguration>,
+    #[serde(default)]
     diagnostic: Option<DiagnosticRange>,
 }
 
@@ -126,6 +128,30 @@ struct FstConfiguration {
     #[serde(default)] source_height: Option<u32>,
     #[serde(default)] preparation_policy_version: Option<String>,
     subjects: Vec<FstSubject>, tanks: Vec<FstTank>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RamConfiguration {
+    revision: u32,
+    walkable_mask_version: String,
+    walkable_polygon_px: Vec<ImagePoint>,
+    source_width: u32,
+    source_height: u32,
+    preparation_policy_version: String,
+}
+
+impl RamConfiguration {
+    fn validate(&self, workload: &AnalysisWorkload) -> CommandResult<()> {
+        if self.revision == 0 || self.walkable_mask_version.trim().is_empty()
+            || self.source_width == 0 || self.source_height == 0
+            || self.walkable_polygon_px.len() < 3 || self.walkable_polygon_px.len() > 128
+            || self.walkable_polygon_px.iter().any(|p| !p.x.is_finite() || !p.y.is_finite()
+                || p.x < 0.0 || p.y < 0.0 || p.x > workload.width as f64 || p.y > workload.height as f64) {
+            return Err("Área do labirinto radial inválida para o vídeo preparado.".into());
+        }
+        Ok(())
+    }
 }
 
 impl FstConfiguration {
@@ -2497,6 +2523,27 @@ fn hybrid_code(video: &str, output: &str, csv: &str, arena: Option<&AnalysisAren
     let detector_source = include_str!("../python/hybrid/detector_wistar.py");
     format!("import runpy,sys\nfrom pathlib import Path\np=Path({output:?})/'hybrid_pipeline.py'\np.parent.mkdir(parents=True, exist_ok=True)\nh=p.parent/'hybrid'\nh.mkdir(exist_ok=True)\n(h/'__init__.py').write_text('')\n(h/'detector_wistar.py').write_text({detector_source:?},encoding='utf-8')\np.write_text({source:?},encoding='utf-8')\nsys.path.insert(0,str(p.parent))\nrunpy.run_path(str(p), run_name='__main__')\n")
 }
+fn ram_code(video: &str, output: &str, ram: &RamConfiguration, workload: &AnalysisWorkload,
+    models: &str, bundle_id: &str, digest: &str, original_digest: &str, filename: &str, job_id: &str) -> String {
+    let files = hybrid_bundle_files(bundle_id).expect("bundle validado antes da execução");
+    let hybrid = include_str!("../python/hybrid_pipeline.py")
+        .replace("__VIDEO__", &serde_json::to_string(video).unwrap())
+        .replace("__OUTPUT__", &serde_json::to_string(output).unwrap())
+        .replace("__CSV__", &serde_json::to_string(&format!("{output}/canonical_pose.csv")).unwrap())
+        .replace("__MODELS__", &serde_json::to_string(models).unwrap())
+        .replace("__MODEL_BUNDLE_ID__", &serde_json::to_string(bundle_id).unwrap())
+        .replace("__DETECTOR_SHA256__", &format!("{:?}", files[0].2))
+        .replace("__POSE_SHA256__", &format!("{:?}", files[1].2))
+        .replace("__CONFIG_SHA256__", &format!("{:?}", files[2].2))
+        .replace("__ARENA__", "None");
+    let detector = include_str!("../python/hybrid/detector_wistar.py");
+    let source = include_str!("../python/ram_pipeline.py");
+    let config = json!({"protocol":"radial_arm_maze","engineId":"wistar_ram_hybrid_v1",
+        "jobId":job_id,"modelBundleId":bundle_id,"geometry":ram,
+        "video":{"sha256":digest,"originalSha256":original_digest,"filename":filename,
+            "width":workload.width,"height":workload.height}}).to_string();
+    format!("import json,runpy,sys\nfrom pathlib import Path\np=Path({output:?})\np.mkdir(parents=True,exist_ok=True)\nh=p/'hybrid'\nh.mkdir(exist_ok=True)\n(h/'__init__.py').write_text('')\n(h/'detector_wistar.py').write_text({detector:?},encoding='utf-8')\n(p/'hybrid_pipeline.py').write_text({hybrid:?},encoding='utf-8')\n(p/'ram_pipeline.py').write_text({source:?},encoding='utf-8')\nsys.path.insert(0,str(p))\nrunpy.run_path(str(p/'ram_pipeline.py'))['run']({video:?},{output:?},json.loads({config:?}))")
+}
 fn hybrid_render_code(video: &str, output: &str, arena: Option<&AnalysisArena>) -> String {
     let source = include_str!("../python/hybrid_render.py");
     let geometry = serde_json::to_string(&arena).expect("arena serializável");
@@ -2601,6 +2648,7 @@ fn run_analysis(
     engine_id: String,
     model_bundle_id: Option<String>,
     fst: Option<FstConfiguration>,
+    ram: Option<RamConfiguration>,
 ) -> CommandResult<()> {
     let preparation_started = Instant::now();
     prepare_tables(&app)?;
@@ -2610,7 +2658,7 @@ fn run_analysis(
         update_job(&app, &job_id, "running", "authorizing", 3, "Trecho curto preparado e pixels conferidos; o vídeo completo não será enviado")?;
         clip
     } else {
-        let preparation = crate::video::prepare_staged_video_with_policy(&app, &upload_id, workload.width, workload.height, fst.is_some())?;
+        let preparation = crate::video::prepare_staged_video_with_policy(&app, &upload_id, workload.width, workload.height, fst.is_some() || ram.is_some())?;
         update_job(&app, &job_id, "running", "authorizing", 3, &format!("{} · {} → {} bytes", preparation.message, preparation.original_bytes, preparation.upload_bytes))?;
         preparation.upload_id
     };
@@ -2640,7 +2688,7 @@ fn run_analysis(
     if ready == 0 || sha256.is_none() {
         return Err("Finalize o envio local do vídeo antes de iniciar a análise.".into());
     }
-    let original_identity: Option<(String,String)> = if fst.is_some() {
+    let original_identity: Option<(String,String)> = if fst.is_some() || ram.is_some() {
         Some(open_database(&app)?.query_row(
             "SELECT sha256,original_filename FROM video_staging WHERE upload_id=COALESCE((SELECT original_upload_id FROM video_preparations WHERE prepared_upload_id=?1),?1) AND ready=1",
             [&upload_id],|row|Ok((row.get(0)?,row.get(1)?))).map_err(|_|"Identidade do vídeo original indisponível")?)
@@ -2739,7 +2787,7 @@ fn run_analysis(
         let remote_directory =
             resolve_jupyter_workspace(&connection, &absolute_directory, &job_id)?;
         let models_started = Instant::now();
-        let hybrid_models = if engine_id == "wistar_superanimal_hybrid_v1" {
+        let hybrid_models = if engine_id == "wistar_superanimal_hybrid_v1" || ram.is_some() {
             upload_hybrid_bundle(&app, &job_id, &connection, &session, &remote_directory, model_bundle_id.as_deref())?
         } else {
             None
@@ -2765,7 +2813,7 @@ fn run_analysis(
         } else {
             upload_video(&app, &job_id, &connection, Path::new(&local_path), &remote_video, size)?;
         }
-        let custom_model=if fst.is_some() { None } else { ensure_remote_model(&app,&job_id,&session,&connection,&remote_directory,&absolute_directory)? };
+        let custom_model=if fst.is_some() || ram.is_some() { None } else { ensure_remote_model(&app,&job_id,&session,&connection,&remote_directory,&absolute_directory)? };
         update_job(
             &app,
             &job_id,
@@ -2801,7 +2849,7 @@ fn run_analysis(
         )?;
 
         if fst.is_some() { prepare_fst_environment(&app, &job_id, &session, &absolute_directory)?; }
-        else if custom_model.is_some(){prepare_custom_environment(&app,&job_id,&session,&absolute_directory)?;}else if engine_id == "wistar_superanimal_hybrid_v1" { prepare_hybrid_environment(&app, &job_id, &session, &absolute_directory)?; } else {prepare_environment(&app, &job_id, &session, &absolute_directory)?;}
+        else if custom_model.is_some(){prepare_custom_environment(&app,&job_id,&session,&absolute_directory)?;}else if engine_id == "wistar_superanimal_hybrid_v1" || ram.is_some() { prepare_hybrid_environment(&app, &job_id, &session, &absolute_directory)?; } else {prepare_environment(&app, &job_id, &session, &absolute_directory)?;}
 
         update_job(
             &app,
@@ -2809,7 +2857,7 @@ fn run_analysis(
             "running",
             if fst.is_some() { "presence" } else { "inference" },
             65,
-            if fst.is_some() { "FST · localização visual por cilindro, HRNet-w32 e indicadores por animal" } else if engine_id == "wistar_superanimal_hybrid_v1" { "Executando pipeline · detector Wistar + HRNet adaptada · resultados experimentais" } else if custom_model.is_some(){"Executando modelo personalizado experimental · confiança anatômica não calibrada; revise as posições"} else if diagnostic.is_some() { "Diagnóstico curto · medindo detector e pose separadamente, sem recuperação ou adaptação" } else if arena
+            if fst.is_some() { "FST · localização visual por cilindro, HRNet-w32 e indicadores por animal" } else if ram.is_some() { "RAM · detector Wistar + HRNet · tracking experimental" } else if engine_id == "wistar_superanimal_hybrid_v1" { "Executando pipeline · detector Wistar + HRNet adaptada · resultados experimentais" } else if custom_model.is_some(){"Executando modelo personalizado experimental · confiança anatômica não calibrada; revise as posições"} else if diagnostic.is_some() { "Diagnóstico curto · medindo detector e pose separadamente, sem recuperação ou adaptação"} else if arena
                 .as_ref()
                 .is_some_and(|geometry| geometry.rim_corners_px.is_some())
             {
@@ -2822,6 +2870,12 @@ fn run_analysis(
             fst_code(&absolute_video, &remote_output, fst, &workload, video_digest,
                 &original_identity.as_ref().ok_or("Identidade do vídeo original ausente")?.0,
                 &original_identity.as_ref().ok_or("Nome do vídeo original ausente")?.1, &job_id)
+        } else if let Some(ram) = &ram {
+            ram_code(&absolute_video, &remote_output, ram, &workload,
+                hybrid_models.as_deref().ok_or("Modelo RAM não enviado")?,
+                model_bundle_id.as_deref().ok_or("Modelo RAM não informado")?, video_digest,
+                &original_identity.as_ref().ok_or("Identidade original ausente")?.0,
+                &original_identity.as_ref().ok_or("Nome original ausente")?.1, &job_id)
         } else if engine_id == "wistar_superanimal_hybrid_v1" {
             hybrid_code(
                 &absolute_video,
@@ -2852,7 +2906,7 @@ fn run_analysis(
             "running",
             "downloading",
             93,
-            if fst.is_some() { "Baixando resultados FST por animal" } else { "Baixando o CSV canônico" },
+            if fst.is_some() { "Baixando resultados FST por animal" } else if ram.is_some() { "Baixando tracking RAM e arquivos de revisão" } else { "Baixando o CSV canônico" },
         )?;
         let result_directory = app
             .path()
@@ -2861,14 +2915,14 @@ fn run_analysis(
             .join("results");
         fs::create_dir_all(&result_directory)
             .map_err(|_| "Não foi possível preparar a pasta de resultados.".to_string())?;
-        let result_path = result_directory.join(format!("{job_id}.{}", if fst.is_some() { "json" } else { "csv" }));
+        let result_path = result_directory.join(format!("{job_id}.{}", if fst.is_some() || ram.is_some() { "json" } else { "csv" }));
         let download_token = google_access_token(&app, PROFILE_ID)?;
         let refreshed_runtime = get_runtime(&api_client()?, &download_token, &runtime.name)?;
         let refreshed_connection = refreshed_runtime.connection_info.ok_or_else(|| {
             "O runtime não renovou os dados de conexão para o download.".to_string()
         })?;
         let download_started = Instant::now();
-        if fst.is_some() {
+        if fst.is_some() || ram.is_some() {
             download_remote_artifact(&app,&job_id,&session,&refreshed_connection,
                 &format!("{remote_output}/result.json"),&result_path)?;
         } else if engine_id == "wistar_superanimal_hybrid_v1" {
@@ -2900,15 +2954,16 @@ fn run_analysis(
                     &format!("{remote_output}/{artifact}"),
                     &result_directory.join(format!("{job_id}-{artifact}")))?;
             }
-        } else if engine_id == "wistar_superanimal_hybrid_v1" {
-            for artifact in [
+        } else if engine_id == "wistar_superanimal_hybrid_v1" || ram.is_some() {
+            let mut artifacts = vec![
                 "detections.csv",
                 "pose_raw.csv",
                 "pose_raw.h5",
-                "pose_filtered.csv",
                 "qc_by_frame.csv",
                 "run_manifest.json",
-            ] {
+            ];
+            if ram.is_none() { artifacts.push("pose_filtered.csv"); }
+            for artifact in artifacts {
                 let artifact_path = result_directory.join(format!("{job_id}-{artifact}"));
                 download_remote_artifact(
                     &app,
@@ -2935,6 +2990,10 @@ fn run_analysis(
                 params![&job_id,video_path,video_error]).map_err(|_|"Não foi possível registrar o vídeo FST")?;
             update_job(&app,&job_id,"succeeded","completed",100,
                 if video_error.is_none(){"FST concluído · presença, poses e vídeo disponíveis"}else{"FST concluído · dados disponíveis; vídeo indisponível"})?;
+            return Ok(());
+        }
+        if ram.is_some() {
+            update_job(&app,&job_id,"succeeded","completed",100,"RAM concluído · tracking experimental disponível para revisão")?;
             return Ok(());
         }
         if engine_id == "wistar_superanimal_hybrid_v1" {
@@ -3021,15 +3080,22 @@ pub fn start_colab_analysis(
     validate_local_id(&request.upload_id, "Upload")?;
     request.workload.validate()?;
     if request.engine_id == "fst_superanimal_quadruped_v1" {
-        if request.arena.is_some() || request.model_bundle_id.is_some() {
+        if request.arena.is_some() || request.model_bundle_id.is_some() || request.ram.is_some() {
             return Err("FST não aceita arena nem bundle de Campo Aberto.".into());
         }
         request.fst.as_ref().ok_or("Configuração dos cilindros FST ausente.")?.validate(&request.workload)?;
+    } else if request.engine_id == "wistar_ram_hybrid_v1" {
+        if request.fst.is_some() || request.arena.is_some() { return Err("Configuração incompatível com o motor RAM.".into()); }
+        request.ram.as_ref().ok_or("Área do labirinto radial ausente.")?.validate(&request.workload)?;
+        if request.model_bundle_id.as_deref() != Some("wistar_df_v2") {
+            return Err("O tracking experimental RAM requer o bundle Wistar v2.".into());
+        }
+        hybrid_bundle_paths(&app, "wistar_df_v2")?;
     } else if request.engine_id == "wistar_superanimal_hybrid_v1" {
-        if request.fst.is_some() { return Err("Configuração FST não corresponde ao motor selecionado.".into()); }
+        if request.fst.is_some() || request.ram.is_some() { return Err("Configuração não corresponde ao motor selecionado.".into()); }
         let bundle_id = request.model_bundle_id.as_deref().ok_or("Modelo de análise não informado.")?;
         hybrid_bundle_paths(&app, bundle_id)?;
-    } else if request.engine_id != "superanimal_video_adapt_b_legacy" || request.fst.is_some() {
+    } else if request.engine_id != "superanimal_video_adapt_b_legacy" || request.fst.is_some() || request.ram.is_some() {
         return Err("Motor de análise não reconhecido.".into());
     }
     if request.diagnostic.is_some() {
@@ -3097,6 +3163,10 @@ pub fn start_colab_analysis(
                 serde_json::to_string(&if request.fst.is_some() { json!({
                     "protocol":"forced_swim", "engineId":&request.engine_id,
                     "analysisMethodVersion":"fst-0.1", "fst":&request.fst
+                }) } else if request.ram.is_some() { json!({
+                    "protocol":"radial_arm_maze", "engineId":&request.engine_id,
+                    "modelBundleId":&request.model_bundle_id,
+                    "analysisMethodVersion":"ram-tracking-1", "ram":&request.ram
                 }) } else { json!({
                     "protocol":"open_field", "engineId": &request.engine_id,
                     "modelBundleId": &request.model_bundle_id,
@@ -3139,6 +3209,7 @@ pub fn start_colab_analysis(
             request.engine_id,
             request.model_bundle_id,
             request.fst,
+            request.ram,
         ) {
             let _ = fail_job(&task_app, &task_job_id, &error);
         }
@@ -3229,6 +3300,27 @@ pub fn get_fst_job_artifacts(app: AppHandle, job_id: String) -> CommandResult<Ve
         if path.is_file() {
             let artifact=FstArtifact{name:name.to_string(),path:path.to_string_lossy().into_owned()};
             result.push(serde_json::to_value(artifact).map_err(|_|"Artefato FST inválido")?);
+        }
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+pub fn get_ram_job_artifacts(app: AppHandle, job_id: String) -> CommandResult<Vec<Value>> {
+    validate_local_id(&job_id, "Job")?;
+    prepare_tables(&app)?;
+    let job = get_job(&app, &job_id)?;
+    if job.protocol.as_deref() != Some("radial_arm_maze") || !job.results_ready {
+        return Err("Esta execução não possui artefatos RAM disponíveis.".into());
+    }
+    let directory = app.path().app_data_dir().map_err(|_| "Pasta de resultados indisponível")?.join("results");
+    let mut result = Vec::new();
+    for name in ["result.json", "detections.csv", "pose_raw.csv", "pose_raw.h5", "qc_by_frame.csv", "run_manifest.json"] {
+        let path = if name == "result.json" { directory.join(format!("{job_id}.json")) }
+            else { directory.join(format!("{job_id}-{name}")) };
+        if path.is_file() {
+            result.push(serde_json::to_value(FstArtifact { name: name.to_string(), path: path.to_string_lossy().into_owned() })
+                .map_err(|_| "Artefato RAM inválido")?);
         }
     }
     Ok(result)

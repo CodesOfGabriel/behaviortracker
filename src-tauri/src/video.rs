@@ -386,6 +386,71 @@ fn identical_timing(first: &[(i64, String)], second: &[(i64, String)]) -> bool {
         .all(|(a, b)| (i128::from(a.0) - i128::from(b.0)).abs() <= 1000)
 }
 
+fn frame_timestamps_with_progress(
+    ffprobe: &Path,
+    input: &Path,
+    on_frame: &mut impl FnMut(usize),
+) -> CommandResult<Vec<f64>> {
+    let result = Command::new(ffprobe)
+        .args([
+            "-v", "error", "-select_streams", "v:0", "-show_frames",
+            "-show_entries", "frame=best_effort_timestamp_time",
+            "-of", "compact=p=0:nk=1",
+        ])
+        .arg(input)
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|_| "Não foi possível verificar os timestamps dos frames".to_string())?;
+    if !result.status.success() {
+        return Err("O ffprobe não conseguiu ler os timestamps dos frames".into());
+    }
+    let mut timestamps = Vec::new();
+    for line in String::from_utf8_lossy(&result.stdout).lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let timestamp = line
+            .split('|')
+            .next()
+            .unwrap_or(line)
+            .trim()
+            .parse::<f64>()
+            .ok()
+            .filter(|value| value.is_finite())
+            .ok_or("Frame sem timestamp válido")?;
+        timestamps.push(timestamp);
+        if timestamps.len() % 30 == 0 {
+            on_frame(timestamps.len());
+        }
+        if timestamps.len() > 2_000_000 {
+            return Err("Vídeo excede o limite local de validação de frames".into());
+        }
+    }
+    if timestamps.is_empty() {
+        return Err("Vídeo sem frames com timestamps decodificáveis".into());
+    }
+    on_frame(timestamps.len());
+    Ok(timestamps)
+}
+
+fn timing_diagnostics(first: &[f64], second: &[f64]) -> (bool, usize, f64) {
+    let max_delta = first
+        .iter()
+        .zip(second)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0, f64::max);
+    (
+        !first.is_empty()
+            && first.len() == second.len()
+            && first
+                .iter()
+                .zip(second)
+                .all(|(a, b)| (a - b).abs() <= 0.001),
+        first.len(),
+        max_delta,
+    )
+}
+
 fn upload_dimensions(width: u32, height: u32) -> (u32, u32) {
     let (max_width, max_height) = if width >= height { (1920, 1080) } else { (1080, 1920) };
     if width <= max_width && height <= max_height { return ((width / 2 * 2).max(2), (height / 2 * 2).max(2)); }
@@ -486,7 +551,8 @@ fn optimize_quality_with_progress(input: &Path, output: &Path, ffmpeg: &Path, ff
             "-noautorotate", "-i"]).arg(input)
         .args(["-map", "0:v:0", "-an", "-sn", "-dn", "-map_metadata", "-1", "-vf", &scale,
             "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p",
-            "-threads", "2", "-fps_mode", "passthrough", "-movflags", "+faststart"])
+            "-threads", "2", "-fps_mode", "passthrough", "-enc_time_base:v", "1/1000000",
+            "-video_track_timescale", "1000000", "-movflags", "+faststart"])
         .arg(output).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()
         .map_err(|_| "Não foi possível iniciar o FFmpeg".to_string())?;
     run_encode_with_progress(child, output, size, source_duration(&info), progress)?;
@@ -500,16 +566,20 @@ fn optimize_quality_with_progress(input: &Path, output: &Path, ffmpeg: &Path, ff
     }
     let expected = source_frame_estimate(&info);
     progress("verifying", Some(80), None);
-    let original = fingerprints_with_progress(ffmpeg, input,
+    let original = frame_timestamps_with_progress(ffprobe, input,
         &mut |frames| report_frame_progress(frames, expected, 80, 90, progress))?;
     progress("verifying", Some(90), None);
-    let compressed = fingerprints_with_progress(ffmpeg, output,
+    let compressed = frame_timestamps_with_progress(ffprobe, output,
         &mut |frames| report_frame_progress(frames, Some(original.len()), 90, 99, progress))?;
     progress("verifying", Some(99), None);
-    if !identical_timing(&original, &compressed) {
-        return Err("Frames ou timestamps divergiram; original mantido".into());
+    let (timing_matches, frame_count, max_delta) = timing_diagnostics(&original, &compressed);
+    if !timing_matches {
+        return Err(format!(
+            "Validação rejeitada: frames antes={}; depois={}; divergência máxima de timestamps={:.6} s; motivo=quantidade ou timestamps divergentes (tolerância=0.001 s); original mantido",
+            original.len(), compressed.len(), max_delta
+        ));
     }
-    Ok((original.len() as u64, out_width, out_height))
+    Ok((frame_count as u64, out_width, out_height))
 }
 
 pub(crate) fn sha256(path: &Path) -> CommandResult<String> {
@@ -663,7 +733,8 @@ fn optimize_with_progress(input: &Path, output: &Path, ffmpeg: &Path, ffprobe: &
     Ok(original.len() as u64)
 }
 
-const FST_POLICY: &str = "fst-adaptive-1";
+const QUALITY_POLICY: &str = "quality-upload-3";
+const FST_POLICY: &str = "fst-adaptive-2";
 
 #[derive(Debug)]
 struct AdaptivePreparation {
@@ -829,7 +900,9 @@ fn adaptive_prepare_with_progress(input: &Path, output: &Path, ffmpeg: &Path, ff
         command.args(["-v", "error", "-nostdin", "-n", "-stats_period", "0.5",
             "-progress", "pipe:1", "-noautorotate", "-i"])
             .arg(input).args(["-map", "0:v:0", "-an", "-sn", "-dn", "-c:v", encoder,
-                "-pix_fmt", "yuv420p", "-fps_mode", "passthrough", "-movflags", "+faststart"]);
+                "-pix_fmt", "yuv420p", "-fps_mode", "passthrough",
+                "-enc_time_base:v", "1/1000000", "-video_track_timescale", "1000000",
+                "-movflags", "+faststart"]);
         if encoder == "libx264" { command.args(["-preset", "fast", "-crf", "18"]); }
         else { command.args(["-b:v", "8M"]); }
         let status = command.arg(output).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()
@@ -896,27 +969,35 @@ fn prepare_staged_video_with_progress(app: &AppHandle, upload_id: &str, width: u
     validate_local_id(upload_id, "Upload")?;
     prepare_tables(app)?;
     let connection = open_database(app)?;
-    let cached: Option<String> = connection.query_row("SELECT report_json FROM video_preparations WHERE original_upload_id = ?1 OR prepared_upload_id = ?1 LIMIT 1",
+    let cached: Option<String> = connection.query_row("SELECT report_json FROM video_preparations WHERE original_upload_id = ?1 OR prepared_upload_id = ?1 ORDER BY rowid DESC LIMIT 1",
         [upload_id], |row| row.get(0)).optional().map_err(|_| "Não foi possível consultar a preparação".to_string())?;
     if let Some(cached) = cached {
         let report: VideoPreparation =
             serde_json::from_str(&cached).map_err(|_| "Preparação local ilegível")?;
-        if fst_adaptive && report.policy_version != FST_POLICY {
-            return Err("Preparação anterior incompatível com a política FST atual. Selecione novamente o vídeo original.".into());
+        let compatible = if fst_adaptive {
+            report.policy_version == FST_POLICY
+        } else {
+            report.policy_version == QUALITY_POLICY || report.policy_version == "lossless-upload-1"
+        };
+        if compatible {
+            let path: String = connection
+                .query_row(
+                    "SELECT local_path FROM video_staging WHERE upload_id = ?1 AND ready = 1",
+                    [&report.upload_id],
+                    |row| row.get(0),
+                )
+                .map_err(|_| "Cópia preparada não encontrada")?;
+            if fs::metadata(&path).is_ok_and(|file| file.len() == report.upload_bytes) {
+                return Ok(report);
+            }
+            return Err(
+                "O cache do vídeo não está mais disponível. Selecione novamente o original.".into(),
+            );
         }
-        let path: String = connection
-            .query_row(
-                "SELECT local_path FROM video_staging WHERE upload_id = ?1 AND ready = 1",
-                [&report.upload_id],
-                |row| row.get(0),
-            )
-            .map_err(|_| "Cópia preparada não encontrada")?;
-        if fs::metadata(&path).is_ok_and(|file| file.len() == report.upload_bytes) {
-            return Ok(report);
-        }
-        return Err(
-            "O cache do vídeo não está mais disponível. Selecione novamente o original.".into(),
-        );
+        connection.execute(
+            "DELETE FROM video_preparations WHERE original_upload_id = ?1 OR prepared_upload_id = ?1",
+            [upload_id],
+        ).map_err(|_| "Não foi possível invalidar a preparação incompatível".to_string())?;
     }
     let (input, experiment_id, filename, size_sql, ready): (String, String, String, i64, i64) = connection.query_row(
         "SELECT local_path, experiment_id, original_filename, expected_size, ready FROM video_staging WHERE upload_id = ?1", [upload_id],
@@ -936,7 +1017,7 @@ fn prepare_staged_video_with_progress(app: &AppHandle, upload_id: &str, width: u
         upload_bytes: size,
         status: "original".into(),
         message: "Original mantido".into(),
-        policy_version: if size > 100_000_000 { "quality-upload-2" } else { "lossless-upload-1" }.into(),
+        policy_version: if size > 100_000_000 { QUALITY_POLICY } else { "lossless-upload-1" }.into(),
         pixel_verified: false,
         frame_count: None,
         upload_width: Some(width),
@@ -1068,7 +1149,7 @@ fn prepare_staged_video_with_progress(app: &AppHandle, upload_id: &str, width: u
                 report.upload_width = Some(upload_width);
                 report.upload_height = Some(upload_height);
                 if quality {
-                    report.policy_version = "quality-upload-2".into();
+                    report.policy_version = QUALITY_POLICY.into();
                     report.message = format!("Vídeo otimizado para envio: {upload_width} × {upload_height} px, áudio removido, frames e tempos conferidos. A compactação altera os pixels.");
                 } else {
                     report.message = "Compactação sem perda verificada: mesmos pixels, frames e sincronização (tolerância de 1 ms).".into();

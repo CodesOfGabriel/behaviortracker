@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AppShell } from "./components/AppShell";
 import { LoginPage } from "./features/auth/LoginPage";
 import { About } from "./features/about/About";
@@ -16,21 +16,28 @@ import {
 } from "./features/colab/connection";
 import { Dashboard } from "./features/dashboard/Dashboard";
 import { NewExperiment } from "./features/experiments/NewExperiment";
+import { RadialArmMazeExperimentWizard } from "./features/experiments/RadialArmMazeExperimentWizard";
 import { Results } from "./features/results/Results";
 import { ForcedSwimResults } from "./features/results/ForcedSwimResults";
+import { RadialMazeResults } from "./features/radial-maze/RadialMazeResults";
+import { TrackingEditor } from "./features/tracking/TrackingEditor";
 import { useAppStore } from "./store/AppStore";
 
-export default function App({ onReady }: { onReady?: () => void }) {
+export default function App({ onInitialSessionResolved }: { onInitialSessionResolved?: (authenticated: boolean) => void }) {
   const { route, getExperiment, navigate, analysisActivity } = useAppStore();
   const [session, setSession] = useState<OAuthProfileSummary>(emptyColabSummary);
   const [checkingSession, setCheckingSession] = useState(true);
   const [sessionError, setSessionError] = useState<string | null>(null);
+  const [localAccess, setLocalAccess] = useState(false);
   const [draftVisited, setDraftVisited] = useState(false);
   const [draftGeneration, setDraftGeneration] = useState(0);
+  const initialSessionReported = useRef(false);
 
-  useEffect(() => {
-    if (!checkingSession) onReady?.();
-  }, [checkingSession, onReady]);
+  useLayoutEffect(() => {
+    if (checkingSession || initialSessionReported.current) return;
+    initialSessionReported.current = true;
+    onInitialSessionResolved?.(session.connected);
+  }, [checkingSession, onInitialSessionResolved, session.connected]);
 
   useEffect(() => {
     if (route.name === "new-experiment") setDraftVisited(true);
@@ -92,13 +99,19 @@ export default function App({ onReady }: { onReady?: () => void }) {
   }
 
   async function logout() {
-    const disconnected = await invoke<OAuthProfileSummary>("disconnect_google_account", { profileId: COLAB_PROFILE_ID });
     navigate({ name: "dashboard" });
-    updateSession(disconnected);
+    if (session.connected) {
+      const disconnected = await invoke<OAuthProfileSummary>("disconnect_google_account", { profileId: COLAB_PROFILE_ID });
+      updateSession(disconnected);
+    }
+    setLocalAccess(false);
   }
 
-  if (!session.connected) {
-    return <LoginPage summary={session} checking={checkingSession} checkError={sessionError} onSessionChange={updateSession} onRetry={() => void refreshSession()} />;
+  if (checkingSession && isTauriRuntime()) return null;
+
+  if (!session.connected && !localAccess) {
+    return <LoginPage summary={session} checking={checkingSession} checkError={sessionError} onSessionChange={updateSession}
+      onRetry={() => void refreshSession()} onLocalAccess={() => setLocalAccess(true)} />;
   }
   let content = null;
   switch (route.name) {
@@ -110,6 +123,17 @@ export default function App({ onReady }: { onReady?: () => void }) {
       break;
     case "dashboard":
       content = <Dashboard />;
+      break;
+    case "validation":
+      content = <TrackingEditor experimentId={route.experimentId} mode="reference" />;
+      break;
+    case "edit-ram": {
+      const existing = getExperiment(route.experimentId);
+      content = existing?.testType === "radial_arm_maze"
+        ? <RadialArmMazeExperimentWizard key={existing.id} existing={existing} onBack={() => navigate({ name: "results", experimentId: existing.id })} />
+        : <Dashboard />;
+      break;
+    }
   }
   const visibleResultId = route.name === "results" ? route.experimentId : null;
   // Mantém a análise ativa montada enquanto o usuário navega por outras páginas.
@@ -117,7 +141,7 @@ export default function App({ onReady }: { onReady?: () => void }) {
     ...Object.entries(analysisActivity).filter(([id, activity]) => activity.starting && getExperiment(id)).map(([id]) => id),
     ...(visibleResultId ? [visibleResultId] : []),
   ])];
-  return <AppShell accountEmail={session.accountEmail} onLogout={logout}>
+  return <AppShell accountEmail={session.accountEmail} colabSummary={session} onLogout={logout}>
     {content}
     {(draftVisited || route.name === "new-experiment") &&
       <div className="retained-workspace" hidden={route.name !== "new-experiment"}>
@@ -125,7 +149,8 @@ export default function App({ onReady }: { onReady?: () => void }) {
       </div>}
     {retainedResultIds.map(id => <div key={id} className="retained-workspace" hidden={visibleResultId !== id}>
       {getExperiment(id)?.testType === "forced_swim"
-        ? <ForcedSwimResults experimentId={id} /> : <Results experimentId={id} />}
+        ? <ForcedSwimResults experimentId={id} /> : getExperiment(id)?.testType === "radial_arm_maze"
+          ? <RadialMazeResults experimentId={id} /> : <Results experimentId={id} />}
     </div>)}
   </AppShell>;
 }

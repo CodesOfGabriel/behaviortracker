@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseCanonicalPoseCsv, poseToCsv } from "./csv";
-import { confidenceLabel, drawablePose, inferredFps, metricEligible, originalPose, qualityTimelineBins, trajectorySegments } from "./pose";
+import { confidenceLabel, drawablePose, inferredFps, metricEligible, originalPose, qualityTimelineBins, referencePoseSamples, trajectorySegments } from "./pose";
 import { applyCorrections } from "./corrections";
 import type { PoseSample } from "../types";
 
@@ -27,6 +27,15 @@ describe("timeline de qualidade usa o tempo real da seleção", () => {
 });
 
 describe("poses com visibilidade parcial", () => {
+  it("não transforma uma segmentação 2D não aprovada em detecção válida", () => {
+    const segmented = point(0, { keypoint: "box_center", source: "segmented", metricReference: "box_center",
+      referenceApproved: false, spatialRegion: "floor", likelihood: 0,
+      bbox: { x: 90, y: 190, width: 20, height: 20 } });
+    const [reference] = referencePoseSamples([segmented], "box_center");
+    expect(metricEligible(reference)).toBe(false);
+    expect(reference.xPx).toBeNull();
+    expect(metricEligible({ ...segmented, referenceApproved: true })).toBe(true);
+  });
   it("normaliza sentinelas de arquivos antigos sem desenhar -1 nem mostrar -100%", () => {
     const [sample] = parseCanonicalPoseCsv(`${header}\n152,6.333,animal_1,body_center,-1,-1,-1,missing`);
     expect(sample.xPx).toBeNull();

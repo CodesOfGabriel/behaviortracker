@@ -11,7 +11,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "opencv-box-4"
+VERSION = "opencv-box-5"
 
 
 def write_json(path, value):
@@ -267,18 +267,85 @@ class ManualVisualTracker:
                          "width": chosen[2]/self.scale, "height": chosen[3]/self.scale}, "matchScore": float(score)}
 
 
+class ArenaMotionGuard:
+    """Sinaliza desvio da calibração usando textura distribuída na arena."""
+    def __init__(self, cv, np, roi, scale, corners):
+        self.cv, self.np, self.scale = cv, np, scale
+        self.mask = cv.erode(roi, np.ones((5, 5), np.uint8))
+        self.corners = np.asarray(corners, np.float32).reshape(-1, 1, 2) * scale
+        self.reference = None
+        self.points = None
+        self.state = "unavailable"
+        self.motion_px = None
+
+    def assess(self, gray, frame_index, exclude_box=None):
+        cv, np = self.cv, self.np
+        if self.reference is None:
+            self.reference = gray.copy()
+            mask = self.mask.copy()
+            if exclude_box:
+                x = int(exclude_box["x"] * self.scale)
+                y = int(exclude_box["y"] * self.scale)
+                w = int(exclude_box["width"] * self.scale)
+                h = int(exclude_box["height"] * self.scale)
+                pad = max(6, int(max(w, h) * .5))
+                cv.rectangle(mask, (max(0, x-pad), max(0, y-pad)),
+                             (min(mask.shape[1]-1, x+w+pad), min(mask.shape[0]-1, y+h+pad)), 0, -1)
+            points = cv.goodFeaturesToTrack(gray, 120, .02, 6, mask=mask)
+            spread = np.ptp(points[:, 0], axis=0) if points is not None else (0, 0)
+            if points is not None and len(points) >= 12 and spread[0] >= gray.shape[1]*.25 and spread[1] >= gray.shape[0]*.25:
+                self.points = points
+                self.state = "stable"
+                self.motion_px = 0.
+            return self.state
+        if self.points is None:
+            return self.state
+        tracked, forward, _ = cv.calcOpticalFlowPyrLK(self.reference, gray, self.points, None)
+        if tracked is None or forward is None:
+            self.state = "drift" if self.state == "drift" else "unavailable"
+            return self.state
+        back, reverse, _ = cv.calcOpticalFlowPyrLK(gray, self.reference, tracked, None)
+        if back is None or reverse is None:
+            self.state = "drift" if self.state == "drift" else "unavailable"
+            return self.state
+        good = ((forward.ravel() == 1) & (reverse.ravel() == 1)
+                & (np.linalg.norm(back-self.points, axis=2).ravel() < 1.5))
+        if np.count_nonzero(good) < 8:
+            self.state = "drift" if self.state == "drift" else "unavailable"
+            return self.state
+        source = self.points[good, 0]
+        destination = tracked[good, 0]
+        transform, inliers = cv.estimateAffinePartial2D(
+            source, destination, method=cv.RANSAC, ransacReprojThreshold=1.5)
+        if transform is None or inliers is None or not np.isfinite(transform).all() or np.count_nonzero(inliers) < 8 or np.mean(inliers) < .7:
+            self.state = "drift" if self.state == "drift" else "unavailable"
+            return self.state
+        static_points = source[inliers.ravel() == 1]
+        span = np.ptp(static_points, axis=0)
+        if span[0] < gray.shape[1] * .25 or span[1] < gray.shape[0] * .25:
+            self.state = "drift" if self.state == "drift" else "unavailable"
+            return self.state
+        displaced = cv.transform(self.corners, transform)
+        self.motion_px = float(np.max(np.linalg.norm(displaced-self.corners, axis=2))) / self.scale
+        threshold = max(3., .003 * float(np.linalg.norm(np.ptp(self.corners[:, 0], axis=0)))) / self.scale
+        self.state = "drift" if self.motion_px > threshold else "stable"
+        return self.state
+
+
 class Segmenter:
     def __init__(self, config, background=None):
         import cv2
         import numpy as np
         self.cv, self.np = cv2, np
         cv2.setNumThreads(2)
+        cv2.ocl.setUseOpenCL(bool(config.get("useOpenCL", True)) and cv2.ocl.haveOpenCL())
+        self.opencl = bool(cv2.ocl.useOpenCL())
         self.config, self.background = config, background
         self.width, self.height = config["width"], config["height"]
         self.scale = min(1., config.get("maxWidth", 1280)/self.width)
         self.size = (round(self.width*self.scale), round(self.height*self.scale))
-        self.floor = np.array([[p["x"], p["y"]] for p in config["arena"]["cornersPx"]], np.float32)
-        rim = config["arena"].get("rimCornersPx") or config["arena"]["cornersPx"]
+        self.floor = np.array([[p["x"], p["y"]] for p in config.get("walkablePolygonPx", config["arena"]["cornersPx"])], np.float32)
+        rim = config.get("walkablePolygonPx") or config["arena"].get("rimCornersPx") or config["arena"]["cornersPx"]
         self.enclosure = np.array([[p["x"], p["y"]] for p in rim], np.float32)
         self.roi = np.zeros((self.size[1], self.size[0]), np.uint8)
         cv2.fillPoly(self.roi, [np.round(self.enclosure*self.scale).astype(np.int32)], 255)
@@ -287,13 +354,19 @@ class Segmenter:
             raise ValueError("Arena inválida para segmentação")
         if background is not None:
             self.background = self.gray(background)
+        self.kernel = np.ones((3, 3), np.uint8)
+        self.min_area = self.roi_area * config["minAreaFraction"]
+        self.max_area = self.roi_area * config["maxAreaFraction"]
+        self.motion_guard = ArenaMotionGuard(cv2, np, self.roi, self.scale, self.enclosure)
         self.tracker = TemporalTracker(config.get("maxPredictionSec", .25))
         self.last_area = None
         self.last_box = None
         self.appearance = None
 
     def gray(self, frame):
-        return self.cv.GaussianBlur(self.cv.cvtColor(self.cv.resize(frame, self.size), self.cv.COLOR_BGR2GRAY), (5, 5), 0)
+        source = self.cv.UMat(frame) if self.opencl else frame
+        result = self.cv.GaussianBlur(self.cv.cvtColor(self.cv.resize(source, self.size), self.cv.COLOR_BGR2GRAY), (5, 5), 0)
+        return result.get() if self.opencl else result
 
     def reset_to_anchor(self, box, timestamp):
         center = (box["x"]+box["width"]/2, box["y"]+box["height"]/2)
@@ -303,10 +376,16 @@ class Segmenter:
         self.last_area = None
         self.appearance = None  # Uma detecção anterior errada não veta a caixa humana.
 
+    def assess_camera(self, frame, frame_index, force=False, exclude_box=None):
+        if self.motion_guard.reference is not None and self.motion_guard.points is None:
+            return self.motion_guard.state
+        if force or frame_index == 0 or frame_index % 6 == 0:
+            return self.motion_guard.assess(self.gray(frame), frame_index, exclude_box)
+        return self.motion_guard.state
+
     def process(self, frame, timestamp, guide_box=None):
         cv, np, config = self.cv, self.np, self.config
         gray = self.gray(frame)
-        color = cv.cvtColor(cv.resize(frame, self.size), cv.COLOR_BGR2LAB)
         mode, threshold = config["mode"], config["threshold"]
         if mode == "background":
             if self.background is None:
@@ -315,16 +394,13 @@ class Segmenter:
         else:
             mask = cv.threshold(gray, threshold, 255, cv.THRESH_BINARY if mode == "light" else cv.THRESH_BINARY_INV)[1]
         mask = cv.bitwise_and(mask, self.roi)
-        kernel = np.ones((3, 3), np.uint8)
-        mask = cv.morphologyEx(cv.morphologyEx(mask, cv.MORPH_OPEN, kernel), cv.MORPH_CLOSE, kernel)
+        mask = cv.morphologyEx(cv.morphologyEx(mask, cv.MORPH_OPEN, self.kernel), cv.MORPH_CLOSE, self.kernel)
         contours = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)[0]
         candidates = []
+        resized = None
         for contour in contours:
             area = float(cv.contourArea(contour))
-            if not self.roi_area*config["minAreaFraction"] <= area <= self.roi_area*config["maxAreaFraction"]:
-                continue
-            moment = cv.moments(contour)
-            if moment["m00"] <= 0:
+            if not self.min_area <= area <= self.max_area:
                 continue
             x, y, width, height = cv.boundingRect(contour)
             center = ((x + width/2)/self.scale, (y + height/2)/self.scale)
@@ -334,9 +410,12 @@ class Segmenter:
                 intersection = max(0, min(x+width,gx+gw)-max(x,gx))*max(0,min(y+height,gy+gh)-max(y,gy))
                 if intersection/max(1, min(width*height, gw*gh)) < .25:
                     continue
-            contour_mask = np.zeros_like(mask)
-            cv.drawContours(contour_mask, [contour], -1, 255, -1)
-            appearance = np.array(cv.mean(color, mask=contour_mask)[:3])
+            if resized is None:
+                resized = cv.resize(frame, self.size)
+            crop = cv.cvtColor(resized[y:y+height, x:x+width], cv.COLOR_BGR2LAB)
+            contour_mask = np.zeros((height, width), np.uint8)
+            cv.drawContours(contour_mask, [contour], -1, 255, -1, offset=(-x, -y))
+            appearance = np.array(cv.mean(crop, mask=contour_mask)[:3])
             if self.appearance is not None and float(np.linalg.norm(appearance-self.appearance)) > 45:
                 continue
             initial_box = config.get("initialBox")
@@ -399,8 +478,12 @@ def run(request_path):
     status_path, samples_path = root/"status.json", root/"samples.jsonl"
     config = request["config"]
     started, parent = time.perf_counter(), os.getppid()
+    profile = bool(config.get("benchmarkProfile", False))
+    stage_seconds = {name: 0. for name in ("probe", "frame_read_wait", "tracking", "camera_guard", "serialization", "status_write")}
+    frame_latencies_ms = []
     counts = {"observed": 0, "predicted": 0, "missing": 0, "suspect": 0, "manual": 0, "visual": 0}
     metadata=json.loads(subprocess.check_output([request["ffprobe"],"-v","error","-select_streams","v:0","-show_streams","-of","json",video]))["streams"][0]
+    if profile: stage_seconds["probe"] += time.perf_counter()-started
     total=int(metadata.get("nb_frames","0")) if str(metadata.get("nb_frames","")).isdigit() else 0
     rotation=any(float(side.get("rotation",0))%360 for side in metadata.get("side_data_list",[]))
     if (metadata["width"],metadata["height"]) != (config["width"], config["height"]) or rotation:
@@ -433,22 +516,47 @@ def run(request_path):
               "referenceApproved": config.get("referenceApproved", False), "timing": "ffprobe_pts", "elapsedSec": 0., "processingFps": 0.,
               "guidanceSourceJobId": guidance.get("sourceJobId"), "manualAnchorCount": len(anchors),
               "assistedMethod": "manual_templates_lk_1" if anchors else None,
-              "strategy": config.get("strategy", "classic"), "neuralFallback": "unavailable" if hybrid else None}
+              "strategy": config.get("strategy", "classic"), "neuralFallback": "unavailable" if hybrid else None,
+              "computeBackend": "OpenCL parcial" if segmenter.opencl else "CPU",
+              "cameraMotionState": "unavailable", "cameraUncertainFrames": 0, "cameraMotionPx": None}
     write_json(status_path, report)
     index = 0
+    last_frame = None
     try:
         with samples_path.open("w", encoding="utf-8", buffering=1) as output:
+            pending = []
+
+            def publish_pending(current_drift=False):
+                write_started = time.perf_counter() if profile else 0.
+                for sample, flagged, measured_px in pending:
+                    flagged = flagged or current_drift
+                    if flagged and sample["status"] != "missing":
+                        sample.update(status="low_confidence", spatialRegion="unknown",
+                                      segmentReason=sample["reason"], reason="camera_shift",
+                                      cameraMotionPx=segmenter.motion_guard.motion_px if current_drift else measured_px)
+                    output.write(json.dumps(sample, allow_nan=False) + "\n")
+                    bucket = "missing" if sample["status"] == "missing" else "manual" if sample["source"] == "manual" else "visual" if sample["source"] == "recovered" else "predicted" if sample["source"] == "predicted" else "observed"
+                    counts[bucket] += 1
+                    counts["suspect"] += sample["status"] == "low_confidence"
+                    report["cameraUncertainFrames"] += flagged
+                pending.clear()
+                if profile: stage_seconds["serialization"] += time.perf_counter()-write_started
+
             while True:
                 if (root/"cancel").exists() or os.getppid() != parent:
                     report["state"] = "cancelled"
                     break
+                frame_started = time.perf_counter() if profile else 0.
                 frame=next(capture,None)
+                if profile: stage_seconds["frame_read_wait"] += time.perf_counter()-frame_started
                 if frame is None:
                     report["state"] = "succeeded"
                     break
+                last_frame = frame
                 timestamp = next(clock, None)
                 if timestamp is None:
                     raise ValueError("Frames e timestamps divergiram; resultado não publicado")
+                tracking_started = time.perf_counter() if profile else 0.
                 if index in by_frame:
                     anchor = by_frame[index]
                     box = anchor["box"]
@@ -488,23 +596,44 @@ def run(request_path):
                     result = hybrid.process(frame, timestamp)
                 else:
                     result = segmenter.process(frame, timestamp)
+                if profile: stage_seconds["tracking"] += time.perf_counter()-tracking_started
+                guard_started = time.perf_counter() if profile else 0.
+                camera_state = segmenter.assess_camera(frame, index, exclude_box=result.get("bbox"))
+                if profile: stage_seconds["camera_guard"] += time.perf_counter()-guard_started
                 sample = {"frameIndex": index, "timestampSec": timestamp, "keypoint": "box_center", "likelihood": 0,
                           "metricReference": "box_center", "referenceApproved": config.get("referenceApproved", False), **result}
-                output.write(json.dumps(sample, allow_nan=False) + "\n")
-                bucket = "missing" if result["status"] == "missing" else "manual" if result["source"] == "manual" else "visual" if result["source"] == "recovered" else "predicted" if result["source"] == "predicted" else "observed"
-                counts[bucket] += 1
-                counts["suspect"] += result["status"] == "low_confidence"
+                pending.append((sample, camera_state == "drift", segmenter.motion_guard.motion_px))
+                if index % 6 == 0:
+                    publish_pending(camera_state == "drift")
+                report["cameraMotionState"] = camera_state
+                report["cameraMotionPx"] = segmenter.motion_guard.motion_px
                 index += 1
                 if index % 12 == 0:
                     elapsed = time.perf_counter()-started
                     report.update(framesProcessed=index, elapsedSec=elapsed, processingFps=index/max(.001, elapsed))
+                    status_started = time.perf_counter() if profile else 0.
                     write_json(status_path, report)
+                    if profile: stage_seconds["status_write"] += time.perf_counter()-status_started
+                if profile: frame_latencies_ms.append((time.perf_counter()-frame_started)*1000)
+            if pending:
+                if report["state"] == "succeeded":
+                    camera_state = segmenter.assess_camera(last_frame, index-1, force=True)
+                    report["cameraMotionState"] = camera_state
+                    report["cameraMotionPx"] = segmenter.motion_guard.motion_px
+                publish_pending(camera_state == "drift")
             if index == 0 and report["state"] == "succeeded":
                 raise ValueError("O decoder não conseguiu ler nenhum frame")
             if report["state"] == "succeeded" and next(clock, None) is not None:
                 raise ValueError("O decoder encerrou antes do fim dos timestamps")
             elapsed = time.perf_counter()-started
             report.update(framesProcessed=index, elapsedSec=elapsed, processingFps=index/max(.001, elapsed), observationCoveragePct=100*counts["observed"]/max(1,index))
+            if profile and frame_latencies_ms:
+                ordered = sorted(frame_latencies_ms)
+                report["benchmarkProfile"] = {"stageSeconds": stage_seconds,
+                    "frameLatencyMeanMs": sum(ordered)/len(ordered),
+                    "frameLatencyP95Ms": ordered[min(len(ordered)-1, int(.95*len(ordered)))],
+                    "frameLatencyMaxMs": ordered[-1],
+                    "frameLatencyDefinition": "read_frame_return_to_sample_and_periodic_status; ffmpeg decode and PTS run concurrently"}
             write_json(status_path, report)
     except BaseException as error:
         elapsed = time.perf_counter()-started

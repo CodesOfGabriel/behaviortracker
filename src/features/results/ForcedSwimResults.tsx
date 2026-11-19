@@ -11,6 +11,7 @@ import { AnalysisWorkflow } from "../colab/AnalysisWorkflow";
 import { checkVideoStaging, loadColabJobs, loadColabResult, loadColabVideo,
   loadFstArtifacts, loadFstManifest, loadStagedVideo, prepareFstVideo, startFstJob, waitForColabJob, type ColabJob } from "../colab/analysis";
 import { COLAB_STATUS_EVENT, emptyColabSummary, isTauriRuntime, loadColabSummary, type OAuthProfileSummary } from "../colab/connection";
+import { ForcedSwimLocalPanel } from "./ForcedSwimLocalPanel";
 
 const labels: FstBehavior[] = ["IMMOBILITY","SWIMMING","CLIMBING","MIXED","UNCERTAIN"];
 const presenceColor: Record<string,string> = {IN_TANK:"#51d2b0",NOT_IN_TANK:"#888f98",UNCERTAIN:"#d6a74f"};
@@ -66,9 +67,10 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
   const [clock,setClock]=useState(Date.now);
   const fileRef=useRef<HTMLInputElement>(null);const playerRef=useRef<HTMLVideoElement>(null);
   const selectedJob=history.find(j=>j.jobId===selectedJobId)??history[0]??null;
+  const colabSelected=experiment?.trackingSelection?.engine!=="opencv";
   const active=history.find(j=>j.status==="running"||j.status==="queued");
   const workflowJob=active??(busy?null:selectedJob);
-  const visibleView=selectedJob?.resultsReady?view:"runs";
+  const visibleView=colabSelected&&selectedJob?.resultsReady?view:"runs";
   const frame=result?Math.max(0,Math.min(result.video.frameCount-1,Math.round(time*result.video.fps))):0;
   const frameData=useMemo(()=>result?.frames.filter(f=>f.frame===frame)??[],[result,frame]);
   const framePoses=useMemo(()=>result?.subjects.flatMap(s=>(result.poseArrays[s.animalId]?.[frame]??[]).map(([xPx,yPx,likelihood],i)=>({animalId:s.animalId,keypoint:result.keypointNames[i],xPx,yPx,likelihood})))??[],[result,frame]);
@@ -100,7 +102,7 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
   },[experimentId]);
   useEffect(()=>{
     setResult(null);setManifest(null);setArtifacts([]);setLabeledVideo(null);setLabeledVideoError(null);
-    if(!selectedJobId || !selectedJob?.resultsReady)return;
+    if(!colabSelected || !selectedJobId || !selectedJob?.resultsReady)return;
     let live=true;setLoadingResult(true);
     void loadColabResult(selectedJobId).then(parseFstResult).then(data=>{if(experiment?.video.sha256 && data.video.originalSha256!==experiment.video.sha256)throw new Error("O resultado não corresponde ao vídeo original do experimento.");return data}).then(data=>{if(live){setResult(data);setTime(0);setSelectedAnimal(data.subjects[0]?.animalId??"animal_1");setError(null)}})
       .catch(reason=>{if(live)setError(`Não foi possível abrir o resultado FST: ${String(reason)}`)})
@@ -109,7 +111,7 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
     void loadFstArtifacts(selectedJobId).then(files=>{if(live)setArtifacts(files)}).catch(()=>undefined);
     void loadFstManifest(selectedJobId).then(value=>{if(live)setManifest(value)}).catch(()=>undefined);
     return()=>{live=false};
-  },[selectedJobId,selectedJob?.resultsReady,experiment?.video.sha256]);
+  },[colabSelected,selectedJobId,selectedJob?.resultsReady,experiment?.video.sha256]);
   useEffect(()=>{
     if(!experiment?.video.preparation||!isTauriRuntime())return;
     let live=true;
@@ -182,17 +184,21 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
     <input ref={fileRef} type="file" accept="video/*" className="sr-only" onChange={attach}/>
     <button className="back-link" onClick={()=>navigate({name:"dashboard"})}><ArrowLeft size={16}/> Experimentos</button>
     <section className="page-heading results-heading"><div><div className="eyebrow">Análise Completa · Forced Swim Test</div><h1>{experiment.title}</h1><p>{experiment.subjects.map(s=>`${s.animalId}: ${s.subjectId}`).join(" · ")} · {experiment.video.filename}</p></div>
-      <div className="results-actions"><Button disabled={busy||Boolean(active)||!summary.connected} onClick={()=>void run()}>{busy||active?"Processando…":"Analisar no Colab"}</Button></div></section>
+      <div className="results-actions"><Button variant="secondary" onClick={()=>navigate({name:"validation",experimentId})}>Referência humana</Button><Button disabled={busy||Boolean(active)||!summary.connected} onClick={()=>void run()}>{busy||active?"Processando…":"Analisar no Colab"}</Button>
+        {!summary.connected && <Button variant="secondary" onClick={() => navigate({ name: "colab" })}>Conectar Colab</Button>}</div></section>
     {(error??activity?.error)&&<div role="alert" className="validation-box invalid"><Info size={16}/>{error??activity?.error}</div>}
-    {(busy||active)&&<AnalysisWorkflow job={workflowJob} protocol="forced_swim" logOnly preparing={busy&&!active} message={message} localError={error??activity?.error??null} elapsedSec={elapsedSec} startedAt={busy?activity?.startedAt:null} localProgress={activity?.videoProgress}/>}
+    <ForcedSwimLocalPanel experiment={experiment} />
+    {((busy && activity?.engine !== "opencv") || active) && <AnalysisWorkflow job={workflowJob} protocol="forced_swim" logOnly preparing={busy&&!active} message={message} localError={error??activity?.error??null} elapsedSec={elapsedSec} startedAt={busy?activity?.startedAt:null} localProgress={activity?.videoProgress}/>}
     <EditorTabs<"results"|"runs"> id="fst-view" label="Áreas da análise FST" value={visibleView} onChange={setView}
       items={selectedJob?.resultsReady?[{id:"results",label:"Resultados"},{id:"runs",label:"Execuções"}]:[{id:"runs",label:"Execuções"}]}/>
     {visibleView==="runs"&&<div className="fst-runs-content" role="tabpanel" id="fst-view-runs-panel" aria-labelledby="fst-view-runs-tab">
+      <h2>Execuções no Colab</h2>
       <section className="fst-history" aria-label="Execuções realizadas">
         {history.length ? history.map((job) => (
           <button type="button" key={job.jobId} className={job.jobId===selectedJobId?"active":""}
             aria-pressed={job.jobId===selectedJobId}
-            onClick={()=>{if(job.jobId!==selectedJobId){setResult(null);setSelectedJobId(job.jobId)}}}>
+            onClick={()=>{if(job.jobId!==selectedJobId){setResult(null);setSelectedJobId(job.jobId)}
+              if(job.resultsReady){updateForcedSwimExperiment(experimentId,{trackingSelection:{engine:"colab",jobId:job.jobId},status:"review"});setView("results")}}}>
             <strong>{new Date(job.createdAt).toLocaleString("pt-BR")}</strong>
             <span>{jobStatus(job.status)} · {job.jobId.slice(0,8)}</span>
           </button>

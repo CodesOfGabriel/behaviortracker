@@ -1,0 +1,70 @@
+{
+  "status": "TECHNICAL_BENCHMARK_NOT_ACCURACY_VALIDATION",
+  "videoSha256": "d51b4f7696563a7f56d11b3f57af82042979161a9a2945b69be39f71833c822a",
+  "configSha256": "0b33819c6f65034f4f2d17fc8e6c65b52f5daee15b8048e140c6279459bbbcb6",
+  "videoBytes": 3855966,
+  "comparison": {
+    "frames": 480,
+    "pairedCoordinates": 409,
+    "meanCoordinateDifferencePx": 0.0,
+    "maxCoordinateDifferencePx": 0.0,
+    "statusChanges": 101,
+    "baselineValidObservedDistancePx": 590.361353507808,
+    "currentValidObservedDistancePx": 380.11678149021134
+  },
+  "versions": {
+    "baseline": {
+      "engineVersion": "opencv-box-4",
+      "engineSha256": "798684e65c1591138d36b66a14032685b63f29328ad2e34223a22e57be4c7a76",
+      "resources": {
+        "wallSec": 4.317476001975592,
+        "cpuSec": 11.777275,
+        "enginePeakRssMiB": 60.92578125,
+        "largestChildPeakRssMiB": 140.19140625
+      },
+      "report": {
+        "framesProcessed": 480,
+        "processingFps": 111.88087053528436,
+        "observationCoveragePct": 83.95833333333333,
+        "cameraUncertainFrames": null,
+        "cameraMotionState": null,
+        "counts": {
+          "observed": 403,
+          "predicted": 6,
+          "missing": 71,
+          "suspect": 54,
+          "manual": 0,
+          "visual": 0
+        }
+      }
+    },
+    "current": {
+      "engineVersion": "opencv-box-5",
+      "engineSha256": "c714a1a28f72fbcf87c99201da41e01bedaa166cd9b1b54804295cbf0a43a1a7",
+      "resources": {
+        "wallSec": 3.527421039994806,
+        "cpuSec": 9.134505999999998,
+        "enginePeakRssMiB": 83.93359375,
+        "largestChildPeakRssMiB": 137.5703125
+      },
+      "report": {
+        "framesProcessed": 480,
+        "processingFps": 137.2594175636113,
+        "observationCoveragePct": 83.95833333333333,
+        "cameraUncertainFrames": 101,
+        "cameraMotionState": "stable",
+        "counts": {
+          "observed": 403,
+          "predicted": 6,
+          "missing": 71,
+          "suspect": 155,
+          "manual": 0,
+          "visual": 0
+        }
+      }
+    }
+  },
+  "limits": "Sem anotações humanas, diferenças não medem erro espacial ou falsos alertas; distância usa apenas pares consecutivos observados válidos.",
+  "comparisonMethod": "Motor salvo em Git HEAD versus motor atual do workspace; inclui todas as diferenças entre essas versões.",
+  "resourceScope": "CPU inclui Python e subprocessos; RSS do Python e maior subprocesso são picos separados, não soma simultânea."
+}

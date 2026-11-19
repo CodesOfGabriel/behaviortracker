@@ -81,7 +81,7 @@ export function useAnalysis(experimentId: string) {
         const preparation = await getColabJobPreparation(experimentId, selection.jobId);
         if (preparation) samples = scalePoseToOriginal(samples, experiment.video, preparation);
       }
-      if (request !== sourceRequest.current) return;
+      if (request !== sourceRequest.current) return false;
       if (!samples.length) throw new Error("A execução não contém frames.");
       setTrackingData(experimentId, samples);
       if (experiment?.trackingSelection?.engine !== selection.engine || experiment.trackingSelection.jobId !== selection.jobId) {
@@ -118,7 +118,7 @@ export function useAnalysis(experimentId: string) {
       fileRef.current?.click();
       return;
     }
-    setAnalysisActivity(experimentId, { starting: true, message: "Verificando a conexão com o Colab", error: null, startedAt: Date.now(), videoProgress: null });
+    setAnalysisActivity(experimentId, { starting: true, engine: "colab", message: "Verificando a conexão com o Colab", error: null, startedAt: Date.now(), videoProgress: null });
     setError(null);
     setSelectedHistoryId(null);
     try {
@@ -199,7 +199,8 @@ export function useAnalysis(experimentId: string) {
     ? clock : activeJob ? Date.parse(activeJob.updatedAt) : 0;
   return {
     fileRef, attachFile, run, selectSource, history, activeJob, busy, summary,
-    error: error ?? activity.error, message: activity.message, startedAt: activity.starting ? activity.startedAt : null,
+    error: error ?? (activity.engine === "opencv" ? null : activity.error), message: activity.message, startedAt: activity.starting ? activity.startedAt : null,
+    activityEngine: activity.engine,
     videoProgress: activity.videoProgress,
     loadingResult, selectedHistoryId, setSelectedHistoryId,
     elapsedSec: Math.max(0, (ended - started) / 1000) || 0,

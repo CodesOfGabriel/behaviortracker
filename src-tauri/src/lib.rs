@@ -3,6 +3,7 @@ mod database;
 mod local_tracking;
 mod oauth;
 mod training;
+mod validation;
 mod video;
 use tauri_plugin_opener::OpenerExt;
 
@@ -15,6 +16,13 @@ fn open_legal_page(app: tauri::AppHandle, page: String) -> Result<(), String> {
     };
     app.opener()
         .open_url(url, None::<&str>)
+        .map_err(|_| "Não foi possível abrir o navegador padrão.".to_string())
+}
+
+#[tauri::command]
+fn open_colab_home(app: tauri::AppHandle) -> Result<(), String> {
+    app.opener()
+        .open_url("https://colab.research.google.com/", None::<&str>)
         .map_err(|_| "Não foi possível abrir o navegador padrão.".to_string())
 }
 
@@ -46,7 +54,19 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             app_info,
             open_legal_page,
+            open_colab_home,
             local_tracking::get_local_tracking_result,
+            local_tracking::get_local_tracking_environment,
+            local_tracking::setup_local_tracking_environment,
+            local_tracking::start_local_tracking,
+            local_tracking::list_local_tracking_jobs,
+            local_tracking::cancel_local_tracking,
+            local_tracking::start_local_fst,
+            local_tracking::get_local_fst_result,
+            validation::save_validation_annotation,
+            validation::review_validation_annotation,
+            validation::list_validation_annotations,
+            validation::list_validation_annotation_history,
             oauth::get_google_oauth_config,
             oauth::save_google_oauth_config,
             oauth::start_google_auth,
@@ -71,6 +91,7 @@ pub fn run() {
             colab::get_colab_job_log,
             colab::get_colab_job_result,
             colab::get_fst_job_artifacts,
+            colab::get_ram_job_artifacts,
             colab::get_fst_job_manifest,
             colab::get_colab_job_video,
             colab::get_latest_colab_job,

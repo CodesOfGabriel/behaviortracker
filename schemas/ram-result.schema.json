@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://behavetracker.local/schemas/ram-result.schema.json",
+  "title": "BehaveTracker Radial Arm Maze Result",
+  "type": "object",
+  "required": ["schemaVersion", "analysisMethodVersion", "experimentId", "runId", "videoSha256", "modelBundleId", "geometryRevision", "choices", "metrics", "reviewStatus"],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "analysisMethodVersion": { "const": "ram-1.0" },
+    "experimentId": { "type": "string" },
+    "runId": { "type": "string" },
+    "videoSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "modelBundleId": { "type": "string" },
+    "geometryRevision": { "type": "integer", "minimum": 1 },
+    "choices": { "type": "array", "items": { "type": "object", "required": ["armId", "frameIndex", "timestampSec", "status", "classification"], "properties": {
+      "armId": { "type": "integer", "minimum": 1, "maximum": 8 },
+      "frameIndex": { "type": "integer", "minimum": 0 },
+      "timestampSec": { "type": "number", "minimum": 0 },
+      "status": { "enum": ["confirmed", "pending"] },
+      "classification": { "enum": ["CORRECT", "RME", "WME", "RWME", "PENDING"] }
+    } } },
+    "metrics": { "type": "object", "required": ["definitive", "confirmedChoices", "pendingChoices", "correct", "rme", "wme", "rwme"], "properties": {
+      "definitive": { "type": "boolean" },
+      "confirmedChoices": { "type": "integer", "minimum": 0 },
+      "pendingChoices": { "type": "integer", "minimum": 0 },
+      "correct": { "type": "integer", "minimum": 0 },
+      "rme": { "type": "integer", "minimum": 0 },
+      "wme": { "type": "integer", "minimum": 0 },
+      "rwme": { "type": "integer", "minimum": 0 }
+    } },
+    "reviewStatus": { "enum": ["pending", "reviewed"] }
+  }
+}
