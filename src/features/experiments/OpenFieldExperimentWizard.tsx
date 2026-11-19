@@ -281,7 +281,7 @@ export function OpenFieldExperimentWizard({ onBack, onComplete = () => {}, resum
   );
 
   const regionsConfirmed = confirmedRegions.rim && confirmedRegions.floor;
-  const canContinue = !loadingVideo && !checkingBundle && [Boolean(subjectId.trim()), Boolean(video), !arenaError && regionsConfirmed, true][step];
+  const canContinue = !loadingVideo && [Boolean(subjectId.trim()), Boolean(video), !arenaError && regionsConfirmed, true][step];
 
   const verifyBundle = async () => {
     if (!isTauriRuntime()) return true;
@@ -299,8 +299,9 @@ export function OpenFieldExperimentWizard({ onBack, onComplete = () => {}, resum
     }
   };
 
+  useEffect(() => { void verifyBundle(); }, []);
+
   const continueWizard = async () => {
-    if (step === 0 && !(await verifyBundle())) return;
     setStep((current) => current + 1);
   };
 
@@ -460,7 +461,7 @@ export function OpenFieldExperimentWizard({ onBack, onComplete = () => {}, resum
               <div className="wizard-section-heading"><div className="section-icon"><FlaskConical size={21} /></div><div><h2>Dados do experimento</h2><p>Identifique a unidade científica e o protocolo.</p></div></div>
               <div className="form-grid">
                 {isTauriRuntime() && <div className="full">
-                  <p role="status">{checkingBundle ? "Localizando arquivos do modelo…" : bundleStatus?.installed ? "Arquivos do modelo atual encontrados" : bundleStatus?.error || "O modelo mais recente será localizado ao continuar."}</p>
+                  <p role="status">Modelo para Colab (opcional nesta etapa): {checkingBundle ? "verificando…" : bundleStatus?.installed ? "arquivos encontrados" : bundleStatus?.error || "será verificado ao continuar."}</p>
                   {bundleStatus?.installed === false && <label><span>Pasta com os três arquivos do bundle</span><input value={bundleDirectory} onChange={(event) => setBundleDirectory(event.target.value)} placeholder="Caminho completo da pasta" /></label>}
                   {bundleStatus?.installed === false && <Button type="button" variant="secondary" disabled={!bundleDirectory.trim()} loading={importingBundle} onClick={() => {
                     setImportingBundle(true); setBundleError(null);
@@ -586,7 +587,7 @@ export function OpenFieldExperimentWizard({ onBack, onComplete = () => {}, resum
                 <div><span>Sujeito</span><strong>{subjectId}</strong><small>{group || "Sem grupo informado"}</small></div>
                 <div><span>Vídeo</span><strong>{video.filename}</strong><small>{formatDuration(video.durationSec)} · {video.width} × {video.height}</small></div>
                 <div><span>Arena</span><strong>{arena.widthCm} × {arena.heightCm} cm</strong><small>Borda + chão confirmados · centro: {Math.round(arena.centerAreaFraction * 100)}% do piso</small></div>
-                <div><span>Modelo de análise</span><strong>Detector Wistar + HRNet · versão atual</strong><small>Referência anatômica: mouse_center</small></div>
+                <div><span>Processamento após criar</span><strong>Escolha entre Colab e análise local</strong><small>Colab usa Detector Wistar + HRNet; local usa OpenCV e centro da caixa 2D.</small></div>
               </div>
               <div className="review-contract"><div><Badge tone="info">Geometria 2D</Badge><h3>Dados que serão preservados</h3></div><ul><li><Check size={15} /> Metadados do vídeo e sistema de coordenadas</li><li><Check size={15} /> Oito vértices: borda e chão na resolução original</li><li><Check size={15} /> Recorte com paredes para o modelo; medidas físicas apenas no chão</li><li><Check size={15} /> Dados brutos e pontos visíveis, sem preenchimento de partes ocultas</li></ul></div>
             </div>
@@ -595,7 +596,7 @@ export function OpenFieldExperimentWizard({ onBack, onComplete = () => {}, resum
           <footer className="wizard-footer">
             <Button variant="ghost" onClick={() => step === 0 ? onBack() : setStep(step - 1)} icon={<ArrowLeft size={17} />}>{step === 0 ? "Alterar protocolo" : "Voltar"}</Button>
             {step < 3 ? (
-              <Button disabled={!canContinue} loading={checkingBundle} onClick={() => void continueWizard()}>Continuar <ArrowRight size={17} /></Button>
+              <Button disabled={!canContinue} onClick={() => void continueWizard()}>Continuar <ArrowRight size={17} /></Button>
             ) : (
               <Button disabled={Boolean(arenaError) || !regionsConfirmed} onClick={createExperiment} icon={<Check size={17} />}>Criar e abrir Análise Completa</Button>
             )}

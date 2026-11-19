@@ -59,6 +59,7 @@ import { AnalysisWorkflow } from "../colab/AnalysisWorkflow";
 import { displayAnalysisMessage, preparingNewAnalysis } from "../colab/workflow";
 import { loadLocalResult } from "../local/api";
 import { BoxOverlay } from "./BoxOverlay";
+import { HumanReferenceEditor } from "./HumanReferenceEditor";
 import {
   COLAB_PROFILE_ID,
   COLAB_STATUS_EVENT,
@@ -122,7 +123,11 @@ function jobStatusLabel(job: ColabJob) {
   return "Processando";
 }
 
-export function TrackingEditor({ experimentId }: { experimentId: string }) {
+export function TrackingEditor({ experimentId, mode = "review" }: { experimentId: string; mode?: "review" | "reference" }) {
+  return mode === "reference" ? <HumanReferenceEditor experimentId={experimentId} /> : <TrackingReviewEditor experimentId={experimentId} />;
+}
+
+function TrackingReviewEditor({ experimentId }: { experimentId: string }) {
   const {
     getExperiment,
     navigate,

@@ -77,6 +77,8 @@ class OpenCVTests(unittest.TestCase):
             report=json.loads((root/"status.json").read_text())
             records=[json.loads(line) for line in (root/"samples.jsonl").read_text().splitlines()]
             self.assertEqual(report["state"],"succeeded")
+            self.assertEqual(report["cameraMotionState"],"unavailable")
+            self.assertEqual(report["cameraUncertainFrames"],0)
             self.assertEqual(len(records),12)
             self.assertAlmostEqual(records[1]["timestampSec"],1/24,places=5)
             self.assertEqual(records[0]["keypoint"],"box_center")
@@ -110,6 +112,39 @@ class OpenCVTests(unittest.TestCase):
         result=Segmenter(cfg).process(self.frame(),0)
         self.assertAlmostEqual(result["xPx"],100,delta=2)
         self.assertGreater(result["bbox"]["width"],20)
+
+    @unittest.skipUnless(shutil.which("ffprobe") and shutil.which("ffmpeg"),"FFmpeg necessário")
+    def test_camera_shift_excludes_uncalibrated_frames_and_preserves_observation(self):
+        cfg=config();cfg["referenceApproved"]=True
+        cfg["arena"]["cornersPx"]=[{"x":40,"y":40},{"x":280,"y":40},{"x":280,"y":200},{"x":40,"y":200}]
+        base=np.zeros((240,320,3),np.uint8)
+        rng=np.random.default_rng(2)
+        for _ in range(150):
+            x,y=int(rng.integers(6,314)),int(rng.integers(6,234))
+            if 50<x<270 and 50<y<190 and not (85<x<155 and 80<y<140):
+                cv2.circle(base,(x,y),2,(90,90,90),-1)
+        cv2.ellipse(base,(120,110),(12,8),0,0,360,(255,255,255),-1)
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);video=root/"input.mp4"
+            for index in range(18):
+                shift=8 if 6<=index<12 else 0
+                frame=cv2.warpAffine(base,np.float32([[1,0,shift],[0,1,0]]),(320,240))
+                (root/f"frame{index:02d}.png").write_bytes(cv2.imencode(".png",frame)[1].tobytes())
+            subprocess.run([shutil.which("ffmpeg"),"-v","error","-framerate","24","-i",str(root/"frame%02d.png"),
+                            "-c:v","libx264","-pix_fmt","yuv420p",str(video)],check=True)
+            (root/"request.json").write_text(json.dumps({"video":str(video),"config":cfg,
+                "ffprobe":shutil.which("ffprobe"),"ffmpeg":shutil.which("ffmpeg")}))
+            run(root/"request.json")
+            report=json.loads((root/"status.json").read_text())
+            records=[json.loads(line) for line in (root/"samples.jsonl").read_text().splitlines()]
+            self.assertEqual(report["state"],"succeeded")
+            self.assertEqual(report["cameraUncertainFrames"],11)
+            self.assertEqual(records[3]["status"],"low_confidence")
+            self.assertEqual(records[6]["reason"],"camera_shift")
+            self.assertEqual(records[6]["status"],"low_confidence")
+            self.assertEqual(records[6]["source"],"segmented")
+            self.assertAlmostEqual(records[6]["xPx"],128,delta=2)
+            self.assertEqual(records[12]["status"],"valid")
 
     def test_hybrid_background_kalman_expires_and_reacquires(self):
         cfg=config();cfg.update(mode="background",threshold=25,maxPredictionSec=.2,

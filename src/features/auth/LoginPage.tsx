@@ -22,12 +22,13 @@ function GoogleMark() {
   );
 }
 
-export function LoginPage({ summary, checking, checkError, onSessionChange, onRetry }: {
+export function LoginPage({ summary, checking, checkError, onSessionChange, onRetry, onLocalAccess }: {
   summary: OAuthProfileSummary;
   checking: boolean;
   checkError: string | null;
   onSessionChange: (summary: OAuthProfileSummary) => void;
   onRetry: () => void;
+  onLocalAccess: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,7 +89,7 @@ export function LoginPage({ summary, checking, checkError, onSessionChange, onRe
           <div className="login-form">
             <div className="login-intro">
               <h1>Entre na sua conta</h1>
-              <p>Use a conta Google para entrar e processar vídeos no Colab.</p>
+              <p>Escolha como deseja trabalhar. A conta Google é necessária para executar análises no Colab.</p>
             </div>
             <button
               className="login-google-button"
@@ -99,6 +100,9 @@ export function LoginPage({ summary, checking, checkError, onSessionChange, onRe
               {busy ? <LoaderCircle size={18} className="login-spinner" /> : <GoogleMark />}
               {busy ? "Aguardando autorização…" : checking ? "Verificando sessão…" : "Entrar com Google"}
               {!busy && !checking && <ArrowRight size={16} className="login-arrow" />}
+            </button>
+            <button className="login-google-button" type="button" disabled={checking || busy || !desktop} onClick={onLocalAccess}>
+              Continuar com análises locais <ArrowRight size={16} className="login-arrow" />
             </button>
             <nav className="login-legal" aria-label="Documentos legais">
               <a href="https://behavior.usetars.com/privacy" target="_blank" rel="noopener noreferrer" onClick={(event) => void openLegalPage(event, "privacy")}>Políticas de Privacidade</a>

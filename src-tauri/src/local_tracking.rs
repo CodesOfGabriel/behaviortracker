@@ -58,7 +58,7 @@ fn environment(app: &AppHandle) -> CommandResult<Value> {
     let result = Command::new(path)
         .args([
             "-c",
-            "import cv2,json; print(json.dumps({'ready':True,'version':cv2.__version__}))",
+            "import cv2,json\ncv2.ocl.setUseOpenCL(cv2.ocl.haveOpenCL())\ngpu=bool(cv2.ocl.useOpenCL() and hasattr(cv2.ocl,'Device') and cv2.ocl.Device.getDefault().type() & cv2.ocl.DEVICE_TYPE_GPU)\nprint(json.dumps({'ready':True,'version':cv2.__version__,'openclAvailable':gpu}))",
         ])
         .output();
     Ok(result.ok().filter(|r|r.status.success()).and_then(|r|serde_json::from_slice(&r.stdout).ok()).unwrap_or(json!({"ready":false,"message":"Prepare o ambiente OpenCV local. Python 3 e ffprobe devem estar instalados."})))
@@ -175,6 +175,16 @@ fn validate_config(config: &Value) -> CommandResult<()> {
                 );
             }
             sign = cross.signum();
+        }
+    }
+    if let Some(polygon) = config.get("walkablePolygonPx") {
+        let points = polygon.as_array().filter(|p| (3..=256).contains(&p.len()))
+            .ok_or("Contorno RAM inválido")?;
+        for point in points {
+            if !point["x"].as_f64().is_some_and(|n| n.is_finite() && n >= 0. && n <= width as f64)
+                || !point["y"].as_f64().is_some_and(|n| n.is_finite() && n >= 0. && n <= height as f64) {
+                return Err("Contorno RAM fora do vídeo".into());
+            }
         }
     }
     if let Some(seed) = config.get("seed").filter(|s| !s.is_null()) {
@@ -324,6 +334,128 @@ pub async fn start_local_tracking(
         Ok(json!({"jobId":id,"state":"queued","config":config,"videoSha256":digest,"experimentId":experiment_id,"createdAt":created_at}))
     }).await.map_err(|_|"Inicialização interrompida".to_string())?
 }
+
+fn validate_fst_config(config: &Value) -> CommandResult<()> {
+    if config["protocol"] != "forced_swim" { return Err("Protocolo local FST inválido".into()); }
+    let width = config["width"].as_u64().filter(|n| (80..=16384).contains(n)).ok_or("Largura inválida")?;
+    let height = config["height"].as_u64().filter(|n| (80..=16384).contains(n)).ok_or("Altura inválida")?;
+    let tanks = config["tanks"].as_array().filter(|items| (1..=2).contains(&items.len())).ok_or("Informe um ou dois cilindros")?;
+    let subjects = config["subjects"].as_array().filter(|items| items.len() == tanks.len()).ok_or("Sujeitos e cilindros não correspondem")?;
+    for (tank, subject) in tanks.iter().zip(subjects) {
+        let animal_id = tank["animalId"].as_str().filter(|s| !s.is_empty() && s.len() < 80).ok_or("Animal FST inválido")?;
+        let subject_id = tank["subjectId"].as_str().filter(|s| !s.is_empty() && s.len() < 80).ok_or("Sujeito FST inválido")?;
+        if subject["animalId"].as_str() != Some(animal_id) || subject["subjectId"].as_str() != Some(subject_id) {
+            return Err("Sujeitos e cilindros não correspondem".into());
+        }
+        let roi = &tank["roiPx"];
+        let x = roi["x"].as_u64().ok_or("ROI FST inválida")?;
+        let y = roi["y"].as_u64().ok_or("ROI FST inválida")?;
+        let w = roi["width"].as_u64().filter(|n| *n >= 80).ok_or("ROI FST muito pequena")?;
+        let h = roi["height"].as_u64().filter(|n| *n >= 80).ok_or("ROI FST muito pequena")?;
+        if x.checked_add(w).is_none_or(|right| right > width)
+            || y.checked_add(h).is_none_or(|bottom| bottom > height)
+            || h as f64 / (height as f64) < 0.55 {
+            return Err("ROI FST fora do cilindro ou do vídeo".into());
+        }
+    }
+    if tanks.len() == 2 {
+        if tanks[0]["animalId"] == tanks[1]["animalId"] || tanks[0]["subjectId"] == tanks[1]["subjectId"] {
+            return Err("Cilindros FST precisam de sujeitos distintos".into());
+        }
+        let a = &tanks[0]["roiPx"]; let b = &tanks[1]["roiPx"];
+        let overlap_x = (a["x"].as_u64().unwrap() + a["width"].as_u64().unwrap()).min(b["x"].as_u64().unwrap() + b["width"].as_u64().unwrap())
+            .saturating_sub(a["x"].as_u64().unwrap().max(b["x"].as_u64().unwrap()));
+        let overlap_y = (a["y"].as_u64().unwrap() + a["height"].as_u64().unwrap()).min(b["y"].as_u64().unwrap() + b["height"].as_u64().unwrap())
+            .saturating_sub(a["y"].as_u64().unwrap().max(b["y"].as_u64().unwrap()));
+        if overlap_x > 0 && overlap_y > 0 { return Err("Cilindros FST sobrepostos".into()); }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn start_local_fst(app: AppHandle, experiment_id: String, upload_id: String, config: Value) -> CommandResult<Value> {
+    validate_local_id(&experiment_id, "Experimento")?;
+    validate_local_id(&upload_id, "Upload")?;
+    validate_fst_config(&config)?;
+    prepare_tables(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _operation = OperationGuard::acquire(&STARTING)?;
+        if INSTALLING.load(Ordering::SeqCst) || environment(&app)?["ready"] != true {
+            return Err("Prepare o OpenCV local antes de iniciar".into());
+        }
+        let ffprobe = video::binary("ffprobe").ok_or("ffprobe não encontrado")?;
+        let ffmpeg = video::binary("ffmpeg").ok_or("FFmpeg não encontrado")?;
+        let db = open_database(&app)?;
+        let active: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM local_tracking_jobs WHERE state IN ('queued','running'))", [], |r| r.get(0))
+            .map_err(|_| "Consulta local indisponível")?;
+        if active { return Err("Aguarde ou cancele a análise local ativa".into()); }
+        let (path, digest, size): (String, String, i64) = db.query_row(
+            "SELECT local_path,sha256,expected_size FROM video_staging WHERE upload_id=?1 AND experiment_id=?2 AND ready=1",
+            params![upload_id, experiment_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .map_err(|_| "Selecione o vídeo original")?;
+        if size <= 0 || fs::metadata(&path).map_err(|_| "Vídeo local ausente")?.len() != size as u64
+            || video::sha256(std::path::Path::new(&path))? != digest {
+            return Err("Vídeo local alterado; selecione novamente o original".into());
+        }
+        let id = new_uuid_v4();
+        let directory = folder(&app, &id)?;
+        fs::create_dir_all(&directory).map_err(|_| "Pasta local indisponível")?;
+        let mut run_config = config;
+        run_config["jobId"] = json!(id);
+        run_config["videoSha256"] = json!(digest);
+        let request = json!({"video":path,"config":run_config,"ffprobe":ffprobe,"ffmpeg":ffmpeg});
+        fs::write(directory.join("request.json"), request.to_string()).map_err(|_| "Solicitação local indisponível")?;
+        fs::write(directory.join("fst_engine.py"), include_str!("../python/local_fst_engine.py")).map_err(|_| "Motor FST indisponível")?;
+        fs::write(directory.join("fst_presence.py"), include_str!("../python/fst_presence.py")).map_err(|_| "Presença FST indisponível")?;
+        fs::write(directory.join("engine.py"), include_str!("../python/opencv_engine.py")).map_err(|_| "Leitura de vídeo indisponível")?;
+        db.execute("INSERT INTO local_tracking_jobs(job_id,experiment_id,upload_id,video_sha256,config_json,state) VALUES (?1,?2,?3,?4,?5,'queued')",
+            params![id, experiment_id, upload_id, digest, run_config.to_string()]).map_err(|_| "Não foi possível registrar FST local")?;
+        let created_at: String = db.query_row("SELECT created_at FROM local_tracking_jobs WHERE job_id=?1", [&id], |r| r.get(0))
+            .map_err(|_| "Data da execução indisponível")?;
+        let task_app = app.clone(); let task_id = id.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let work = (|| -> CommandResult<()> {
+                let log = File::create(directory.join("engine.log")).map_err(|_| "Log indisponível")?;
+                open_database(&task_app)?.execute("UPDATE local_tracking_jobs SET state='running' WHERE job_id=?1", [&task_id])
+                    .map_err(|_| "Estado local indisponível")?;
+                let status = Command::new(python(&task_app)?).arg("-u").arg(directory.join("fst_engine.py"))
+                    .arg(directory.join("request.json"))
+                    .stdout(Stdio::from(log.try_clone().map_err(|_| "Log indisponível")?)).stderr(Stdio::from(log))
+                    .status().map_err(|_| "Não foi possível iniciar FST local")?;
+                let report = read_json(&directory.join("status.json")).ok_or("Motor FST terminou sem estado")?;
+                let state = report["state"].as_str().filter(|s| ["succeeded","cancelled","failed"].contains(s)).ok_or("Estado FST inválido")?;
+                if !status.success() && state != "failed" { return Err("Motor FST interrompido".into()); }
+                open_database(&task_app)?.execute("UPDATE local_tracking_jobs SET state=?2,error=?3 WHERE job_id=?1",
+                    params![task_id, state, report["error"].as_str()]).map_err(|_| "Não foi possível salvar FST local")?;
+                Ok(())
+            })();
+            if let Err(error) = work { if let Ok(db) = open_database(&task_app) {
+                let _ = db.execute("UPDATE local_tracking_jobs SET state='failed',error=?2 WHERE job_id=?1", params![task_id,error]);
+            }}
+        });
+        Ok(json!({"jobId":id,"state":"queued","config":run_config,"videoSha256":digest,"experimentId":experiment_id,"createdAt":created_at}))
+    }).await.map_err(|_| "Inicialização FST interrompida".to_string())?
+}
+
+#[tauri::command]
+pub fn get_local_fst_result(app: AppHandle, job_id: String) -> CommandResult<Value> {
+    let directory = folder(&app, &job_id)?;
+    let db = open_database(&app)?;
+    let config: String = db.query_row("SELECT config_json FROM local_tracking_jobs WHERE job_id=?1", [&job_id],
+        |r| r.get(0)).map_err(|_| "Execução FST não encontrada")?;
+    let saved: Value = serde_json::from_str(&config).map_err(|_| "Configuração FST inválida")?;
+    let report = read_json(&directory.join("status.json")).ok_or("Estado FST indisponível")?;
+    if saved["protocol"] != "forced_swim" || report["state"] != "succeeded" { return Err("Resultado FST ainda indisponível".into()); }
+    let file = directory.join("result.json");
+    if fs::metadata(&file).map_err(|_| "Resultado FST ausente")?.len() > 256 * 1024 * 1024 {
+        return Err("Resultado FST excede 256 MiB".into());
+    }
+    let value = read_json(&file).ok_or("Resultado FST inválido")?;
+    if value["schemaVersion"] != "fst-local-presence-1" || value["runId"] != job_id {
+        return Err("Contrato FST local inválido".into());
+    }
+    Ok(value)
+}
 #[tauri::command]
 pub fn list_local_tracking_jobs(
     app: AppHandle,
@@ -332,7 +464,7 @@ pub fn list_local_tracking_jobs(
     validate_local_id(&experiment_id, "Experimento")?;
     prepare_tables(&app)?;
     let db = open_database(&app)?;
-    let mut query=db.prepare("SELECT job_id,state,error,video_sha256,config_json,created_at FROM local_tracking_jobs WHERE experiment_id=?1 ORDER BY created_at DESC,rowid DESC").map_err(|_|"Histórico local indisponível")?;
+    let mut query=db.prepare("SELECT job_id,state,error,video_sha256,config_json,created_at,upload_id FROM local_tracking_jobs WHERE experiment_id=?1 ORDER BY created_at DESC,rowid DESC").map_err(|_|"Histórico local indisponível")?;
     let rows = query
         .query_map([&experiment_id], |r| {
             Ok((
@@ -342,10 +474,11 @@ pub fn list_local_tracking_jobs(
                 r.get::<_, String>(3)?,
                 r.get::<_, String>(4)?,
                 r.get::<_, String>(5)?,
+                r.get::<_, String>(6)?,
             ))
         })
         .map_err(|_| "Histórico local indisponível")?;
-    rows.map(|row|{let(id,state,error,sha,config,date)=row.map_err(|_|"Registro local inválido")?;let report=read_json(&folder(&app,&id)?.join("status.json")).unwrap_or(json!({}));Ok(json!({"jobId":id,"state":if ["queued","running"].contains(&state.as_str()){report["state"].as_str().unwrap_or(&state)}else{&state},"error":error.or_else(||report["error"].as_str().map(str::to_owned)),"report":report,"config":serde_json::from_str::<Value>(&config).unwrap_or(json!({})),"videoSha256":sha,"createdAt":date,"experimentId":experiment_id}))}).collect()
+    rows.map(|row|{let(id,state,error,sha,config,date,upload_id)=row.map_err(|_|"Registro local inválido")?;let report=read_json(&folder(&app,&id)?.join("status.json")).unwrap_or(json!({}));Ok(json!({"jobId":id,"state":if ["queued","running"].contains(&state.as_str()){report["state"].as_str().unwrap_or(&state)}else{&state},"error":error.or_else(||report["error"].as_str().map(str::to_owned)),"report":report,"config":serde_json::from_str::<Value>(&config).unwrap_or(json!({})),"videoSha256":sha,"createdAt":date,"experimentId":experiment_id,"uploadId":upload_id}))}).collect()
 }
 #[tauri::command]
 pub fn get_local_tracking_updates(
@@ -484,6 +617,30 @@ mod tests {
         assert!(validate_config(&config).is_err());
         let mut config = valid_config();
         config["mode"] = json!("background");
+        assert!(validate_config(&config).is_err());
+    }
+    #[test]
+    fn fst_local_requires_paired_full_tanks_and_keeps_protocol_separate() {
+        let mut config = json!({"protocol":"forced_swim","width":320,"height":240,
+            "subjects":[{"animalId":"animal_1","subjectId":"subject_1"}],
+            "tanks":[{"animalId":"animal_1","subjectId":"subject_1",
+                "roiPx":{"x":10,"y":10,"width":150,"height":200}}]});
+        assert!(validate_fst_config(&config).is_ok());
+        config["tanks"][0]["roiPx"]["height"] = json!(100);
+        assert!(validate_fst_config(&config).is_err());
+        config["tanks"][0]["roiPx"]["height"] = json!(200);
+        config["subjects"][0]["animalId"] = json!("other");
+        assert!(validate_fst_config(&config).is_err());
+        config["subjects"][0]["animalId"] = json!("animal_1");
+        config["protocol"] = json!("open_field");
+        assert!(validate_fst_config(&config).is_err());
+    }
+    #[test]
+    fn ram_polygon_must_stay_inside_video() {
+        let mut config = valid_config();
+        config["walkablePolygonPx"] = json!([{"x":10,"y":10},{"x":300,"y":20},{"x":310,"y":220},{"x":10,"y":230}]);
+        assert!(validate_config(&config).is_ok());
+        config["walkablePolygonPx"][2]["x"] = json!(400);
         assert!(validate_config(&config).is_err());
     }
     #[test]

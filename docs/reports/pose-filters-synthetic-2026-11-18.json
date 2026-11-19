@@ -1,0 +1,104 @@
+{
+  "status": "SYNTHETIC_ONLY_NOT_ANATOMICAL_VALIDATION",
+  "generatorVersion": 1,
+  "randomSeed": 20261118,
+  "frameRate": 25,
+  "frameCountPerCase": 250,
+  "noiseSigmaPxPerAxis": 2,
+  "gapFrameRangeInclusive": [
+    100,
+    104
+  ],
+  "stepFrame": 75,
+  "stepSizePx": 40,
+  "filterVersions": {
+    "fcMedian": "wistar-fc-keypoint-median-1",
+    "oneEuro": "one-euro-keypoint-1"
+  },
+  "parameters": {
+    "likelihoodThreshold": 0.6,
+    "minCutoffHz": 1.0,
+    "betaValues": [
+      0.001,
+      0.01
+    ],
+    "maxGapSec": 0.25
+  },
+  "interpretation": "Errors and delays use generated coordinates only. The centered F+C window uses future frames. These values cannot establish anatomical accuracy or timing on real videos.",
+  "cases": {
+    "stationary_noisy_gap": {
+      "raw": {
+        "validFrames": 245,
+        "meanErrorToSyntheticTruthPx": 2.4696722596206473,
+        "medianSecondDifferencePx": 5.845986709381409
+      },
+      "fcMedian": {
+        "validFrames": 245,
+        "meanErrorToSyntheticTruthPx": 1.2582893501389218,
+        "medianSecondDifferencePx": 1.103561741360565
+      },
+      "oneEuroBeta0001": {
+        "validFrames": 245,
+        "meanErrorToSyntheticTruthPx": 0.8504874585822094,
+        "medianSecondDifferencePx": 0.7054003094385011
+      },
+      "oneEuroBeta001": {
+        "validFrames": 245,
+        "meanErrorToSyntheticTruthPx": 0.9120953395469227,
+        "medianSecondDifferencePx": 0.7738025345849496
+      }
+    },
+    "periodic_noisy": {
+      "raw": {
+        "validFrames": 250,
+        "meanErrorToSyntheticTruthPx": 2.4765601832485094,
+        "medianSecondDifferencePx": 5.290630863401661
+      },
+      "fcMedian": {
+        "validFrames": 250,
+        "meanErrorToSyntheticTruthPx": 1.570844310657654,
+        "medianSecondDifferencePx": 1.9737957192206954
+      },
+      "oneEuroBeta0001": {
+        "validFrames": 250,
+        "meanErrorToSyntheticTruthPx": 5.186321939509516,
+        "medianSecondDifferencePx": 0.8051791056328
+      },
+      "oneEuroBeta001": {
+        "validFrames": 250,
+        "meanErrorToSyntheticTruthPx": 3.300592238049784,
+        "medianSecondDifferencePx": 1.126278542039139
+      }
+    },
+    "step_clean": {
+      "raw": {
+        "validFrames": 250,
+        "meanErrorToSyntheticTruthPx": 0.0,
+        "medianSecondDifferencePx": 0.0,
+        "halfStepDelayFrames": 0,
+        "halfStepDelayMs": 0.0
+      },
+      "fcMedian": {
+        "validFrames": 250,
+        "meanErrorToSyntheticTruthPx": 0.0,
+        "medianSecondDifferencePx": 0.0,
+        "halfStepDelayFrames": 0,
+        "halfStepDelayMs": 0.0
+      },
+      "oneEuroBeta0001": {
+        "validFrames": 250,
+        "meanErrorToSyntheticTruthPx": 0.4947818403072082,
+        "medianSecondDifferencePx": 8.668621376273222e-13,
+        "halfStepDelayFrames": 2,
+        "halfStepDelayMs": 80.0
+      },
+      "oneEuroBeta001": {
+        "validFrames": 250,
+        "meanErrorToSyntheticTruthPx": 0.19407183120611113,
+        "medianSecondDifferencePx": 4.263256414560601e-14,
+        "halfStepDelayFrames": 1,
+        "halfStepDelayMs": 40.0
+      }
+    }
+  }
+}

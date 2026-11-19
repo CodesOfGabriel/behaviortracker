@@ -43,7 +43,7 @@ export function referencePoseSamples(samples: PoseSample[], keypoint: string): P
   return [...frames.values()].map((frame) => {
     const point = points.get(frame.frameIndex);
     if (point && metricEligible(point)) return point;
-    const boxSample = frameSamples.get(frame.frameIndex)?.find((sample) => sample.bbox);
+    const boxSample = frameSamples.get(frame.frameIndex)?.find((sample) => sample.bbox && sample.source !== "segmented");
     const box = boxSample?.bbox;
     if (box) {
       return {

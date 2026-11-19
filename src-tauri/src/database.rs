@@ -2,7 +2,10 @@ use rusqlite::Connection;
 
 use crate::oauth::{migrate_credential_state, CommandResult};
 
-const MIGRATIONS: [&str; 1] = [include_str!("../migrations/001_initial.sql")];
+const MIGRATIONS: [&str; 2] = [
+    include_str!("../migrations/001_initial.sql"),
+    include_str!("../migrations/002_validation_annotations.sql"),
+];
 
 pub(crate) fn migrate(connection: &mut Connection) -> CommandResult<()> {
     let current_version: i64 = connection
@@ -59,7 +62,7 @@ mod tests {
             .execute_batch("PRAGMA foreign_keys = ON")
             .unwrap();
         migrate(&mut connection).unwrap();
-        assert_eq!(version(&connection), 1);
+        assert_eq!(version(&connection), 2);
 
         let names: Vec<String> = connection
             .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
@@ -83,6 +86,8 @@ mod tests {
                 "training_intervals",
                 "training_runs",
                 "training_selection",
+                "validation_annotation_history",
+                "validation_annotations",
                 "video_preparations",
                 "video_staging",
             ]
@@ -121,7 +126,7 @@ mod tests {
 
         migrate(&mut connection).unwrap();
         migrate(&mut connection).unwrap();
-        assert_eq!(version(&connection), 1);
+        assert_eq!(version(&connection), 2);
         let (client, has_token, email): (String, bool, Option<String>) = connection.query_row(
             "SELECT google_client_id, has_refresh_token, account_email FROM google_oauth_profiles WHERE profile_id = ?1",
             params!["local-default"],
@@ -161,10 +166,31 @@ mod tests {
     }
 
     #[test]
+    fn upgrades_v1_to_validation_schema_without_touching_jobs() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(include_str!("../migrations/001_initial.sql")).unwrap();
+        connection.execute_batch("PRAGMA user_version = 1").unwrap();
+        connection.execute(
+            "INSERT INTO google_oauth_profiles (profile_id, google_client_id) VALUES ('local-default', 'client')",
+            [],
+        ).unwrap();
+        migrate(&mut connection).unwrap();
+        assert_eq!(version(&connection), 2);
+        let count: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM google_oauth_profiles WHERE profile_id='local-default'", [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(count, 1);
+        let table: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='validation_annotations'", [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(table, 1);
+    }
+
+    #[test]
     fn refuses_database_from_newer_app_without_changes() {
         let mut connection = Connection::open_in_memory().unwrap();
-        connection.execute_batch("PRAGMA user_version = 2").unwrap();
+        connection.execute_batch("PRAGMA user_version = 3").unwrap();
         assert!(migrate(&mut connection).is_err());
-        assert_eq!(version(&connection), 2);
+        assert_eq!(version(&connection), 3);
     }
 }

@@ -1,0 +1,57 @@
+{
+  "arena": {
+    "cornersPx": [
+      {
+        "x": 134.3214133673904,
+        "y": 69.74882928905919
+      },
+      {
+        "x": 439.4725415070243,
+        "y": 79.33929331630483
+      },
+      {
+        "x": 429.8820774797787,
+        "y": 408.0306513409962
+      },
+      {
+        "x": 127.34653043848442,
+        "y": 408.0306513409962
+      }
+    ],
+    "rimCornersPx": [
+      {
+        "x": 110.78118348233288,
+        "y": 41.84929757343551
+      },
+      {
+        "x": 476.9625372498936,
+        "y": 58.414644529587065
+      },
+      {
+        "x": 463.0127713920818,
+        "y": 448.1362281822052
+      },
+      {
+        "x": 106.42188165176668,
+        "y": 443.77692635163896
+      }
+    ],
+    "revision": 1,
+    "widthCm": 50,
+    "heightCm": 40,
+    "centerAreaFraction": 0.25,
+    "boundaryPolicy": "center_inclusive"
+  },
+  "backgroundFrameIndex": null,
+  "height": 480,
+  "initialBox": null,
+  "maxAreaFraction": 0.12,
+  "maxPredictionSec": 0.25,
+  "maxWidth": 1280,
+  "minAreaFraction": 0.001,
+  "mode": "light",
+  "referenceApproved": false,
+  "threshold": 210,
+  "width": 586,
+  "seed": null
+}

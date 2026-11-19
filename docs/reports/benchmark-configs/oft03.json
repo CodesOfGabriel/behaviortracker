@@ -1,0 +1,56 @@
+{
+  "arena": {
+    "boundaryPolicy": "center_inclusive",
+    "centerAreaFraction": 0.25,
+    "cornersPx": [
+      {
+        "x": 323.67816091954023,
+        "y": 22.886334610472545
+      },
+      {
+        "x": 915.4533844189018,
+        "y": 11.443167305236216
+      },
+      {
+        "x": 897.471264367816,
+        "y": 560.7151979565773
+      },
+      {
+        "x": 366.1813537675607,
+        "y": 555.8109833971902
+      }
+    ],
+    "heightCm": 40,
+    "revision": 1,
+    "rimCornersPx": [
+      {
+        "x": 223.95913154533844,
+        "y": 47.407407407407504
+      },
+      {
+        "x": 979.2081736909324,
+        "y": 24.52107279693496
+      },
+      {
+        "x": 946.513409961686,
+        "y": 698.0332056194127
+      },
+      {
+        "x": 290.9833971902938,
+        "y": 698.0332056194127
+      }
+    ],
+    "widthCm": 50
+  },
+  "backgroundFrameIndex": null,
+  "height": 720,
+  "initialBox": null,
+  "maxAreaFraction": 0.12,
+  "maxPredictionSec": 0.25,
+  "maxWidth": 1280,
+  "minAreaFraction": 0.001,
+  "mode": "light",
+  "referenceApproved": false,
+  "threshold": 190,
+  "width": 1280
+}

@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, ArrowRight, FlaskConical, Waves } from "lucide-react";
+import { ArrowLeft, ArrowRight, FlaskConical, Network, Waves } from "lucide-react";
 import { useAppStore } from "../../store/AppStore";
 import { OpenFieldExperimentWizard } from "./OpenFieldExperimentWizard";
 import { ForcedSwimExperimentWizard } from "./ForcedSwimExperimentWizard";
+import { RadialArmMazeExperimentWizard } from "./RadialArmMazeExperimentWizard";
 
 export function NewExperiment({ onComplete = () => {} }: { onComplete?: () => void }) {
   const { route, navigate, draftPreparationActive } = useAppStore();
-  const [protocol, setProtocol] = useState<"open_field" | "forced_swim" | null>(null);
-  const [visited, setVisited] = useState({ open_field: false, forced_swim: false });
-  const selectProtocol = (next: "open_field" | "forced_swim") => {
+  const [protocol, setProtocol] = useState<"open_field" | "forced_swim" | "radial_arm_maze" | null>(null);
+  const [visited, setVisited] = useState({ open_field: false, forced_swim: false, radial_arm_maze: false });
+  const selectProtocol = (next: "open_field" | "forced_swim" | "radial_arm_maze") => {
     setVisited(current => ({ ...current, [next]: true }));
     setProtocol(next);
   };
@@ -33,6 +34,11 @@ export function NewExperiment({ onComplete = () => {} }: { onComplete?: () => vo
         <span className="protocol-option-body"><small>Disponível</small><strong>Nado Forçado</strong><span>Presença e movimento independentes por animal e cilindro.</span></span>
         <ArrowRight size={20} className="protocol-option-arrow" />
       </button>
+      <button type="button" className="protocol-option protocol-option-radial-maze" onClick={() => selectProtocol("radial_arm_maze")}>
+        <span className="protocol-option-icon"><Network size={25} strokeWidth={1.7} /></span>
+        <span className="protocol-option-body"><small>Preparação disponível</small><strong>Labirinto Radial</strong><span>Marque a área do labirinto, os potes e as recompensas antes da análise.</span></span>
+        <ArrowRight size={20} className="protocol-option-arrow" />
+      </button>
     </div>
   </div>
   {visited.open_field && <div className="retained-workspace" hidden={protocol !== "open_field"}>
@@ -40,6 +46,9 @@ export function NewExperiment({ onComplete = () => {} }: { onComplete?: () => vo
   </div>}
   {visited.forced_swim && <div className="retained-workspace" hidden={protocol !== "forced_swim"}>
     <ForcedSwimExperimentWizard onBack={() => setProtocol(null)} onComplete={onComplete} />
+  </div>}
+  {visited.radial_arm_maze && <div className="retained-workspace" hidden={protocol !== "radial_arm_maze"}>
+    <RadialArmMazeExperimentWizard onBack={() => setProtocol(null)} onComplete={onComplete} />
   </div>}
   </>;
 }

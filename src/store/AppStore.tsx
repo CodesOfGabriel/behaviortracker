@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
-import type { AppRoute, Experiment, ForcedSwimExperiment, OpenFieldExperiment, PoseSample, VideoAsset } from "../types";
+import type { AppRoute, Experiment, ForcedSwimExperiment, OpenFieldExperiment, PoseSample, RadialMazeExperiment, VideoAsset } from "../types";
 import { makeDemoExperiment, makeDemoPose } from "../lib/demo-data";
 
 const STORAGE_KEY = "behavetracker.experiments.v1";
@@ -32,6 +32,10 @@ export function migrateExperiment(experiment: Experiment): Experiment {
     ...experiment, schemaVersion: "1.0", analysisMethodVersion: "fst-0.1",
     annotations: experiment.annotations ?? [],
   };
+  if (experiment.testType === "radial_arm_maze") return {
+    ...experiment, schemaVersion: "1.0", analysisMethodVersion: "ram-1.0",
+    corrections: experiment.corrections ?? [],
+  };
   return {
     ...experiment,
     schemaVersion: "1.0",
@@ -62,6 +66,7 @@ interface AppStoreValue {
   saveExperiment: (experiment: Experiment, asset?: VideoAsset) => void;
   updateExperiment: (id: string, update: Partial<OpenFieldExperiment> | ((current: OpenFieldExperiment) => Partial<OpenFieldExperiment>)) => void;
   updateForcedSwimExperiment: (id: string, update: Partial<ForcedSwimExperiment> | ((current: ForcedSwimExperiment) => Partial<ForcedSwimExperiment>)) => void;
+  updateRadialMazeExperiment: (id: string, update: Partial<RadialMazeExperiment> | ((current: RadialMazeExperiment) => Partial<RadialMazeExperiment>)) => void;
   deleteExperiment: (id: string) => void;
   openDemo: () => void;
   assets: Record<string, VideoAsset>;
@@ -75,7 +80,7 @@ interface AppStoreValue {
 }
 
 export type LocalVideoProgress = { phase: "staging" | "checking" | "encoding" | "verifying" | "complete"; percent: number | null; remainingSec: number | null };
-type AnalysisActivity = { starting: boolean; message: string; error: string | null; startedAt: number | null; videoProgress?: LocalVideoProgress | null };
+type AnalysisActivity = { starting: boolean; message: string; error: string | null; startedAt: number | null; videoProgress?: LocalVideoProgress | null; engine?: "colab" | "opencv" };
 
 const AppStoreContext = createContext<AppStoreValue | null>(null);
 
@@ -138,6 +143,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     }, [persist],
   );
 
+  const updateRadialMazeExperiment = useCallback(
+    (id: string, update: Partial<RadialMazeExperiment> | ((current: RadialMazeExperiment) => Partial<RadialMazeExperiment>)) => {
+      persist(current => current.map(experiment =>
+        experiment.id === id && experiment.testType === "radial_arm_maze"
+          ? { ...experiment, ...(typeof update === "function" ? update(experiment) : update), updatedAt: new Date().toISOString() }
+          : experiment,
+      ));
+    }, [persist],
+  );
+
   const deleteExperiment = useCallback(
     (id: string) => {
       persist(current => current.filter((experiment) => experiment.id !== id));
@@ -179,6 +194,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       saveExperiment,
       updateExperiment,
       updateForcedSwimExperiment,
+      updateRadialMazeExperiment,
       deleteExperiment,
       openDemo,
       assets,
@@ -190,7 +206,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       draftPreparationActive,
       setDraftPreparationActive,
     }),
-    [researcherProfile, saveResearcherProfile, route, experiments, saveExperiment, updateExperiment, updateForcedSwimExperiment, deleteExperiment, openDemo, assets, trackingData, setTrackingData, analysisActivity, setAnalysisActivity, draftPreparationActive],
+    [researcherProfile, saveResearcherProfile, route, experiments, saveExperiment, updateExperiment, updateForcedSwimExperiment, updateRadialMazeExperiment, deleteExperiment, openDemo, assets, trackingData, setTrackingData, analysisActivity, setAnalysisActivity, draftPreparationActive],
   );
 
   return <AppStoreContext.Provider value={value}>{children}</AppStoreContext.Provider>;

@@ -1,7 +1,6 @@
 """FST automatic presence/absence postprocessor. OpenCV CPU, per-animal cylinder ROIs."""
 import cv2
 import numpy as np
-import pandas as pd
 from pathlib import Path
 
 # Animal IDs come from the validated FST run configuration.
@@ -166,6 +165,7 @@ def classify_presence_rows(rows, fps):
 
 
 def detect_presence_video(video,rects,references,n_frames,fps):
+    import pandas as pd
     cap=cv2.VideoCapture(str(video))
     if not cap.isOpened():raise RuntimeError(video)
     results={a:[] for a in rects}

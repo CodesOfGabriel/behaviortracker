@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { defaultArena } from "../../lib/demo-data";
-import type { ForcedSwimExperiment, VideoPreparation } from "../../types";
-import { loadColabVideo, prepareFstVideo, prepareVideo, startColabJob, startFstJob } from "./analysis";
+import type { ForcedSwimExperiment, RadialMazeExperiment, VideoPreparation } from "../../types";
+import { loadColabVideo, prepareFstVideo, prepareVideo, startColabJob, startFstJob, startRamJob } from "./analysis";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn().mockResolvedValue({}), convertFileSrc: (path: string) => `asset://${path}` }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
@@ -41,6 +41,21 @@ describe("geometria enviada ao backend Colab", () => {
     expect(request.workload).toEqual({ width: 1920, height: 1080, durationSec: 10 });
     expect(request.fst.tanks[0].roiPx).toEqual({ x: 100, y: 50, width: 500, height: 900 });
     expect(request.fst).toMatchObject({ sourceWidth: 3840, sourceHeight: 2160, preparationPolicyVersion: "quality-upload-2" });
+  });
+  it("envia somente a área analisável RAM na escala do vídeo preparado", async () => {
+    const preparation = { uploadId: "ram-prepared", uploadWidth: 960, uploadHeight: 540,
+      policyVersion: "fst-adaptive-1" } as VideoPreparation;
+    const experiment = { id: "ram", video: { width: 1920, height: 1080, durationSec: 30 },
+      geometry: { revision: 2, walkableMaskVersion: "mask-2", walkablePolygonPx: [
+        { x: 200, y: 100 }, { x: 1600, y: 100 }, { x: 1600, y: 900 }, { x: 200, y: 900 } ] } } as RadialMazeExperiment;
+    await startRamJob(experiment, preparation);
+    const request = (vi.mocked(invoke).mock.lastCall?.[1] as { request: Record<string, unknown> }).request;
+    expect(request).toMatchObject({ experimentId: "ram", uploadId: "ram-prepared",
+      engineId: "wistar_ram_hybrid_v1", modelBundleId: "wistar_df_v2",
+      workload: { width: 960, height: 540, durationSec: 30 },
+      ram: { revision: 2, walkableMaskVersion: "mask-2", sourceWidth: 1920, sourceHeight: 1080,
+        walkablePolygonPx: [{ x: 100, y: 50 }, { x: 800, y: 50 }, { x: 800, y: 450 }, { x: 100, y: 450 }] } });
+    expect(request).not.toHaveProperty("arena");
   });
   it("prepara a cópia local antes de iniciar qualquer upload remoto", async () => {
     vi.mocked(invoke).mockImplementation(async (command) => command === "begin_video_staging" ? { uploadId: "original" }

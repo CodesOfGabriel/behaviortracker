@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://behavetracker.local/schemas/ram-tracking.schema.json",
+  "title": "Experimental Radial Maze Tracking",
+  "type": "object",
+  "required": ["schemaVersion", "protocol", "engineId", "analysisStatus", "jobId", "modelBundleId", "geometry", "video", "frameCount", "fps", "observedFrames", "frames", "behaviorMetrics"],
+  "properties": {
+    "schemaVersion": { "const": "ram-tracking-1" },
+    "protocol": { "const": "radial_arm_maze" },
+    "engineId": { "const": "wistar_ram_hybrid_v1" },
+    "analysisStatus": { "const": "EXPERIMENTAL_NOT_FOR_METRICS" },
+    "jobId": { "type": "string" },
+    "modelBundleId": { "const": "wistar_df_v2" },
+    "geometry": {
+      "type": "object",
+      "required": ["revision", "walkableMaskVersion", "walkablePolygonPx", "sourceWidth", "sourceHeight", "preparationPolicyVersion"],
+      "properties": {
+        "revision": { "type": "integer", "minimum": 1 },
+        "walkableMaskVersion": { "type": "string", "minLength": 1 },
+        "walkablePolygonPx": { "type": "array", "minItems": 3 },
+        "sourceWidth": { "type": "integer", "minimum": 1 },
+        "sourceHeight": { "type": "integer", "minimum": 1 },
+        "preparationPolicyVersion": { "type": "string" }
+      }
+    },
+    "video": {
+      "type": "object",
+      "required": ["sha256", "originalSha256", "filename", "width", "height"],
+      "properties": {
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "originalSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "filename": { "type": "string" },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "frameCount": { "type": "integer", "minimum": 1 },
+    "fps": { "type": "number", "exclusiveMinimum": 0 },
+    "observedFrames": { "type": "integer", "minimum": 0 },
+    "frames": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["frame", "timestampSec", "mouseCenter", "likelihood", "qualityFlags"],
+        "properties": {
+          "frame": { "type": "integer", "minimum": 0 },
+          "timestampSec": { "type": "number", "minimum": 0 },
+          "mouseCenter": { "anyOf": [{ "type": "null" }, { "type": "object", "required": ["x", "y"], "properties": { "x": { "type": "number" }, "y": { "type": "number" } } }] },
+          "likelihood": { "type": ["number", "null"] },
+          "qualityFlags": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "behaviorMetrics": { "type": "null" }
+  }
+}
