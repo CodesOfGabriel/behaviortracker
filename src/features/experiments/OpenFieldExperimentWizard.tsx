@@ -290,7 +290,7 @@ export function OpenFieldExperimentWizard({ onBack, onComplete = () => {}, resum
     try {
       const status = await getHybridBundleAvailability(modelBundleId);
       setBundleStatus(status);
-      return status.installed;
+      return status.installed || Boolean(status.remoteAvailable);
     } catch (error) {
       setBundleError(String(error));
       return false;
@@ -461,9 +461,9 @@ export function OpenFieldExperimentWizard({ onBack, onComplete = () => {}, resum
               <div className="wizard-section-heading"><div className="section-icon"><FlaskConical size={21} /></div><div><h2>Dados do experimento</h2><p>Identifique a unidade científica e o protocolo.</p></div></div>
               <div className="form-grid">
                 {isTauriRuntime() && <div className="full">
-                  <p role="status">Modelo para Colab (opcional nesta etapa): {checkingBundle ? "verificando…" : bundleStatus?.installed ? "arquivos encontrados" : bundleStatus?.error || "será verificado ao continuar."}</p>
-                  {bundleStatus?.installed === false && <label><span>Pasta com os três arquivos do bundle</span><input value={bundleDirectory} onChange={(event) => setBundleDirectory(event.target.value)} placeholder="Caminho completo da pasta" /></label>}
-                  {bundleStatus?.installed === false && <Button type="button" variant="secondary" disabled={!bundleDirectory.trim()} loading={importingBundle} onClick={() => {
+                  <p role="status">Modelo para Colab (opcional nesta etapa): {checkingBundle ? "verificando…" : bundleStatus?.installed ? "arquivos locais encontrados" : bundleStatus?.remoteAvailable ? "pesos serão obtidos no Colab somente ao iniciar uma análise" : bundleStatus?.error || "será verificado ao continuar."}</p>
+                  {bundleStatus?.installed === false && !bundleStatus.remoteAvailable && <label><span>Pasta com os três arquivos do bundle</span><input value={bundleDirectory} onChange={(event) => setBundleDirectory(event.target.value)} placeholder="Caminho completo da pasta" /></label>}
+                  {bundleStatus?.installed === false && !bundleStatus.remoteAvailable && <Button type="button" variant="secondary" disabled={!bundleDirectory.trim()} loading={importingBundle} onClick={() => {
                     setImportingBundle(true); setBundleError(null);
                     void importHybridBundle(modelBundleId, bundleDirectory.trim()).then(setBundleStatus).catch((error) => setBundleError(String(error))).finally(() => setImportingBundle(false));
                   }}>Instalar modelo</Button>}

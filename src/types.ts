@@ -142,6 +142,7 @@ export interface RadialArm {
   baited: boolean;
 }
 export interface RadialMazeGeometry {
+  eventGeometryConfirmed?: boolean;
   revision: number;
   walkablePolygonPx?: Point[];
   centerPolygonPx: Point[];
@@ -165,6 +166,7 @@ export interface RadialMazeExperiment {
   geometry: RadialMazeGeometry; visitPolicy: RamVisitPolicy;
   geometryHistory?: RadialMazeGeometry[];
   corrections: CorrectionEvent[]; trackingSelection?: TrackingSelection;
+  spatialCalibration?: { pixelsPerCm: number; method: "planar_uniform" };
 }
 export type Experiment = OpenFieldExperiment | ForcedSwimExperiment | RadialMazeExperiment;
 
@@ -203,7 +205,14 @@ export interface PoseSample {
   processingVersion?: string;
   runId?: string;
   clockMapVersion?: string;
-  uncertaintyPx?: number;
+  uncertaintyPx?: number | null;
+  observationState?: "observed" | "uncertain" | "missing";
+  bodyBbox?: BoundingBox | null;
+  fullAnimalBbox?: BoundingBox | null;
+  bodyCenter?: Point;
+  centerDefinition?: string;
+  algorithmVersion?: string;
+  maskArtifact?: string;
   recoveryState?: "ready" | "unavailable" | "limited" | "not_needed";
   original?: Pick<PoseSample, "xPx" | "yPx" | "likelihood" | "status" | "spatialRegion" | "supportCount" | "supportTotal" | "source" | "bbox" | "contour" | "metricReference" | "referenceApproved">;
 }

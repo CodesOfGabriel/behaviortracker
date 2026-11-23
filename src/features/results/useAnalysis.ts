@@ -131,7 +131,7 @@ export function useAnalysis(experimentId: string) {
       if (bundleId !== "wistar_df_v1" && bundleId !== "wistar_df_v2") throw new Error(`Modelo desconhecido: ${bundleId}`);
       if ((experiment.analysisEngine ?? "wistar_superanimal_hybrid_v1") === "wistar_superanimal_hybrid_v1") {
         const bundle = await getHybridBundleStatus(bundleId);
-        if (!bundle.installed) throw new Error(bundle.error || `Bundle ${bundleId} ausente`);
+        if (!bundle.installed && !bundle.remoteAvailable) throw new Error(bundle.error || `Bundle ${bundleId} ausente`);
       }
       if (preparation && !await checkVideoStaging(experimentId, preparation.uploadId)) preparation = undefined;
       if (!preparation && !file) {

@@ -10,15 +10,35 @@
   "files": {
     "best_detector.pth": {
       "sizeBytes": 173392347,
-      "sha256": "211891e0ec5f5b3f56d0f0be5b9255319ce9857284e72e558ccfc9f4ca93eef0"
+      "sha256": "211891e0ec5f5b3f56d0f0be5b9255319ce9857284e72e558ccfc9f4ca93eef0",
+      "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/models-wistar-df-v2-r1/best_detector.pth"
     },
     "snapshot-hrnet_w32-001.pt": {
       "sizeBytes": 118196193,
-      "sha256": "d81c8f18ba0729263168b96eab3e09b6bc3d0ee194b131fb381d2526266ff215"
+      "sha256": "d81c8f18ba0729263168b96eab3e09b6bc3d0ee194b131fb381d2526266ff215",
+      "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/models-wistar-df-v2-r1/snapshot-hrnet_w32-001.pt"
     },
     "pytorch_config.yaml": {
       "sizeBytes": 5996,
-      "sha256": "847076c1253f53816155fe247ca1448a13039498d902c2d75b24dac9d800f907"
+      "sha256": "847076c1253f53816155fe247ca1448a13039498d902c2d75b24dac9d800f907",
+      "source": "bundled-small-config"
     }
+  },
+  "registryVersion": "model-delivery-2",
+  "bundleVersion": "r1",
+  "releaseTag": "models-wistar-df-v2-r1",
+  "protocols": [
+    "open_field",
+    "radial_arm_maze"
+  ],
+  "compatibility": {
+    "runtime": "deeplabcut-pytorch-3",
+    "poseArchitecture": "hrnet_w32",
+    "keypointCount": 27
+  },
+  "cachePolicy": {
+    "verifyOnUse": true,
+    "eviction": "manual",
+    "location": "models/wistar_df_v2"
   }
 }

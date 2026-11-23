@@ -111,15 +111,32 @@ fn validate_config(config: &Value) -> CommandResult<()> {
         .as_u64()
         .filter(|v| *v > 0 && *v <= 16384)
         .ok_or("Altura inválida")?;
-    if !["light", "dark", "background"].contains(&config["mode"].as_str().unwrap_or("")) {
+    if !["auto", "light", "dark", "background"].contains(&config["mode"].as_str().unwrap_or("")) {
         return Err("Modo de segmentação inválido".into());
     }
     let strategy = match config.get("strategy") {
         None => "classic",
         Some(value) => value.as_str().ok_or("Estratégia local inválida")?,
     };
-    if !["classic", "hybrid_kalman_v1"].contains(&strategy) {
+    if !["classic", "hybrid_kalman_v1", "ram_color_geometry_v2"].contains(&strategy) {
         return Err("Estratégia local inválida".into());
+    }
+    if strategy == "ram_color_geometry_v2" {
+        if config["protocol"] != "radial_arm_maze" || config["referenceApproved"] != false
+            || config["walkablePolygonPx"].as_array().is_none_or(|p| p.len() < 3)
+            || config.get("guidance").is_some_and(|v| !v.is_null()) {
+            return Err("RAM Color exige protocolo RAM, contorno e revisão independente".into());
+        }
+        for (key, min, max) in [("valueMin",0.,254.),("saturationMin",0.,254.),("labBMin",0.,254.),
+            ("minAreaPx",1.,10000000.),("maxAreaPx",2.,10000000.),("minDensity",0.01,1.),
+            ("maxSpeedFraction",0.001,10.),("reacquireSec",0.01,2.),("ambiguityMargin",0.,10.)] {
+            if !config["ramColor"][key].as_f64().is_some_and(|n| n.is_finite() && n >= min && n <= max) {
+                return Err(format!("Parâmetro RAM Color inválido: {key}"));
+            }
+        }
+        if config["ramColor"]["minAreaPx"].as_f64() >= config["ramColor"]["maxAreaPx"].as_f64() {
+            return Err("Área corporal RAM inválida".into());
+        }
     }
     if strategy == "hybrid_kalman_v1" && (config["mode"] != "background" || config["referenceApproved"] != false
         || config.get("guidance").is_some_and(|value| !value.is_null())) {
@@ -184,6 +201,22 @@ fn validate_config(config: &Value) -> CommandResult<()> {
             if !point["x"].as_f64().is_some_and(|n| n.is_finite() && n >= 0. && n <= width as f64)
                 || !point["y"].as_f64().is_some_and(|n| n.is_finite() && n >= 0. && n <= height as f64) {
                 return Err("Contorno RAM fora do vídeo".into());
+            }
+        }
+    }
+    if let Some(points) = config["walkablePolygonPx"].as_array() {
+        let coords: Vec<(f64,f64)> = points.iter().map(|p| (p["x"].as_f64().unwrap(),p["y"].as_f64().unwrap())).collect();
+        let turn = |a:(f64,f64), b:(f64,f64), c:(f64,f64)| (b.0-a.0)*(c.1-a.1)-(b.1-a.1)*(c.0-a.0);
+        let area: f64 = coords.iter().enumerate().map(|(i,a)| { let b=coords[(i+1)%coords.len()]; a.0*b.1-b.0*a.1 }).sum();
+        if area.abs() < 20. { return Err("Contorno RAM sem área suficiente".into()); }
+        for i in 0..coords.len() {
+            if coords[i] == coords[(i+1)%coords.len()] { return Err("Contorno RAM com vértices repetidos".into()); }
+            for j in i+1..coords.len() {
+                if j==i+1 || (i==0 && j==coords.len()-1) { continue; }
+                let (a,b,c,d)=(coords[i],coords[(i+1)%coords.len()],coords[j],coords[(j+1)%coords.len()]);
+                if turn(a,b,c)*turn(a,b,d) < 0. && turn(c,d,a)*turn(c,d,b) < 0. {
+                    return Err("Contorno RAM com lados cruzados".into());
+                }
             }
         }
     }
@@ -316,6 +349,8 @@ pub async fn start_local_tracking(
         let request=json!({"video":path,"config":config,"ffprobe":ffprobe,"ffmpeg":ffmpeg});
         fs::write(directory.join("request.json"),request.to_string()).map_err(|_|"Solicitação local indisponível")?;
         fs::write(directory.join("engine.py"),include_str!("../python/opencv_engine.py")).map_err(|_|"Motor local indisponível")?;
+        fs::write(directory.join("ram_color.py"), include_str!("../python/ram_color.py"))
+            .map_err(|_| "Motor RAM Color indisponível")?;
         connection.execute("INSERT INTO local_tracking_jobs(job_id,experiment_id,upload_id,video_sha256,config_json,state) VALUES (?1,?2,?3,?4,?5,'queued')",params![id,experiment_id,upload_id,digest,config.to_string()]).map_err(|_|"Não foi possível registrar a execução")?;
         let created_at:String=connection.query_row("SELECT created_at FROM local_tracking_jobs WHERE job_id=?1",[&id],|row|row.get(0)).map_err(|_|"Data da execução indisponível")?;
         let task_app=app.clone();let task_id=id.clone();
@@ -583,6 +618,76 @@ pub(crate) fn recover(app: &AppHandle) -> CommandResult<()> {
     }
     Ok(())
 }
+
+#[tauri::command]
+pub fn list_ram_review_events(app: AppHandle, job_id: String) -> CommandResult<Vec<Value>> {
+    validate_local_id(&job_id, "Execução")?;
+    let db = open_database(&app)?;
+    let mut query = db.prepare("SELECT event_json FROM ram_review_events WHERE job_id=?1 ORDER BY sequence")
+        .map_err(|_| "Histórico RAM indisponível")?;
+    let rows = query.query_map([job_id], |r| r.get::<_, String>(0)).map_err(|_| "Histórico RAM indisponível")?;
+    rows.map(|r| serde_json::from_str(&r.map_err(|_| "Evento RAM ilegível")?).map_err(|_| "Evento RAM inválido".into())).collect()
+}
+
+fn store_ram_review(db: &rusqlite::Connection, job_id: &str, event: &Value, sample: &Value, config: &Value, digest: &str) -> CommandResult<()> {
+    let id = event["id"].as_str().ok_or("Evento sem ID")?;
+    validate_local_id(id, "Evento")?;
+    if config["protocol"] != "radial_arm_maze" || event["runId"] != job_id || event["sourceVideoSha256"] != digest
+        || event["source"] != "manual" || event["keypoint"] != "box_center"
+        || event["frameIndex"] != sample["frameIndex"] || event["timestampSec"] != sample["timestampSec"] {
+        return Err("Proveniência da revisão RAM incompatível".into());
+    }
+    match event["type"].as_str().unwrap_or("") {
+        "MOVE_POINT" => {
+            for (key, limit) in [("x", "width"), ("y", "height")] {
+                if !event["after"][key].as_f64().is_some_and(|n| n.is_finite() && n >= 0. && n <= config[limit].as_f64().unwrap_or(0.)) {
+                    return Err("Centro corrigido fora do vídeo".into());
+                }
+            }
+        },
+        "SET_BOX" => {
+            let b = &event["afterBox"];
+            for (position, extent, limit) in [("x", "width", "width"), ("y", "height", "height")] {
+                let a = b[position].as_f64().ok_or("Caixa inválida")?;
+                let size = b[extent].as_f64().ok_or("Caixa inválida")?;
+                if !a.is_finite() || !size.is_finite() || a < 0. || size <= 0. || a+size > config[limit].as_f64().unwrap_or(0.) {
+                    return Err("Caixa corrigida fora do vídeo".into());
+                }
+            }
+        },
+        "CONFIRM_POINT" | "MARK_MISSING" => (),
+        "REVERT_EVENT" => {
+            let exists: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM ram_review_events WHERE job_id=?1 AND id=?2)",
+                params![job_id, event["targetEventId"].as_str()], |r| r.get(0)).map_err(|_| "Evento de origem ausente")?;
+            if !exists { return Err("Evento de origem ausente".into()); }
+        },
+        _ => return Err("Tipo de revisão RAM inválido".into()),
+    }
+    let serialized = event.to_string();
+    if serialized.len() > 16384 { return Err("Evento RAM excede o limite".into()); }
+    db.execute("INSERT INTO ram_review_events(id,job_id,event_json) VALUES (?1,?2,?3)", params![id,job_id,serialized])
+        .map_err(|_| "Não foi possível registrar a revisão RAM")?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn append_ram_review_event(app: AppHandle, job_id: String, event: Value) -> CommandResult<()> {
+    let directory = folder(&app, &job_id)?;
+    let db = open_database(&app)?;
+    let (config, digest, state): (String, String, String) = db.query_row(
+        "SELECT config_json,video_sha256,state FROM local_tracking_jobs WHERE job_id=?1", [&job_id],
+        |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(|_| "Execução RAM ausente")?;
+    if state != "succeeded" { return Err("Conclua o tracking antes de revisar".into()); }
+    let config: Value = serde_json::from_str(&config).map_err(|_| "Configuração RAM inválida")?;
+    let index = event["frameIndex"].as_u64().ok_or("Frame RAM inválido")?;
+    let mut sample = None;
+    for line in BufReader::new(File::open(directory.join("samples.jsonl")).map_err(|_| "Observações RAM ausentes")?).lines() {
+        let value: Value = serde_json::from_str(&line.map_err(|_| "Observações RAM ilegíveis")?).map_err(|_| "Frame RAM inválido")?;
+        if value["frameIndex"].as_u64() == Some(index) { sample = Some(value); break; }
+    }
+    store_ram_review(&db, &job_id, &event, &sample.ok_or("Frame inexistente")?, &config, &digest)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -603,6 +708,9 @@ mod tests {
     #[test]
     fn validates_geometry_and_initial_box_without_accepting_crossed_vertices() {
         assert!(validate_config(&valid_config()).is_ok());
+        let mut automatic = valid_config();
+        automatic["mode"] = json!("auto");
+        assert!(validate_config(&automatic).is_ok());
         let mut config = valid_config();
         config["initialBox"]["width"] = json!(500);
         assert!(validate_config(&config).is_err());
@@ -686,6 +794,46 @@ mod tests {
         fs::remove_file(path).unwrap();
         fs::remove_dir(directory).unwrap();
     }
+    #[test]
+    fn ram_color_requires_session_parameters_and_cannot_run_as_oft() {
+        let mut c = valid_config();
+        c["strategy"] = json!("ram_color_geometry_v2");
+        c["protocol"] = json!("radial_arm_maze");
+        c["walkablePolygonPx"] = c["arena"]["cornersPx"].clone();
+        c["ramColor"] = json!({"valueMin":80,"saturationMin":25,"labBMin":135,"minAreaPx":280,"maxAreaPx":72000,
+            "minDensity":0.12,"maxSpeedFraction":0.21,"reacquireSec":0.5,"ambiguityMargin":0.4});
+        assert!(validate_config(&c).is_ok());
+        c["protocol"] = json!("open_field");
+        assert!(validate_config(&c).is_err());
+        c["protocol"] = json!("radial_arm_maze");
+        c["ramColor"]["maxAreaPx"] = json!(1);
+        assert!(validate_config(&c).is_err());
+    }
+
+    #[test]
+    fn ram_review_is_append_only_and_checks_source_clock_and_video() {
+        let mut db = rusqlite::Connection::open_in_memory().unwrap();
+        db.execute_batch("PRAGMA foreign_keys=ON").unwrap();
+        crate::database::migrate(&mut db).unwrap();
+        db.execute("INSERT INTO local_tracking_jobs(job_id,experiment_id,upload_id,video_sha256,config_json,state) VALUES ('job','experiment','upload',?1,'{}','succeeded')", ["a".repeat(64)]).unwrap();
+        let c=json!({"protocol":"radial_arm_maze","width":320,"height":240});
+        let sample=json!({"frameIndex":7,"timestampSec":0.28});
+        let mut event=json!({"id":"edit-1","type":"SET_BOX","runId":"job","sourceVideoSha256":"a".repeat(64),
+            "frameIndex":7,"timestampSec":0.28,"source":"manual","keypoint":"box_center",
+            "afterBox":{"x":20,"y":30,"width":40,"height":50}});
+        assert!(store_ram_review(&db,"job",&event,&sample,&c,&"a".repeat(64)).is_ok());
+        assert!(store_ram_review(&db,"job",&event,&sample,&c,&"a".repeat(64)).is_err());
+        event["id"]=json!("edit-2"); event["timestampSec"]=json!(0.3);
+        assert!(store_ram_review(&db,"job",&event,&sample,&c,&"a".repeat(64)).is_err());
+        event["timestampSec"]=json!(0.28); event["sourceVideoSha256"]=json!("b".repeat(64));
+        assert!(store_ram_review(&db,"job",&event,&sample,&c,&"a".repeat(64)).is_err());
+        event["sourceVideoSha256"]=json!("a".repeat(64)); event["type"]=json!("REVERT_EVENT"); event["targetEventId"]=json!("edit-1");
+        assert!(store_ram_review(&db,"job",&event,&sample,&c,&"a".repeat(64)).is_ok());
+        assert_eq!(db.query_row("SELECT count(*) FROM ram_review_events",[],|r|r.get::<_,i64>(0)).unwrap(),2);
+        db.execute("DELETE FROM local_tracking_jobs WHERE job_id='job'",[]).unwrap();
+        assert_eq!(db.query_row("SELECT count(*) FROM ram_review_events",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+    }
+
     #[test]
     fn incremental_reads_wait_for_complete_lines_and_limit_each_batch() {
         let directory =

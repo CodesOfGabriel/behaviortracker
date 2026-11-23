@@ -56,7 +56,7 @@ it("edita a preparação RAM com um único contorno antes dos potes", () => {
   };
   const html = renderToString(createElement(AppStoreProvider, null, createElement(RadialArmMazeExperimentWizard, { existing, onBack: () => {} })));
   expect(html).toContain("Toda a área do labirinto");
-  expect(html).toContain("fase <!-- -->1<!-- --> de 3");
+  expect(html).toContain("fase <!-- -->1<!-- --> de 4");
   expect(html).not.toContain("Braço B1");
   expect(html).not.toContain("Linha de entrada B1");
 });

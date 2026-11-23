@@ -1449,3 +1449,112 @@ html.desktop-chrome-mac .main-content { min-height: calc(100svh - 60px); }
 @media (max-width: 520px) {
   .topbar-colab-units, .mobile-brand > span { display: none; }
 }
+
+/* Resultados: uma área de trabalho por vez, com respiro consistente nos cartões. */
+[hidden] { display: none !important; }
+input[type="checkbox"], input[type="radio"],
+.fst-wizard input[type="checkbox"], .fst-wizard input[type="radio"] {
+  flex: 0 0 16px; width: 16px; height: 16px; min-width: 16px; min-height: 16px;
+  margin: 2px 0 0; padding: 0; accent-color: #00d9a0;
+}
+.results-page { padding-top: clamp(18px, 2.5vh, 30px); }
+.results-page > .back-link { margin-bottom: 12px; }
+.results-page .page-heading { align-items: center; gap: 16px 28px; margin-bottom: 18px; }
+.results-page .page-heading h1 { margin: 5px 0; }
+.results-page .page-heading p { max-width: 70ch; }
+.results-page .results-actions { justify-content: flex-end; }
+.results-page .editor-tabs { margin: 0 0 16px; padding: 0 8px; border: 1px solid #39433e; border-radius: 12px; background: #151a18; }
+.results-page .editor-tabs > [role="tab"] { padding: 13px 16px; font-size: 12px; }
+.results-page [role="tabpanel"] { min-width: 0; }
+.results-page .local-analysis-panel, .results-page .ram-colab-panel,
+.results-page .fst-result-content > section, .results-page .ram-results-grid > .panel {
+  margin: 0; padding: 24px; border: 1px solid #39453f; border-radius: 14px; background: #191f1c;
+}
+.results-page .local-analysis-panel > h2, .results-page .local-analysis-panel .panel-header h2,
+.results-page .ram-colab-panel h2 { margin: 0 0 7px; font-size: 19px; line-height: 1.25; }
+.results-page .local-analysis-panel > p, .results-page .local-analysis-panel .panel-header p,
+.results-page .ram-colab-panel > p { max-width: 75ch; margin: 0; color: #b9c8be; font-size: 12px; line-height: 1.55; }
+.results-page .local-analysis-panel .panel-header { padding: 0; }
+.results-page .local-analysis-panel .validation-box, .results-page .ram-status-note {
+  display: flex; align-items: flex-start; gap: 10px; margin: 14px 0; padding: 12px 14px;
+  border-radius: 10px; font-size: 11px; line-height: 1.5;
+}
+.results-page .validation-box svg { flex: none; }
+.results-page .local-environment { margin: 10px 0 0; color: #aebdb3; font-size: 11px; }
+.results-page .local-analysis-settings { display: grid; gap: 10px; margin: 14px 0; }
+.results-page .local-auto-note { margin: 0; color: #c7ded0; font-size: 11px; line-height: 1.5; }
+.results-page .local-analysis-settings .local-reference-approval { max-width: 70ch; margin: 0; }
+.results-page .local-options summary { width: fit-content; color: #b9c9bf; cursor: pointer; font-size: 11px; }
+.results-page .local-options .local-reference-approval { margin-top: 10px; }
+.results-page .local-analysis-panel > .results-actions,
+.results-page .ram-colab-panel > .results-actions { justify-content: flex-start; margin-top: 16px; }
+.results-page .local-detection-result { margin: 12px 0 0; color: #b7e8ce; font-size: 11px; }
+.results-page .local-job-history button[aria-pressed="true"] { color: #e9fff1; border-color: #56a87c; background: #244736; }
+.results-page .results-empty-panel { padding: 24px; color: #bccac0; }
+.results-page .results-runs-panel { margin-top: 14px; padding: 20px 24px; }
+.results-page .results-runs-panel:first-child { margin-top: 0; }
+.results-page .results-runs-panel h2 { margin: 0 0 12px; font-size: 16px; }
+.results-page .results-runs-panel p { margin: 0; color: #b9c8be; font-size: 12px; }
+.results-page .results-runs-panel .analysis-history-list { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 9px; }
+.results-page .results-runs-panel .analysis-run { display: block; padding: 13px; border: 1px solid #3f5347; border-radius: 9px; }
+.results-page .results-runs-panel .analysis-run strong { font-size: 12px; }
+.results-page .results-runs-panel .analysis-run span { margin-top: 6px; font-size: 11px; }
+.results-page #oft-pending-runs-panel .analysis-history-list { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 9px; }
+.results-page #oft-pending-runs-panel .analysis-run { display: block; padding: 13px; border: 1px solid #3f5347; border-radius: 9px; }
+.results-page #oft-pending-runs-panel .analysis-run strong { font-size: 12px; }
+.results-page #oft-pending-runs-panel .analysis-run small { display: block; margin-top: 6px; color: #bac8be; font-size: 11px; }
+.results-page .export-drawer { margin: 0; padding: 20px 24px; }
+.results-page .export-drawer h2 { font-size: 15px; }
+.results-page .export-drawer p { font-size: 11px; }
+.results-page .export-buttons { gap: 8px; }
+.results-page .metric-card > span, .results-page .metric-card > small { font-size: 11px; line-height: 1.4; }
+.results-page .metric-card > strong { font-size: 20px; }
+.results-page .metric-card { padding: 18px; }
+.results-page .results-context { flex-wrap: wrap; gap: 9px 14px; padding: 14px 18px; }
+.results-page .results-context > span:not(.badge) { font-size: 11px; }
+.results-page .results-main-grid, .results-page .results-detail-grid { margin-top: 0; }
+.results-page .ram-results-grid { display: block; margin: 0; }
+.results-page .ram-geometry-preview { width: 100%; max-height: min(55dvh, 620px); }
+.results-page .fst-player { max-height: min(54dvh, 580px); }
+.results-page .fst-player-panel .panel-header { padding: 0 0 12px; }
+.results-page .fst-result-content > section { margin-top: 0; }
+.dashboard-page { padding-top: clamp(18px, 2.5vh, 30px); }
+.dashboard-page .page-heading { margin-bottom: 18px; }
+.dashboard-page .recent-panel { min-height: 0; }
+.dashboard-page .recent-panel .panel-header { align-items: center; gap: 14px; padding: 18px 20px; }
+.dashboard-page .recent-panel .panel-header p { font-size: 11px; line-height: 1.45; }
+.dashboard-page .experiment-list { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; padding: 16px 20px 20px; }
+.dashboard-page .experiment-row { flex: 1 1 260px; max-width: 390px; min-height: 192px; padding: 16px; }
+.dashboard-page .experiment-main h3 { font-size: 14px; line-height: 1.3; overflow-wrap: anywhere; }
+.dashboard-page .experiment-main > p { font-size: 11px; line-height: 1.4; }
+.dashboard-page .experiment-meta { gap: 6px 12px; font-size: 10px; line-height: 1.4; }
+.experiment-header-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 10px 16px; }
+.experiment-header-actions .text-button { color: #cbded1; font-size: 11px; }
+.experiment-pagination { display: flex; align-items: center; gap: 7px; color: #bdcac0; font-size: 11px; white-space: nowrap; }
+.experiment-pagination button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid #4a574f; border-radius: 8px; color: #e1eee5; background: #27312a; }
+.experiment-pagination button:hover:not(:disabled) { border-color: #8daf97; }
+.experiment-pagination button:disabled { opacity: .4; }
+.experiment-pagination button:focus-visible { outline: 2px solid #a1e5be; outline-offset: 2px; }
+.settings-page { padding-top: clamp(18px, 2.5vh, 30px); }
+.settings-page .page-heading { margin-bottom: 18px; }
+.settings-page .editor-tabs { margin-bottom: 16px; padding: 0 8px; border: 1px solid #39433e; border-radius: 12px; }
+.settings-page .researcher-card, .settings-page .colab-hero { margin: 0; padding: 24px; }
+.settings-page .colab-advanced { margin-top: 14px; }
+@media (max-width: 780px) {
+  .results-page .page-heading { align-items: flex-start; flex-direction: column; }
+  .results-page .results-actions { justify-content: flex-start; }
+  .results-page .local-analysis-panel, .results-page .ram-colab-panel,
+  .results-page .fst-result-content > section, .results-page .ram-results-grid > .panel { padding: 18px; }
+  .results-page .editor-tabs > [role="tab"] { padding: 11px 12px; }
+  .dashboard-page .experiment-list { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+}
+
+.ram-review-video { position: relative; width: 100%; background: #090c10; }
+.ram-review-video video { display: block; width: 100%; height: auto; }
+.ram-review-video svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.ram-review-panel { display: grid; gap: 1rem; margin-top: 1.5rem; }
+.ram-review-panel input[type="range"], .ram-displacement-chart { width: 100%; }
+.ram-box-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; }
+.ram-box-fields input { width: 100%; }
+.ram-review-panel table { width: 100%; text-align: left; border-collapse: collapse; }
+.ram-review-panel td, .ram-review-panel th { padding: .5rem; border-bottom: 1px solid #35404b; }
