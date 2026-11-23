@@ -12,7 +12,7 @@ export function EditorTabs<T extends string>({ id, label, items, value, onChange
   };
   return <div className="editor-tabs" role="tablist" aria-label={label}>
     {items.map((item, index) => <button key={item.id} id={`${id}-${item.id}-tab`} role="tab" type="button"
-      aria-selected={value === item.id} aria-controls={value === item.id ? `${id}-${item.id}-panel` : undefined} tabIndex={value === item.id ? 0 : -1}
+      aria-selected={value === item.id} aria-controls={`${id}-${item.id}-panel`} tabIndex={value === item.id ? 0 : -1}
       onClick={() => onChange(item.id)} onKeyDown={(event) => keyboard(event, index)}>{item.label}</button>)}
   </div>;
 }

@@ -44,7 +44,7 @@ export function scalePoseToOriginal(samples: PoseSample[], video: Pick<VideoMeta
     yPx: sample.yPx === null ? null : sample.yPx * y,
     bbox: sample.bbox ? scaleBox(sample.bbox, x, y) : undefined,
     contour: sample.contour?.map(point => scalePoint(point, x, y)),
-    uncertaintyPx: sample.uncertaintyPx === undefined ? undefined : sample.uncertaintyPx * Math.max(x, y),
+    uncertaintyPx: sample.uncertaintyPx == null ? sample.uncertaintyPx : sample.uncertaintyPx * Math.max(x, y),
     original: sample.original ? { ...sample.original,
       xPx: sample.original.xPx === null ? null : sample.original.xPx * x,
       yPx: sample.original.yPx === null ? null : sample.original.yPx * y,

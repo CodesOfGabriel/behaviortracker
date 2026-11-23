@@ -577,7 +577,7 @@ function TrackingReviewEditor({ experimentId }: { experimentId: string }) {
       }
       if ((experiment.analysisEngine ?? "wistar_superanimal_hybrid_v1") === "wistar_superanimal_hybrid_v1") {
         const bundle = await getHybridBundleStatus(bundleId);
-        if (!bundle.installed) throw new Error(bundle.error || `Bundle ${bundleId} ausente`);
+        if (!bundle.installed && !bundle.remoteAvailable) throw new Error(bundle.error || `Bundle ${bundleId} ausente`);
       }
       if (preparation && !await checkVideoStaging(experiment.id, preparation.uploadId)) preparation = undefined;
       if (!preparation && !videoFile) {

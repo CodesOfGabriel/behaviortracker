@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { PoseSample } from "../../types";
+import type { CorrectionEvent, PoseSample } from "../../types";
 
 export type LocalEnvironment = { ready: boolean; version?: string; message?: string; openclAvailable?: boolean };
 export type LocalJob = {
@@ -12,6 +12,7 @@ export type LocalJob = {
   uploadId: string;
   config: Record<string, unknown>;
   report: { phase?: string; referenceFrames?: number; framesProcessed?: number; totalFrames?: number; processingFps?: number; observationCoveragePct?: number; computeBackend?: string;
+    segmentationSelection?: { mode: "dark" | "light"; threshold: number; sampledFrames: number; inspectedFrames?: number; validFrames?: number; method: string } | null;
     cameraMotionState?: "stable" | "drift" | "unavailable"; cameraUncertainFrames?: number; cameraMotionPx?: number | null };
 };
 
@@ -35,3 +36,6 @@ export type LocalFstResult = {
 export const startLocalFst = (experimentId: string, uploadId: string, config: Record<string, unknown>) =>
   invoke<LocalJob>("start_local_fst", { experimentId, uploadId, config });
 export const loadLocalFstResult = (jobId: string) => invoke<LocalFstResult>("get_local_fst_result", { jobId });
+
+export const listRamReviewEvents = (jobId: string) => invoke<CorrectionEvent[]>("list_ram_review_events", { jobId });
+export const appendRamReviewEvent = (jobId: string, event: CorrectionEvent) => invoke<void>("append_ram_review_event", { jobId, event });

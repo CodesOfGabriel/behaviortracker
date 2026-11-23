@@ -13,7 +13,7 @@ export async function walkableMaskVersion(geometry: RadialMazeGeometry): Promise
 
 export function newGeometryRevision(current: RadialMazeExperiment, next: RadialMazeGeometry): Pick<RadialMazeExperiment, "geometry" | "geometryHistory" | "status" | "trackingSelection"> {
   return { geometry: { ...next, revision: current.geometry.revision + 1 },
-    geometryHistory: [...(current.geometryHistory ?? []), current.geometry], status: "draft", trackingSelection: undefined };
+    geometryHistory: [...(current.geometryHistory ?? []), current.geometry], status: "draft", trackingSelection: current.geometry.walkableMaskVersion === next.walkableMaskVersion ? current.trackingSelection : undefined };
 }
 
 export function pointInPolygon(point: Point, polygon: Point[]): boolean {
@@ -122,6 +122,7 @@ export function validateRadialRewards(geometry: RadialMazeGeometry): string | nu
 
 export function validateRadialGates(geometry: RadialMazeGeometry): string | null {
   for (const arm of geometry.arms) {
+    if (arm.entryGatePx.length !== 2 || arm.distalGatePx.length !== 2) return `B${arm.id}: marque duas linhas com dois pontos cada.`;
     if (![...arm.entryGatePx, ...arm.distalGatePx].every(p => pointInPolygon(p, arm.polygonPx))
       || arm.entryGatePx[0].x === arm.entryGatePx[1].x && arm.entryGatePx[0].y === arm.entryGatePx[1].y
       || arm.distalGatePx[0].x === arm.distalGatePx[1].x && arm.distalGatePx[0].y === arm.distalGatePx[1].y) return `B${arm.id}: linhas de entrada e distal precisam ter dois pontos distintos no braço.`;
@@ -143,7 +144,8 @@ export function validateRadialGeometry(geometry: RadialMazeGeometry, width: numb
 }
 
 export function spatialRegion(point: Point | null, geometry: RadialMazeGeometry): "CENTER" | `ARM_${ArmId}` | `DISTAL_${ArmId}` | "UNKNOWN" {
-  if (!point || geometry.walkablePolygonPx !== undefined) return "UNKNOWN";
+  if (!point) return "UNKNOWN";
+  if (geometry.walkablePolygonPx && (!geometry.eventGeometryConfirmed || !pointInPolygon(point, geometry.walkablePolygonPx))) return "UNKNOWN";
   if (pointInPolygon(point, geometry.centerPolygonPx)) return "CENTER";
   const arm = geometry.arms.find(item => pointInPolygon(point, item.polygonPx));
   if (!arm) return "UNKNOWN";
@@ -163,4 +165,17 @@ export function crossesGate(from: Point, to: Point, gate: [Point, Point]): boole
   const alongMovement = (ax * gy - ay * gx) / determinant;
   const alongGate = (ax * dy - ay * dx) / determinant;
   return alongMovement >= 0 && alongMovement <= 1 && alongGate >= 0 && alongGate <= 1;
+}
+
+// The spatial mask and event references are separate contracts.
+export function validateRamEventGeometry(geometry: RadialMazeGeometry, width: number, height: number, requireConfirmation = true): string | null {
+  const events = { ...geometry, walkablePolygonPx: undefined };
+  const error = validateRadialArea(events, width, height) || validateRadialCups(geometry, width, height)
+    || validateRadialRewards(geometry) || validateRadialGates(events);
+  if (error) return error;
+  if (geometry.arms.some(a => !overlaps(a.cupPolygonPx, a.polygonPx))) return "Cada pote precisa se sobrepor ao braço correspondente.";
+  if (geometry.walkablePolygonPx && [geometry.centerPolygonPx, ...geometry.arms.map(a => a.polygonPx)]
+    .some(polygon => !containedInPolygon(polygon, geometry.walkablePolygonPx!))) return "As regiões precisam estar dentro da área transitável.";
+  if (requireConfirmation && geometry.walkablePolygonPx && !geometry.eventGeometryConfirmed) return "Confirme as referências dos oito braços.";
+  return null;
 }

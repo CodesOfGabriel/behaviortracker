@@ -56,6 +56,8 @@ pub fn run() {
             open_legal_page,
             open_colab_home,
             local_tracking::get_local_tracking_result,
+            local_tracking::list_ram_review_events,
+            local_tracking::append_ram_review_event,
             local_tracking::get_local_tracking_environment,
             local_tracking::setup_local_tracking_environment,
             local_tracking::start_local_tracking,

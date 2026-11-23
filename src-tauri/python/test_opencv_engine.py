@@ -9,7 +9,7 @@ try:
     import numpy as np
 except ImportError:
     cv2 = np = None
-from opencv_engine import HybridSegmenter, ManualVisualTracker, Segmenter, TemporalTracker, run
+from opencv_engine import HybridSegmenter, ManualVisualTracker, Segmenter, TemporalTracker, run, select_segmentation
 
 
 def config(**overrides):
@@ -33,6 +33,28 @@ class OpenCVTests(unittest.TestCase):
         image=np.zeros((240,320,3),np.uint8)
         if x is not None: cv2.ellipse(image,(x,y),(12,8),0,0,360,(255,255,255),-1)
         return image
+
+    def test_auto_recognizes_light_and_dark_animals(self):
+        for animal, background, expected in [(255, 0, "light"), (0, 255, "dark")]:
+            frames = []
+            for index in range(8):
+                image = np.full((240, 320, 3), background, np.uint8)
+                cv2.ellipse(image, (100 + index * 2, 100), (12, 8), 0, 0, 360, (animal,) * 3, -1)
+                frames.append((index, image))
+            decision = select_segmentation(frames, config())
+            self.assertEqual(decision["mode"], expected)
+            self.assertGreaterEqual(decision["sampledFrames"], 8)
+            self.assertTrue(1 <= decision["threshold"] <= 254)
+
+    def test_auto_rejects_ambiguous_polarity(self):
+        frames = []
+        for index in range(8):
+            image = np.full((240, 320, 3), 128, np.uint8)
+            cv2.ellipse(image, (100 + index, 100), (12, 8), 0, 0, 360, (0, 0, 0), -1)
+            cv2.ellipse(image, (210 - index, 100), (12, 8), 0, 0, 360, (255, 255, 255), -1)
+            frames.append((index, image))
+        with self.assertRaisesRegex(ValueError, "não pôde ser reconhecido"):
+            select_segmentation(frames, config())
 
     def test_stationary_animal_does_not_disappear(self):
         segmenter=Segmenter(config())
@@ -72,11 +94,14 @@ class OpenCVTests(unittest.TestCase):
             root=Path(directory);video=root/"input.mp4"
             for index in range(12):(root/f"frame{index:02d}.png").write_bytes(cv2.imencode(".png",self.frame(100+index))[1].tobytes())
             subprocess.run([shutil.which("ffmpeg"),"-v","error","-framerate","24","-i",str(root/"frame%02d.png"),"-c:v","libx264","-pix_fmt","yuv420p",str(video)],check=True)
-            (root/"request.json").write_text(json.dumps({"video":str(video),"config":config(),"ffprobe":shutil.which("ffprobe"),"ffmpeg":shutil.which("ffmpeg")}))
+            cfg=config();cfg["mode"]="auto"
+            (root/"request.json").write_text(json.dumps({"video":str(video),"config":cfg,"ffprobe":shutil.which("ffprobe"),"ffmpeg":shutil.which("ffmpeg")}))
             run(root/"request.json")
             report=json.loads((root/"status.json").read_text())
             records=[json.loads(line) for line in (root/"samples.jsonl").read_text().splitlines()]
             self.assertEqual(report["state"],"succeeded")
+            self.assertEqual(report["segmentationSelection"]["mode"],"light")
+            self.assertGreaterEqual(report["segmentationSelection"]["validFrames"],2)
             self.assertEqual(report["cameraMotionState"],"unavailable")
             self.assertEqual(report["cameraUncertainFrames"],0)
             self.assertEqual(len(records),12)

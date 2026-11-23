@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://behavetracker.local/schemas/ram-local.schema.json",
+  "title": "RAM Color v2 manifest",
+  "type": "object",
+  "required": ["schemaVersion", "algorithmVersion", "config", "timing", "maskScale", "sourceVideoPreserved", "scientificallyValidated"],
+  "properties": {
+    "schemaVersion": { "const": "ram-local-2" },
+    "algorithmVersion": { "const": "ram-color-geometry-2" },
+    "timing": { "const": "ffprobe_pts" },
+    "maskScale": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+    "sourceVideoPreserved": { "const": true },
+    "scientificallyValidated": { "const": false },
+    "config": {
+      "type": "object",
+      "required": ["jobId", "protocol", "strategy", "videoSha256", "walkablePolygonPx", "geometryRevision", "walkableMaskVersion", "ramColor"],
+      "properties": {
+        "protocol": { "const": "radial_arm_maze" },
+        "strategy": { "const": "ram_color_geometry_v2" },
+        "videoSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "ramColor": { "type": "object" }
+      }
+    }
+  },
+  "$defs": {
+    "sample": {
+      "type": "object",
+      "required": ["frameIndex", "timestampSec", "observationState", "source", "xPx", "yPx", "reason", "bodyBbox", "fullAnimalBbox", "pose"],
+      "properties": {
+        "frameIndex": { "type": "integer", "minimum": 0 },
+        "timestampSec": { "type": "number", "minimum": 0 },
+        "observationState": { "enum": ["observed", "uncertain", "missing"] },
+        "source": { "const": "segmented" },
+        "fullAnimalBbox": { "type": "null" },
+        "pose": { "type": "null" },
+        "reason": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [{ "if": { "properties": { "observationState": { "const": "missing" } } }, "then": { "properties": { "xPx": { "type": "null" }, "yPx": { "type": "null" }, "bodyBbox": { "type": "null" } } } }]
+    }
+  }
+}

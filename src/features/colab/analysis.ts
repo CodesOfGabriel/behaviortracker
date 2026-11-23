@@ -6,7 +6,7 @@ import { preparedGeometry, scaleTanksToUpload } from "./videoGeometry";
 const STAGING_CHUNK_SIZE = 4 * 1024 * 1024;
 export type HybridBundleId = "wistar_df_v1" | "wistar_df_v2";
 export const LATEST_HYBRID_BUNDLE_ID: HybridBundleId = "wistar_df_v2";
-export type HybridBundleStatus = { bundleId: HybridBundleId; installed: boolean; error: string | null };
+export type HybridBundleStatus = { bundleId: HybridBundleId; installed: boolean; remoteAvailable?: boolean; error: string | null };
 
 export function getHybridBundleStatus(bundleId: HybridBundleId) {
   return invoke<HybridBundleStatus>("hybrid_bundle_status", { bundleId });

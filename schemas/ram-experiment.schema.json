@@ -24,6 +24,7 @@
       "timingSource": { "enum": ["browser-estimate", "ffprobe", "synthetic"] },
       "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
     } },
+    "spatialCalibration": { "type": "object", "required": ["pixelsPerCm", "method"], "properties": { "pixelsPerCm": { "type": "number", "exclusiveMinimum": 0 }, "method": { "const": "planar_uniform" } } },
     "geometry": { "$ref": "#/$defs/geometry" },
     "geometryHistory": { "type": "array", "items": { "$ref": "#/$defs/geometry" } },
     "visitPolicy": { "$ref": "#/$defs/policy" },
@@ -43,6 +44,7 @@
     } },
     "geometry": { "type": "object", "required": ["revision", "arms", "walkableMaskVersion", "referenceFrameSec"], "properties": {
       "revision": { "type": "integer", "minimum": 1 },
+      "eventGeometryConfirmed": { "type": "boolean" },
       "centerPolygonPx": { "type": "array", "items": { "$ref": "#/$defs/point" } },
       "walkablePolygonPx": { "$ref": "#/$defs/polygon" },
       "arms": { "type": "array", "minItems": 8, "maxItems": 8, "items": { "$ref": "#/$defs/arm" } },
