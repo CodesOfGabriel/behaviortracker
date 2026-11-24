@@ -8,7 +8,7 @@ A página usa a logo da aplicação, cards e abas de shadcn/ui já presentes no 
 
 Em `src/features/web/downloads.ts`, atualize `desktopRelease.version` somente depois de publicar e conferir os cinco instaladores da versão correspondente. O padrão de nomes é o mesmo de `.github/workflows/publish-desktop-release.yml`. A versão de desenvolvimento do `package.json` não é usada para anunciar um instalador ainda não publicado. A página não depende de consultas à API do GitHub durante a visita.
 
-Os links iniciais correspondem à versão pública `v0.1.4`, cujos cinco assets foram conferidos via API do GitHub em 24/11/2026.
+Os links correspondem à versão pública `v0.1.5`, cujos cinco assets foram conferidos via API do GitHub em 24/11/2026.
 
 ## Build e serviço
 

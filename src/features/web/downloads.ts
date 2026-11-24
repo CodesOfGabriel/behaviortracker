@@ -1,6 +1,6 @@
 // Keep this version aligned with a published desktop release, not the development package.
 export const desktopRelease = {
-  version: "0.1.4",
+  version: "0.1.5",
   repository: "https://github.com/CodesOfGabriel/behaviortracker",
 };
 
