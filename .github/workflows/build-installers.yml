@@ -62,7 +62,9 @@ jobs:
       - name: Prepare bundled FFmpeg and ffprobe
         shell: bash
         run: |
-          npm install --no-save --no-package-lock ffmpeg-static@5.3.0 @derhuerst/ffprobe-static@5.3.0
+          export BEHAVETRACKER_VIDEO_TOOLS_DIR="$RUNNER_TEMP/behavetracker-video-tools"
+          echo "BEHAVETRACKER_VIDEO_TOOLS_DIR=$BEHAVETRACKER_VIDEO_TOOLS_DIR" >> "$GITHUB_ENV"
+          npm install --prefix "$BEHAVETRACKER_VIDEO_TOOLS_DIR" --no-package-lock --no-audit --no-fund ffmpeg-static@5.3.0 @derhuerst/ffprobe-static@5.3.0
           node scripts/prepare-video-tools.mjs
 
       - name: Verify model registry and lightweight resources

@@ -3,7 +3,10 @@ import { createRequire } from "node:module";
 import { join, resolve, delimiter } from "node:path";
 import { spawnSync } from "node:child_process";
 
-const require = createRequire(import.meta.url);
+// Keep CI's native tool packages separate from the application's locked dependency tree.
+const require = process.env.BEHAVETRACKER_VIDEO_TOOLS_DIR
+  ? createRequire(resolve(process.env.BEHAVETRACKER_VIDEO_TOOLS_DIR, "package.json"))
+  : createRequire(import.meta.url);
 const target = process.env.BEHAVETRACKER_TARGET || {
   "darwin:x64": "x86_64-apple-darwin", "darwin:arm64": "aarch64-apple-darwin",
   "win32:x64": "x86_64-pc-windows-msvc", "linux:x64": "x86_64-unknown-linux-gnu",
@@ -50,7 +53,8 @@ for (const name of ["ffmpeg", "ffprobe"]) {
 }
 
 const notice = join(outputDir, "VIDEO_TOOLS_LICENSE.txt");
-const bundledLicense = resolve("node_modules/ffmpeg-static/LICENSE");
-if (existsSync(bundledLicense)) copyFileSync(bundledLicense, notice);
+let bundledLicense;
+try { bundledLicense = require.resolve("ffmpeg-static/LICENSE"); } catch { /* System binary fallback. */ }
+if (bundledLicense && existsSync(bundledLicense)) copyFileSync(bundledLicense, notice);
 else writeFileSync(notice, "FFmpeg and ffprobe are distributed under the licenses reported by their binary builds.\nSources and license information: https://ffmpeg.org/legal.html\nStatic binary distributors: https://github.com/eugeneware/ffmpeg-static\n");
-if (existsSync(bundledLicense)) appendFileSync(notice, "\nBinary sources and build information: https://github.com/eugeneware/ffmpeg-static\nFFmpeg source and license information: https://ffmpeg.org/legal.html\n");
+if (bundledLicense && existsSync(bundledLicense)) appendFileSync(notice, "\nBinary sources and build information: https://github.com/eugeneware/ffmpeg-static\nFFmpeg source and license information: https://ffmpeg.org/legal.html\n");
