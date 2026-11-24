@@ -11,7 +11,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "opencv-box-5"
+VERSION = "opencv-box-6"
 
 
 def write_json(path, value):
@@ -472,6 +472,85 @@ class Segmenter:
                 "contour": [{"x": p[0], "y": p[1]} for p in original]}
 
 
+def segmentation_thresholds(samples, config):
+    """Gera limiares candidatos a partir da luminância dentro da área analisável."""
+    import cv2 as cv
+    import numpy as np
+    if len(samples) < 2:
+        raise ValueError("Vídeo curto demais para reconhecer o contraste do animal na arena")
+    probe = Segmenter({**config, "mode": "light"})
+    pixels = np.concatenate([probe.gray(frame)[probe.roi > 0][::8] for _, frame in samples])
+    otsu = cv.threshold(pixels.reshape(-1, 1), 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU)[0]
+    clamp = lambda value: max(1, min(254, int(round(value))))
+    quantile = lambda q: float(np.quantile(pixels, q))
+    return {
+        "dark": sorted({clamp(value) for value in (otsu, quantile(.03), quantile(.08), quantile(.15), quantile(.25), quantile(.05)-8)}),
+        "light": sorted({clamp(value) for value in (otsu, quantile(.75), quantile(.85), quantile(.9), quantile(.95), quantile(.97), quantile(.95)+8)}),
+    }
+
+
+def evaluate_segmentation(frames, config, thresholds, sampled_frames):
+    """Pontua cada candidato por observações válidas em frames consecutivos."""
+    candidates = {(mode, threshold): Segmenter({**config, "mode": mode, "threshold": threshold})
+                  for mode, values in thresholds.items() for threshold in values}
+    score = {candidate: 0. for candidate in candidates}
+    valid = {candidate: 0 for candidate in candidates}
+    count = 0
+    for index, frame in frames:
+        count += 1
+        for candidate, detector in candidates.items():
+            result = detector.process(frame, index / 30.)
+            if result["source"] == "segmented" and result["status"] == "valid":
+                score[candidate] += 3
+                valid[candidate] += 1
+            elif result["source"] == "segmented" and result["status"] == "low_confidence":
+                score[candidate] += .15
+            elif result.get("reason") == "ambiguous":
+                score[candidate] -= 2
+    ranked = sorted(score, key=score.get, reverse=True)
+    selected = ranked[0]
+    competing_mode = max((item for item in ranked if item[0] != selected[0]), key=score.get)
+    if (valid[selected] < max(2, math.ceil(count * .08)) or score[selected] < 6
+            or score[selected] - score[competing_mode] < max(3., score[selected] * .2)):
+        raise ValueError("O contraste do animal não pôde ser reconhecido com segurança na área marcada. Confira o vídeo, a iluminação e a geometria antes de analisar.")
+    return {"mode": selected[0], "threshold": selected[1], "sampledFrames": sampled_frames,
+            "inspectedFrames": count, "validFrames": valid[selected],
+            "scores": {f"{mode}:{threshold}": round(value, 2) for (mode, threshold), value in score.items()},
+            "method": "roi_luminance_candidate_tracking_2"}
+
+
+def select_segmentation(samples, config):
+    return evaluate_segmentation(samples, config, segmentation_thresholds(samples, config), len(samples))
+
+
+def inspect_video_segmentation(video, ffmpeg, config):
+    import cv2 as cv
+    width, height = config["width"], config["height"]
+    scale = min(1., config.get("maxWidth", 1280) / width)
+    size = (round(width * scale), round(height * scale))
+    capture = read_frames(video, ffmpeg, width, height)
+    samples = []
+    try:
+        for index, frame in enumerate(capture):
+            if index < 3 or index % 20 == 0:
+                samples.append((index, cv.resize(frame, size)))
+            if index >= 479:
+                break
+    finally:
+        capture.close()
+    thresholds = segmentation_thresholds(samples, config)
+    capture = read_frames(video, ffmpeg, width, height)
+    def evaluated_frames():
+        for index, frame in enumerate(capture):
+            yield index, frame
+            if index >= 479:
+                break
+    try:
+        return evaluate_segmentation(evaluated_frames(), config, thresholds, len(samples))
+    finally:
+        capture.close()
+
+
 def run(request_path):
     request = json.loads(Path(request_path).read_text(encoding="utf-8"))
     root, video = Path(request_path).parent, request["video"]
@@ -481,13 +560,20 @@ def run(request_path):
     profile = bool(config.get("benchmarkProfile", False))
     stage_seconds = {name: 0. for name in ("probe", "frame_read_wait", "tracking", "camera_guard", "serialization", "status_write")}
     frame_latencies_ms = []
-    counts = {"observed": 0, "predicted": 0, "missing": 0, "suspect": 0, "manual": 0, "visual": 0}
+    counts = {"observed": 0, "predicted": 0, "missing": 0, "suspect": 0, "manual": 0, "visual": 0, "uncertain": 0}
     metadata=json.loads(subprocess.check_output([request["ffprobe"],"-v","error","-select_streams","v:0","-show_streams","-of","json",video]))["streams"][0]
     if profile: stage_seconds["probe"] += time.perf_counter()-started
     total=int(metadata.get("nb_frames","0")) if str(metadata.get("nb_frames","")).isdigit() else 0
     rotation=any(float(side.get("rotation",0))%360 for side in metadata.get("side_data_list",[]))
     if (metadata["width"],metadata["height"]) != (config["width"], config["height"]) or rotation:
         raise ValueError("Resolução/rotação do vídeo não corresponde à arena. Reabra o original e confira a calibração")
+    selection = None
+    is_ram_color = config.get("strategy") == "ram_color_geometry_v2"
+    if config["mode"] == "auto" and not is_ram_color:
+        write_json(status_path, {"version": VERSION, "state": "running", "phase": "recognition",
+                                 "framesProcessed": 0, "totalFrames": total})
+        selection = inspect_video_segmentation(video, request["ffmpeg"], config)
+        config = {**config, "mode": selection["mode"], "threshold": selection["threshold"]}
     capture=read_frames(video,request["ffmpeg"],config["width"],config["height"])
     background = None
     if config["mode"] == "background":
@@ -500,6 +586,16 @@ def run(request_path):
         capture.close()
         capture=read_frames(video,request["ffmpeg"],config["width"],config["height"])
     segmenter = Segmenter(config, background)
+    color = None
+    if is_ram_color:
+        from ram_color import RamColorSegmenter, VERSION as color_version
+        color = RamColorSegmenter(config, segmenter)
+        config = {**config, "ramColor": color.params}
+        (root / "masks").mkdir(exist_ok=True)
+        segmenter.cv.imwrite(str(root / "walkable-mask.png"), segmenter.roi)
+        write_json(root / "run_manifest.json", {"schemaVersion": "ram-local-2", "algorithmVersion": color_version,
+            "config": config, "timing": "ffprobe_pts", "maskScale": segmenter.scale,
+            "sourceVideoPreserved": True, "scientificallyValidated": False})
     hybrid = HybridSegmenter(config, segmenter) if config.get("strategy") == "hybrid_kalman_v1" else None
     guidance = config.get("guidance") or {}
     anchors = guidance.get("anchors") or []
@@ -511,13 +607,14 @@ def run(request_path):
                        for i in range(min(8,len(anchors)))} if anchors else set()
     anchor_cursor = 0
     clock = timestamps(video, request["ffprobe"])
-    report = {"version": VERSION, "state": "running", "framesProcessed": 0, "totalFrames": total, "counts": counts,
+    report = {"version": VERSION, "state": "running", "phase": "tracking", "framesProcessed": 0, "totalFrames": total, "counts": counts,
               "reference": "box_center", "scientificallyValidated": False, "accuracyMeasured": False,
               "referenceApproved": config.get("referenceApproved", False), "timing": "ffprobe_pts", "elapsedSec": 0., "processingFps": 0.,
               "guidanceSourceJobId": guidance.get("sourceJobId"), "manualAnchorCount": len(anchors),
               "assistedMethod": "manual_templates_lk_1" if anchors else None,
               "strategy": config.get("strategy", "classic"), "neuralFallback": "unavailable" if hybrid else None,
               "computeBackend": "OpenCL parcial" if segmenter.opencl else "CPU",
+              "segmentationSelection": selection,
               "cameraMotionState": "unavailable", "cameraUncertainFrames": 0, "cameraMotionPx": None}
     write_json(status_path, report)
     index = 0
@@ -534,8 +631,11 @@ def run(request_path):
                         sample.update(status="low_confidence", spatialRegion="unknown",
                                       segmentReason=sample["reason"], reason="camera_shift",
                                       cameraMotionPx=segmenter.motion_guard.motion_px if current_drift else measured_px)
+                    if is_ram_color:
+                        sample["observationState"] = "missing" if sample["status"] == "missing" else "observed" if sample["status"] == "valid" and sample["source"] != "predicted" else "uncertain"
                     output.write(json.dumps(sample, allow_nan=False) + "\n")
                     bucket = "missing" if sample["status"] == "missing" else "manual" if sample["source"] == "manual" else "visual" if sample["source"] == "recovered" else "predicted" if sample["source"] == "predicted" else "observed"
+                    if is_ram_color and sample["status"] == "low_confidence": bucket = "uncertain"
                     counts[bucket] += 1
                     counts["suspect"] += sample["status"] == "low_confidence"
                     report["cameraUncertainFrames"] += flagged
@@ -592,6 +692,12 @@ def run(request_path):
                     else:
                         result = {"xPx": None, "yPx": None, "source": "recovered", "status": "missing",
                                   "reason": "assisted_visual_lost"}
+                elif color:
+                    result = color.process(frame, timestamp)
+                    mask_name = f"masks/{index:08d}.png"
+                    if not segmenter.cv.imwrite(str(root / mask_name), color.foreground):
+                        raise OSError("Não foi possível preservar a máscara RAM")
+                    result["maskArtifact"] = mask_name
                 elif hybrid:
                     result = hybrid.process(frame, timestamp)
                 else:

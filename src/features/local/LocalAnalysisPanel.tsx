@@ -28,8 +28,6 @@ export function LocalAnalysisPanel({ experiment, selectSource, colabBusy }: {
   const [jobs, setJobs] = useState<LocalJob[]>([]);
   const [settingUp, setSettingUp] = useState(false);
   const [running, setRunning] = useState(false);
-  const [mode, setMode] = useState<"dark" | "light">("dark");
-  const [threshold, setThreshold] = useState(110);
   const [useOpenCL, setUseOpenCL] = useState(false);
   const [referenceApproved, setReferenceApproved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,7 +88,7 @@ export function LocalAnalysisPanel({ experiment, selectSource, colabBusy }: {
       }
       const job = await startLocalJob(experiment.id, uploadId, {
         width: experiment.video.width, height: experiment.video.height,
-        mode, threshold, minAreaFraction: 0.0001, maxAreaFraction: 0.2,
+        mode: "auto", threshold: 110, minAreaFraction: 0.0001, maxAreaFraction: 0.2,
         maxWidth: 1280, maxPredictionSec: 0.25, referenceApproved,
         useOpenCL: useOpenCL && Boolean(environment.openclAvailable), strategy: "classic", arena: experiment.arena,
       });
@@ -135,23 +133,23 @@ export function LocalAnalysisPanel({ experiment, selectSource, colabBusy }: {
       : <div className="local-setup"><p>{environment?.message ?? "Verificando o ambiente local…"}</p>
         <Button variant="secondary" disabled={settingUp || !isTauriRuntime()} onClick={() => void setup()}>{settingUp ? "Preparando OpenCV…" : "Preparar análise local"}</Button></div>}
     <div className="local-analysis-settings">
-      <label>Animal no vídeo<select value={mode} onChange={event => setMode(event.target.value as "dark" | "light")} disabled={busy}>
-        <option value="dark">Escuro sobre fundo claro</option><option value="light">Claro sobre fundo escuro</option></select></label>
-      <label>Limiar de imagem <input type="number" min={1} max={254} value={threshold} disabled={busy}
-        onChange={event => setThreshold(Number(event.target.value))} /></label>
-      <label className="local-reference-approval"><input type="checkbox" checked={useOpenCL}
-        disabled={busy || !environment?.openclAvailable} onChange={event => setUseOpenCL(event.target.checked)} />
-        <span>Solicitar OpenCL nesta execução (experimental; padrão CPU).</span></label>
+      <p className="local-auto-note">O analisador estima o contraste do animal e escolhe o limiar a partir do vídeo. Revise as observações antes de interpretar resultados.</p>
       <label className="local-reference-approval"><input type="checkbox" checked={referenceApproved} disabled={busy}
         onChange={event => setReferenceApproved(event.target.checked)} />
         <span>Aprovo o centro da caixa segmentada como referência 2D para calcular métricas de Campo Aberto nesta execução.</span></label>
+      <details className="local-options"><summary>Opções avançadas</summary>
+        <label className="local-reference-approval"><input type="checkbox" checked={useOpenCL}
+          disabled={busy || !environment?.openclAvailable} onChange={event => setUseOpenCL(event.target.checked)} />
+          <span>Solicitar OpenCL nesta execução (experimental; padrão CPU).</span></label>
+      </details>
     </div>
-    <div className="results-actions"><Button disabled={busy || !environment?.ready || experiment.video.timingSource === "synthetic" || !Number.isInteger(threshold) || threshold < 1 || threshold > 254}
+    <div className="results-actions"><Button disabled={busy || !environment?.ready || experiment.video.timingSource === "synthetic"}
       onClick={() => void run()}>{running || active ? "Processando localmente…" : "Analisar localmente"}</Button>
       {active && <Button variant="secondary" onClick={() => void cancelLocalJob(active.jobId).catch(reason => setError(message(reason)))}>Cancelar</Button>}</div>
     {error && <div className="validation-box invalid" role="alert"><Info size={16} />{error}</div>}
     {active && <div className="local-progress" role="status"><strong>{active.report.framesProcessed ?? 0}{active.report.totalFrames ? ` / ${active.report.totalFrames}` : ""} frames</strong>
-      <span> · {active.report.processingFps?.toFixed(1) ?? "—"} FPS de processamento · {active.report.computeBackend ?? "CPU"}</span></div>}
+      <span> · {active.report.phase === "recognition" ? "Reconhecendo contraste do animal" : `${active.report.processingFps?.toFixed(1) ?? "—"} FPS de processamento · ${active.report.computeBackend ?? "CPU"}`}</span></div>}
+    {selected?.report.segmentationSelection && <p className="local-detection-result">Contraste estimado: {selected.report.segmentationSelection.mode === "dark" ? "animal escuro" : "animal claro"} · limiar {selected.report.segmentationSelection.threshold} · {selected.report.segmentationSelection.inspectedFrames ?? selected.report.segmentationSelection.sampledFrames} frames inspecionados.</p>}
     {analysisActivity[experiment.id]?.starting && !active && <p role="status">{analysisActivity[experiment.id].message}</p>}
     {jobs.length > 0 && <div className="local-job-history"><h3>Execuções locais</h3>
       {jobs.map(job => <button type="button" key={job.jobId} disabled={job.state !== "succeeded"}

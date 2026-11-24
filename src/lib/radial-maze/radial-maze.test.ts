@@ -108,6 +108,19 @@ describe("RAM isolado por protocolo", () => {
     expect(choices[0].timestampSec).toBe(0.3);
   });
 
+  it("mantém escolhas posteriores pendentes quando a lacuna pode esconder visitas", () => {
+    const nearby = { ...geometry, arms: geometry.arms.map(arm => arm.id === 1 ? { ...arm,
+      polygonPx: square(500, 420, 100), cupPolygonPx: square(570, 445, 20),
+      entryGatePx: [{ x: 520, y: 425 }, { x: 520, y: 515 }] as [typeof arm.entryGatePx[0], typeof arm.entryGatePx[1]],
+      distalGatePx: [{ x: 560, y: 425 }, { x: 560, y: 515 }] as [typeof arm.distalGatePx[0], typeof arm.distalGatePx[1]],
+    } : arm) };
+    const frames = [frame(0,0,450),frame(1,.1,null),frame(2,.2,450),frame(3,.4,450),frame(4,.5,510),frame(5,.7,540)];
+    const result=detectRamChoices(frames,nearby,policy);
+    expect(result).toHaveLength(1);
+    expect(result[0].status).toBe("pending");
+    expect(calculateRamMetrics(result,[1,3,5,7]).correct).toBe(0);
+  });
+
   it("não trata uma escolha posterior no mesmo braço incerto como revisita confirmada", () => {
     const choices = [
       { armId: 1 as ArmId, frameIndex: 10, timestampSec: 1, distalReached: false, status: "pending" as const },

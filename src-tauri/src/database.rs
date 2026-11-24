@@ -2,9 +2,10 @@ use rusqlite::Connection;
 
 use crate::oauth::{migrate_credential_state, CommandResult};
 
-const MIGRATIONS: [&str; 2] = [
+const MIGRATIONS: [&str; 3] = [
     include_str!("../migrations/001_initial.sql"),
     include_str!("../migrations/002_validation_annotations.sql"),
+    include_str!("../migrations/003_ram_review_events.sql"),
 ];
 
 pub(crate) fn migrate(connection: &mut Connection) -> CommandResult<()> {
@@ -62,7 +63,7 @@ mod tests {
             .execute_batch("PRAGMA foreign_keys = ON")
             .unwrap();
         migrate(&mut connection).unwrap();
-        assert_eq!(version(&connection), 2);
+        assert_eq!(version(&connection), 3);
 
         let names: Vec<String> = connection
             .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
@@ -82,6 +83,7 @@ mod tests {
                 "custom_analysis_models",
                 "google_oauth_profiles",
                 "local_tracking_jobs",
+                "ram_review_events",
                 "training_frames",
                 "training_intervals",
                 "training_runs",
@@ -126,7 +128,7 @@ mod tests {
 
         migrate(&mut connection).unwrap();
         migrate(&mut connection).unwrap();
-        assert_eq!(version(&connection), 2);
+        assert_eq!(version(&connection), 3);
         let (client, has_token, email): (String, bool, Option<String>) = connection.query_row(
             "SELECT google_client_id, has_refresh_token, account_email FROM google_oauth_profiles WHERE profile_id = ?1",
             params!["local-default"],
@@ -175,7 +177,7 @@ mod tests {
             [],
         ).unwrap();
         migrate(&mut connection).unwrap();
-        assert_eq!(version(&connection), 2);
+        assert_eq!(version(&connection), 3);
         let count: i64 = connection.query_row(
             "SELECT COUNT(*) FROM google_oauth_profiles WHERE profile_id='local-default'", [], |row| row.get(0)
         ).unwrap();
@@ -187,10 +189,23 @@ mod tests {
     }
 
     #[test]
+    fn upgrades_v2_preserving_annotation_history_and_local_jobs() {
+        let mut db = Connection::open_in_memory().unwrap();
+        db.execute_batch(MIGRATIONS[0]).unwrap();
+        db.execute_batch(MIGRATIONS[1]).unwrap();
+        db.execute_batch("PRAGMA user_version=2; INSERT INTO local_tracking_jobs(job_id,experiment_id,upload_id,video_sha256,config_json,state) VALUES ('old','exp','upload','digest','{}','succeeded')").unwrap();
+        migrate(&mut db).unwrap();
+        migrate(&mut db).unwrap();
+        assert_eq!(version(&db),3);
+        assert_eq!(db.query_row("SELECT count(*) FROM local_tracking_jobs WHERE job_id='old'",[],|r|r.get::<_,i64>(0)).unwrap(),1);
+        assert_eq!(db.query_row("SELECT count(*) FROM ram_review_events",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+    }
+
+    #[test]
     fn refuses_database_from_newer_app_without_changes() {
         let mut connection = Connection::open_in_memory().unwrap();
-        connection.execute_batch("PRAGMA user_version = 3").unwrap();
+        connection.execute_batch("PRAGMA user_version = 4").unwrap();
         assert!(migrate(&mut connection).is_err());
-        assert_eq!(version(&connection), 3);
+        assert_eq!(version(&connection), 4);
     }
 }

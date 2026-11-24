@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
+import { EditorTabs } from "../../components/ui/EditorTabs";
 import { useAppStore, type ResearcherProfile } from "../../store/AppStore";
 import {
   COLAB_PROFILE_ID,
@@ -33,6 +34,7 @@ export function ColabGate() {
   const { researcherProfile, saveResearcherProfile } = useAppStore();
   const [researcher, setResearcher] = useState<ResearcherProfile>(researcherProfile);
   const [researcherNotice, setResearcherNotice] = useState<string | null>(null);
+  const [settingsView, setSettingsView] = useState<"colab" | "researcher">("researcher");
   const desktopRuntime = useMemo(isTauriRuntime, []);
   const [summary, setSummary] = useState<OAuthProfileSummary>(emptyColabSummary);
   const [clientId, setClientId] = useState("");
@@ -151,7 +153,7 @@ export function ColabGate() {
       : <Badge tone="warning" dot>Configuração necessária</Badge>;
 
   return (
-    <div className="page narrow-page">
+    <div className="page narrow-page settings-page">
       <section className="page-heading">
         <div>
           <div className="eyebrow">Conta e processamento remoto</div>
@@ -171,6 +173,9 @@ export function ColabGate() {
         </div>
       )}
 
+      <EditorTabs id="settings-view" label="Áreas das configurações" value={settingsView} onChange={setSettingsView}
+        items={[{ id: "researcher", label: "Pesquisador" }, { id: "colab", label: "Google Colab" }]} />
+      <div role="tabpanel" id="settings-view-researcher-panel" aria-labelledby="settings-view-researcher-tab" hidden={settingsView !== "researcher"}>
       <section className="panel researcher-card">
         <div className="colab-section-heading">
           <div className="colab-account-icon"><UserRound size={22} /></div>
@@ -183,7 +188,9 @@ export function ColabGate() {
           <div className="researcher-actions"><Button icon={<Save size={16} />} type="submit">Salvar dados</Button>{researcherNotice && <span role="status">{researcherNotice}</span>}</div>
         </form>
       </section>
+      </div>
 
+      <div role="tabpanel" id="settings-view-colab-panel" aria-labelledby="settings-view-colab-tab" hidden={settingsView !== "colab"}>
       <section className="colab-hero panel">
         <div className="colab-account-icon"><CloudCog size={25} /></div>
         <div className="colab-hero-content">
@@ -250,6 +257,7 @@ export function ColabGate() {
           </div>
         </form>
       </details>}
+      </div>
     </div>
   );
 }

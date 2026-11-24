@@ -1,5 +1,5 @@
 import {
-  ArrowRight,
+  ChevronLeft,
   CheckCircle2,
   ChevronRight,
   Clock3,
@@ -38,8 +38,11 @@ const statusTone: Record<ExperimentStatus, "neutral" | "success" | "warning" | "
 export function Dashboard() {
   const { experiments, navigate, openDemo, deleteExperiment, analysisActivity } = useAppStore();
   const [pendingDeletion, setPendingDeletion] = useState<{ id: string; title: string } | null>(null);
+  const [pageIndex, setPageIndex] = useState(0);
   const available = experiments.filter((experiment) => experiment.status === "review").length;
   const completed = experiments.filter((experiment) => experiment.status === "completed").length;
+  const pageCount = Math.max(1, Math.ceil(experiments.length / 3));
+  const visiblePage = Math.min(pageIndex, pageCount - 1);
 
   useEffect(() => {
     if (!pendingDeletion) return;
@@ -92,7 +95,12 @@ export function Dashboard() {
         <section className="panel recent-panel">
           <div className="panel-header">
             <div><h2>Experimentos recentes</h2><p>Arquivos persistidos localmente neste navegador.</p></div>
-            {experiments.length > 0 && <button className="text-button">Ver todos <ArrowRight size={14} /></button>}
+            {experiments.length > 0 && <div className="experiment-header-actions"><button type="button" className="text-button" onClick={openDemo}><Sparkles size={14} /> Demonstração</button>
+            {pageCount > 1 && <div className="experiment-pagination" aria-label="Páginas de experimentos">
+              <button type="button" aria-label="Página anterior" disabled={visiblePage === 0} onClick={() => setPageIndex(visiblePage - 1)}><ChevronLeft size={16} /></button>
+              <span>{visiblePage + 1} / {pageCount}</span>
+              <button type="button" aria-label="Próxima página" disabled={visiblePage >= pageCount - 1} onClick={() => setPageIndex(visiblePage + 1)}><ChevronRight size={16} /></button>
+            </div>}</div>}
           </div>
           {experiments.length === 0 ? (
             <div className="empty-experiments">
@@ -108,7 +116,7 @@ export function Dashboard() {
             </div>
           ) : (
             <div className="experiment-list">
-              {experiments.slice(0, 6).map((experiment) => (
+              {experiments.slice(visiblePage * 3, visiblePage * 3 + 3).map((experiment) => (
                 <article
                   key={experiment.id}
                   className="experiment-row"
@@ -144,9 +152,6 @@ export function Dashboard() {
                   <ChevronRight size={18} className="row-chevron" />
                 </article>
               ))}
-              <button className="demo-strip" onClick={openDemo}>
-                <Sparkles size={17} /> Abrir outro conjunto sintético de demonstração
-              </button>
             </div>
           )}
         </section>

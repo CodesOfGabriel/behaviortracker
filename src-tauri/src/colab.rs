@@ -2296,7 +2296,7 @@ pub async fn hybrid_bundle_status(app: AppHandle, bundle_id: String) -> CommandR
         hybrid_bundle_files(&bundle_id)?;
         match hybrid_bundle_paths(&app, &bundle_id) {
             Ok(_) => Ok(json!({"bundleId": bundle_id, "installed": true, "error": null})),
-            Err(error) => Ok(json!({"bundleId": bundle_id, "installed": false, "error": error})),
+            Err(error) => Ok(json!({"bundleId": bundle_id, "installed": false, "remoteAvailable": bundle_id == "wistar_df_v2", "error": error})),
         }
     }).await.map_err(|_| "Falha ao verificar o bundle em segundo plano".to_string())?
 }
@@ -2315,7 +2315,7 @@ pub async fn hybrid_bundle_available(app: AppHandle, bundle_id: String) -> Comma
         let available = roots.iter().any(|root| files.iter().all(|(filename, size, _)| {
             fs::metadata(root.join(filename)).is_ok_and(|metadata| metadata.is_file() && metadata.len() == *size)
         }));
-        Ok(json!({"bundleId": bundle_id, "installed": available, "error": if available { None } else { Some("Arquivos do modelo ausentes ou incompletos. Instale o bundle antes de continuar.") }}))
+        Ok(json!({"bundleId": bundle_id, "installed": available, "remoteAvailable": bundle_id == "wistar_df_v2", "error": if available { None } else { Some("Arquivos do modelo ausentes ou incompletos. Instale o bundle antes de continuar.") }}))
     }).await.map_err(|_| "Falha ao localizar o bundle em segundo plano".to_string())?
 }
 
@@ -2371,6 +2371,10 @@ fn release_model_task(filename: &str) -> Option<&'static str> {
 }
 
 fn release_model_code(filename: &str, destination: &str, size: u64, digest: &str) -> String {
+    if filename == "pytorch_config.yaml" {
+        let content = include_str!("../../models/wistar_df_v2/pytorch_config.yaml");
+        return format!("{}\ninstall_small_config({content:?}, {destination:?}, {size}, {digest:?})\nprint('BEHAVETRACKER_MODEL_READY=pytorch_config.yaml')\n", include_str!("../python/model_delivery.py"));
+    }
     let url = format!("{WISTAR_V2_RELEASE}/{filename}");
     format!("{}\nfetch_model({url:?}, {destination:?}, {size}, {digest:?})\n", include_str!("../python/model_delivery.py"))
 }
@@ -2384,7 +2388,8 @@ fn upload_hybrid_bundle(
     bundle_id: Option<&str>,
 ) -> Result<Option<String>, AnalysisFailure> {
     let bundle_id = bundle_id.ok_or("Modelo de análise não informado.")?;
-    let files = hybrid_bundle_paths(app, bundle_id)?;
+    let files = hybrid_bundle_files(bundle_id)?;
+    let local_files = hybrid_bundle_paths(app, bundle_id).ok();
     let parent = remote_directory.rsplit_once('/').map(|(value, _)| value)
         .ok_or("Pasta remota inválida")?;
     let remote_root = format!("{parent}/models/{bundle_id}");
@@ -2408,10 +2413,9 @@ fn upload_hybrid_bundle(
     }
     let mut upload_connection = connection.clone();
     let mut release_available = bundle_id == "wistar_df_v2";
-    for (filename, path) in files {
-        let local = Path::new(&path);
-        let size = fs::metadata(local).map_err(|_| format!("Arquivo do bundle indisponível: {filename}"))?.len() as i64;
-        let digest = crate::video::sha256(local)?;
+    for (filename, expected_size, expected_digest) in files {
+        let size = expected_size as i64;
+        let digest = expected_digest.to_string();
         let remote = format!("{remote_root}/{filename}");
         let destination = format!("/content/behavetracker/models/{bundle_id}/{filename}");
         let cache_check = format!(
@@ -2422,7 +2426,7 @@ fn upload_hybrid_bundle(
             if release_available {
                 let task = release_model_task(&filename).ok_or("Arquivo desconhecido na release do modelo")?;
                 update_job(app, job, "running", "uploading", 20,
-                    &format!("Baixando {filename} da release versionada diretamente no Colab"))?;
+                    &format!("Preparando {filename} verificado diretamente no Colab"))?;
                 let code = release_model_code(&filename, &destination, size as u64, &digest);
                 match run_background_task(app, job, session, &format!("/content/behavetracker/{job}"), task, &code) {
                     Ok(()) => {
@@ -2439,6 +2443,10 @@ fn upload_hybrid_bundle(
                     }
                 }
             }
+            let path = local_files.as_ref().and_then(|files| files.iter().find(|(name, _)| name == filename))
+                .map(|(_, path)| path).ok_or_else(|| format!("Não foi possível obter {filename} da release. Confira a rede do Colab ou importe o bundle verificado para envio local."))?;
+            let local = Path::new(path);
+            validate_hybrid_file(local, filename, bundle_id)?;
             update_job(app, job, "running", "uploading", 20,
                 &format!("Enviando {filename} do bundle {bundle_id} ao Colab"))?;
             let mut retried = false;
@@ -3090,11 +3098,11 @@ pub fn start_colab_analysis(
         if request.model_bundle_id.as_deref() != Some("wistar_df_v2") {
             return Err("O tracking experimental RAM requer o bundle Wistar v2.".into());
         }
-        hybrid_bundle_paths(&app, "wistar_df_v2")?;
+        hybrid_bundle_files("wistar_df_v2")?;
     } else if request.engine_id == "wistar_superanimal_hybrid_v1" {
         if request.fst.is_some() || request.ram.is_some() { return Err("Configuração não corresponde ao motor selecionado.".into()); }
         let bundle_id = request.model_bundle_id.as_deref().ok_or("Modelo de análise não informado.")?;
-        hybrid_bundle_paths(&app, bundle_id)?;
+        if bundle_id != "wistar_df_v2" { hybrid_bundle_paths(&app, bundle_id)?; }
     } else if request.engine_id != "superanimal_video_adapt_b_legacy" || request.fst.is_some() || request.ram.is_some() {
         return Err("Motor de análise não reconhecido.".into());
     }
@@ -3503,6 +3511,31 @@ mod tests {
         assert_ne!(v1[0].2, v2[0].2);
         assert_eq!(&v1[1..], &v2[1..]);
         assert!(super::hybrid_bundle_files("other").is_err());
+    }
+
+    #[test]
+    fn model_registry_matches_pinned_runtime_integrity() {
+        let registry: serde_json::Value = serde_json::from_str(include_str!("../../models/wistar_df_v2/manifest.json")).unwrap();
+        assert_eq!(registry["registryVersion"],"model-delivery-2");
+        for (filename,size,digest) in super::hybrid_bundle_files("wistar_df_v2").unwrap() {
+            assert_eq!(registry["files"][filename]["sizeBytes"],size);
+            assert_eq!(registry["files"][filename]["sha256"],digest);
+            if filename == "pytorch_config.yaml" { assert_eq!(registry["files"][filename]["source"],"bundled-small-config"); }
+            else { assert_eq!(registry["files"][filename]["url"],format!("{}/{filename}",super::WISTAR_V2_RELEASE)); }
+        }
+
+    }
+
+    #[test]
+    fn small_model_config_is_published_without_a_release_asset() {
+        let (_,size,digest)=super::hybrid_bundle_files("wistar_df_v2").unwrap()[2];
+        let directory=std::env::temp_dir().join(format!("behavetracker-small-config-{}",super::new_uuid_v4()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let target=directory.join("config.yaml");
+        let code=super::release_model_code("pytorch_config.yaml",target.to_str().unwrap(),size,digest);
+        assert!(std::process::Command::new("python3").arg("-c").arg(code).status().unwrap().success());
+        assert_eq!(crate::video::sha256(&target).unwrap(),digest);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

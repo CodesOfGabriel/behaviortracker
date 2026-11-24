@@ -2,21 +2,21 @@ import { useRef, useState, type ChangeEvent, type MouseEvent, type PointerEvent 
 import { ArrowLeft, ArrowRight, Info, UploadCloud } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { formatBytes, formatDuration } from "../../lib/format";
-import { ARM_IDS, newGeometryRevision, validateRadialArea, validateRadialCup, validateRadialCups, validateRadialGeometry, validateRadialRewards, walkableMaskVersion } from "../../lib/radial-maze/geometry";
+import { ARM_IDS, validateRamEventGeometry, newGeometryRevision, validateRadialArea, validateRadialCup, validateRadialCups, validateRadialGeometry, validateRadialRewards, walkableMaskVersion } from "../../lib/radial-maze/geometry";
 import { validateVisitPolicy } from "../../lib/radial-maze/events";
 import { useAppStore } from "../../store/AppStore";
 import type { ArmId, Point, RadialArm, RadialMazeExperiment, RadialMazeGeometry, RamVisitPolicy, VideoAsset, VideoMetadata } from "../../types";
 import { captureVideoFrame, openVideo } from "./OpenFieldExperimentWizard";
 
+import { RamEventGeometryEditor } from "../radial-maze/RamEventGeometryEditor";
+
 type Target = "walkable" | `cup-${ArmId}`;
 const areaTargets: Target[] = ["walkable"];
 const cupTargets: Target[] = ARM_IDS.map(id => `cup-${id}` as Target);
-const geometryPhases = ["Área do labirinto", "Potes", "Recompensas"] as const;
+const geometryPhases = ["Área do labirinto", "Potes", "Recompensas", "Braços e linhas"] as const;
 const initialArms = (): RadialArm[] => ARM_IDS.map(id => ({ id, polygonPx: [], cupPolygonPx: [], entryGatePx: [{ x: 0, y: 0 }, { x: 0, y: 0 }], distalGatePx: [{ x: 0, y: 0 }, { x: 0, y: 0 }], baited: false }));
 const initialGeometry = (): RadialMazeGeometry => ({ revision: 1, walkablePolygonPx: [], centerPolygonPx: [], arms: initialArms(), walkableMaskVersion: "ram-walkable-polygon-1", referenceFrameSec: 0 });
-const editableGeometry = (existing?: RadialMazeExperiment): RadialMazeGeometry => existing?.geometry.walkablePolygonPx !== undefined
-  ? existing.geometry : existing ? { ...existing.geometry, walkablePolygonPx: [], centerPolygonPx: [], arms: existing.geometry.arms.map(arm => ({ ...arm, polygonPx: [], entryGatePx: [{ x: 0, y: 0 }, { x: 0, y: 0 }], distalGatePx: [{ x: 0, y: 0 }, { x: 0, y: 0 }] })) }
-    : initialGeometry();
+const editableGeometry = (existing?: RadialMazeExperiment): RadialMazeGeometry => existing ? structuredClone(existing.geometry) : initialGeometry();
 const initialPolicy: RamVisitPolicy = { minimumArmDwellSec: 0.25, minimumCenterDwellSec: 0.25, minimumDistalDwellSec: 0.25,
   unknownGapToleranceSec: 0, choiceCriterion: "arm_entry" };
 function points(geometry: RadialMazeGeometry, target: Target): Point[] {
@@ -24,8 +24,8 @@ function points(geometry: RadialMazeGeometry, target: Target): Point[] {
   return geometry.arms.find(item => item.id === Number(target.split("-")[1]))!.cupPolygonPx;
 }
 function setPoints(geometry: RadialMazeGeometry, target: Target, next: Point[]): RadialMazeGeometry {
-  if (target === "walkable") return { ...geometry, walkablePolygonPx: next };
-  return { ...geometry, arms: geometry.arms.map(arm => arm.id === Number(target.split("-")[1]) ? { ...arm, cupPolygonPx: next } : arm) };
+  if (target === "walkable") return { ...geometry, eventGeometryConfirmed: false, walkablePolygonPx: next };
+  return { ...geometry, eventGeometryConfirmed: false, arms: geometry.arms.map(arm => arm.id === Number(target.split("-")[1]) ? { ...arm, cupPolygonPx: next } : arm) };
 }
 function targetComplete(geometry: RadialMazeGeometry, target: Target) {
   return points(geometry, target).length >= 3;
@@ -79,13 +79,16 @@ export function RadialArmMazeExperimentWizard({ onBack, onComplete = () => {}, e
   const phaseError = video ? geometryPhase === 0 ? validateRadialArea(geometry, video.width, video.height)
     : geometryPhase === 1 ? validateRadialCups(geometry, video.width, video.height)
     : geometryPhase === 2 ? validateRadialCups(geometry, video.width, video.height) || validateRadialRewards(geometry)
-    : geometryError : "Selecione um vídeo.";
+    : validateRamEventGeometry(geometry, video.width, video.height) : "Selecione um vídeo.";
   const targetPoints = points(geometry, target);
   const targetDone = targetComplete(geometry, target);
   const selectedCupSide = video ? cupSide(targetPoints, video) : 8;
   const resizeHandleSize = video ? Math.max(5, Math.min(Math.max(12, video.width / 90), selectedCupSide / 2)) : 5;
   const selectedCupError = video && geometryPhase === 1 ? validateRadialCup(geometry, Number(target.split("-")[1]) as ArmId, video.width, video.height) : null;
   const markedTargets = phaseTargets.filter(item => targetComplete(geometry, item)).length;
+  const eventReferenceCount = (geometry.centerPolygonPx.length >= 3 ? 1 : 0) + geometry.arms.reduce((count, arm) => count
+    + (arm.polygonPx.length >= 3 ? 1 : 0)
+    + [arm.entryGatePx, arm.distalGatePx].filter(gate => gate.length === 2 && (gate[0].x !== gate[1].x || gate[0].y !== gate[1].y)).length, 0);
   const rewardCount = geometry.arms.filter(arm => arm.baited).length;
 
   const showGeometryPhase = (next: number) => {
@@ -119,7 +122,7 @@ export function RadialArmMazeExperimentWizard({ onBack, onComplete = () => {}, e
       const captured = await captureVideoFrame(await openVideo(asset.objectUrl), frameSec);
       setAsset(current => ({ ...current, frameDataUrl: captured.frameDataUrl, thumbnailDataUrl: captured.thumbnailDataUrl, frameTimeSec: captured.timeSec }));
       setVideo(current => current ? { ...current, calibrationFrameSec: captured.timeSec } : current);
-      setGeometry(current => ({ ...current, referenceFrameSec: captured.timeSec, revision: current.revision + 1 }));
+      setGeometry(current => ({ ...current, referenceFrameSec: captured.timeSec, revision: current.revision + 1, eventGeometryConfirmed: false }));
       setFrameSec(captured.timeSec);
     } catch (reason) { setError(String(reason)); } finally { setBusy(false); }
   };
@@ -188,11 +191,11 @@ export function RadialArmMazeExperimentWizard({ onBack, onComplete = () => {}, e
   const toggleReward = (id: ArmId) => {
     setGeometry(current => {
       const selected = current.arms.filter(arm => arm.baited).length;
-      return { ...current, arms: current.arms.map(arm => arm.id === id && (arm.baited || selected < 4) ? { ...arm, baited: !arm.baited } : arm) };
+      return { ...current, eventGeometryConfirmed: false, arms: current.arms.map(arm => arm.id === id && (arm.baited || selected < 4) ? { ...arm, baited: !arm.baited } : arm) };
     });
   };
   const create = async () => {
-    if (!video || !title.trim() || !subjectId.trim() || geometryError || policyError) return;
+    if (!video || !title.trim() || !subjectId.trim() || geometryError || policyError || validateRamEventGeometry(geometry, video.width, video.height)) return;
     setBusy(true); setError("");
     try {
       const now = new Date().toISOString();
@@ -208,7 +211,7 @@ export function RadialArmMazeExperimentWizard({ onBack, onComplete = () => {}, e
   };
   return <div className="page wizard-page fst-wizard ram-wizard">
     <button className="back-link" onClick={() => step === 2 && geometryPhase > 0 ? showGeometryPhase(geometryPhase - 1) : step > (existing ? 2 : 0) ? setStep(step - 1) : onBack()}><ArrowLeft size={16} /> {step === 2 && geometryPhase > 0 || step > (existing ? 2 : 0) ? "Etapa anterior" : existing ? "Voltar ao experimento" : "Alterar protocolo"}</button>
-    <section className="page-heading wizard-heading"><div><div className="eyebrow">{existing ? "Revisão de geometria" : "Novo experimento"} · Labirinto Radial</div><h1>{existing ? `Revisar ${existing.title}` : "Configurar labirinto radial"}</h1><p>Contorne uma vez toda a área do labirinto; depois marque os potes e as recompensas.</p></div></section>
+    <section className="page-heading wizard-heading"><div><div className="eyebrow">{existing ? "Revisão de geometria" : "Novo experimento"} · Labirinto Radial</div><h1>{existing ? `Revisar ${existing.title}` : "Configurar labirinto radial"}</h1><p>Contorne uma vez toda a área do labirinto; depois marque os potes, recompensas e referências dos braços.</p></div></section>
     <ol className="wizard-steps">{["Experimento", "Vídeo", "Geometria", "Revisão"].map((name, i) => <li key={name} className={i === step ? "active" : i < step ? "done" : ""}><span>{i + 1}</span>{name}</li>)}</ol>
     {step === 0 && <section className="wizard-section ram-fields"><h2>Identificação da sessão</h2>
       <label>Nome do experimento<input value={title} onChange={e => setTitle(e.target.value)} /></label>
@@ -226,12 +229,12 @@ export function RadialArmMazeExperimentWizard({ onBack, onComplete = () => {}, e
       {error && <p className="validation-box invalid"><Info size={16}/>{error}</p>}
     </section>}
     {step === 2 && video && <section className="wizard-section ram-geometry-section">
-      <div className="ram-phase-heading"><div><small>Geometria · fase {geometryPhase + 1} de 3</small><h2>{geometryPhases[geometryPhase]}</h2>
-        <p>{geometryPhase === 0 ? "Contorne toda a área transitável, incluindo centro e braços, em uma única marcação. Não é necessário desenhar cada braço separadamente." : geometryPhase === 1 ? "Clique para posicionar cada quadrado. Arraste para mover ou ajustar pelo canto branco. O quadrado pode passar da borda; somente a parte sobre o labirinto será considerada. Avance manualmente após cada pote." : "Marque os quatro potes que tinham recompensa nesta sessão. Os outros quatro serão registrados sem recompensa."}</p></div>
-        <strong>{geometryPhase === 2 ? rewardCount : markedTargets} / {geometryPhase === 0 ? 1 : geometryPhase === 1 ? 8 : 4}</strong>
+      <div className="ram-phase-heading"><div><small>Geometria · fase {geometryPhase + 1} de 4</small><h2>{geometryPhases[geometryPhase]}</h2>
+        <p>{geometryPhase === 0 ? "Contorne toda a área transitável, incluindo centro e braços, em uma única marcação. Os braços serão delimitados na última fase." : geometryPhase === 1 ? "Clique para posicionar cada quadrado. Arraste para mover ou ajustar pelo canto branco. O quadrado pode passar da borda; somente a parte sobre o labirinto será considerada. Avance manualmente após cada pote." : geometryPhase === 2 ? "Marque os quatro potes que tinham recompensa nesta sessão. Os outros quatro serão registrados sem recompensa." : "Delimite a plataforma e os oito braços. Revise as linhas e confirme as referências para habilitar eventos."}</p></div>
+        <strong>{geometryPhase === 3 ? eventReferenceCount : geometryPhase === 2 ? rewardCount : markedTargets} / {geometryPhase === 0 ? 1 : geometryPhase === 1 ? 8 : geometryPhase === 2 ? 4 : 25}</strong>
       </div>
       <nav className="ram-phase-nav" aria-label="Fases da geometria">{geometryPhases.map((name, index) => <button key={name} type="button" className={index === geometryPhase ? "active" : index < geometryPhase ? "done" : ""} disabled={index > furthestGeometryPhase} aria-current={index === geometryPhase ? "step" : undefined} onClick={() => showGeometryPhase(index)}><span>{index + 1}</span>{name}</button>)}</nav>
-      {geometryPhase !== 2 && <div className="ram-target-controls"><div className="ram-current-target" aria-live="polite"><span>Marque agora</span><strong>{targetLabel(target)}</strong><small>{geometryPhase === 0 ? "Clique nos vértices do contorno, em sequência; use pelo menos três pontos." : "Arraste o quadrado para mover; arraste o canto branco para redimensionar."}</small></div>
+      {geometryPhase < 2 && <div className="ram-target-controls"><div className="ram-current-target" aria-live="polite"><span>Marque agora</span><strong>{targetLabel(target)}</strong><small>{geometryPhase === 0 ? "Clique nos vértices do contorno, em sequência; use pelo menos três pontos." : "Arraste o quadrado para mover; arraste o canto branco para redimensionar."}</small></div>
         {geometryPhase === 0 && <Button variant="secondary" onClick={() => setGeometry(current => setPoints(current, target, points(current, target).slice(0, -1)))} disabled={!targetPoints.length}>Desfazer ponto</Button>}
         <Button variant="secondary" onClick={() => setGeometry(current => setPoints(current, target, []))} disabled={!targetPoints.length}>{geometryPhase === 0 ? "Refazer região" : "Remover pote"}</Button>
         {geometryPhase === 1 && <Button variant="secondary" onClick={nextTarget} disabled={!targetDone}>{target === cupTargets.at(-1) ? "Próximo: Recompensas" : "Próximo pote"}</Button>}</div>}
@@ -239,7 +242,8 @@ export function RadialArmMazeExperimentWizard({ onBack, onComplete = () => {}, e
       {geometryPhase === 1 && targetDone && selectedCupError && <p className="ram-cup-feedback" role="status">{selectedCupError} Arraste-o até sobrepor a área marcada.</p>}
       {geometryPhase === 1 && <div className="ram-region-list" aria-label="Potes">{phaseTargets.map(item => { const complete = targetComplete(geometry, item); const invalid = complete && !!validateRadialCup(geometry, Number(item.split("-")[1]) as ArmId, video.width, video.height); return <button key={item} type="button" className={item === target ? "active" : invalid ? "invalid" : complete ? "done" : ""} aria-pressed={item === target} onClick={() => setTarget(item)}><span>{targetLabel(item)}</span><small>{invalid ? "Ajustar posição/tamanho" : complete ? "Marcado" : "Não marcado"}</small></button>; })}</div>}
       {geometryPhase === 2 && <div className="ram-reward-grid" aria-label="Potes com recompensa">{geometry.arms.map(arm => <button key={arm.id} type="button" className={arm.baited ? "selected" : ""} aria-pressed={arm.baited} disabled={!arm.baited && rewardCount === 4} onClick={() => toggleReward(arm.id)}><strong>P{arm.id}</strong><span>Pote {arm.id} de 8</span><small>{arm.baited ? "Com recompensa" : "Sem recompensa"}</small></button>)}</div>}
-      <svg ref={svgRef} className={geometryPhase === 2 ? "ram-geometry-editor ram-geometry-preview" : "ram-geometry-editor"} viewBox={`0 0 ${video.width} ${video.height}`} onClick={handleFrameClick} onPointerDown={startCupDrag} onPointerMove={moveCupDrag} onPointerUp={endCupDrag} onPointerCancel={endCupDrag} onLostPointerCapture={() => { cupDrag.current = null; }} role="img" aria-label={geometryPhase === 2 ? "Prévia do labirinto e dos potes" : `Frame para marcar ${targetLabel(target)}`}>
+      {geometryPhase === 3 && <RamEventGeometryEditor geometry={geometry} width={video.width} height={video.height} image={asset.frameDataUrl} onChange={setGeometry} />}
+      {geometryPhase < 3 && <svg ref={svgRef} className={geometryPhase === 2 ? "ram-geometry-editor ram-geometry-preview" : "ram-geometry-editor"} viewBox={`0 0 ${video.width} ${video.height}`} onClick={handleFrameClick} onPointerDown={startCupDrag} onPointerMove={moveCupDrag} onPointerUp={endCupDrag} onPointerCancel={endCupDrag} onLostPointerCapture={() => { cupDrag.current = null; }} role="img" aria-label={geometryPhase === 2 ? "Prévia do labirinto e dos potes" : `Frame para marcar ${targetLabel(target)}`}>
         {asset.frameDataUrl && <image href={asset.frameDataUrl} width={video.width} height={video.height}/>}
         {(geometry.walkablePolygonPx?.length ?? 0) >= 3 && <polygon points={geometry.walkablePolygonPx!.map(p => `${p.x},${p.y}`).join(" ")} className="ram-center-polygon" pointerEvents="none"/>}
         {geometry.arms.map(arm => <g key={arm.id}>
@@ -249,7 +253,7 @@ export function RadialArmMazeExperimentWizard({ onBack, onComplete = () => {}, e
         {geometryPhase === 1 && targetDone && <rect data-resize-cup-id={target.split("-")[1]} x={Math.max(...targetPoints.map(point => point.x)) - resizeHandleSize / 2} y={Math.max(...targetPoints.map(point => point.y)) - resizeHandleSize / 2} width={resizeHandleSize} height={resizeHandleSize} className="ram-cup-resize-handle"/>}
         {geometryPhase === 0 && targetPoints.length > 0 && <g pointerEvents="none"><polyline points={targetPoints.map(p => `${p.x},${p.y}`).join(" ")} className="ram-active-line"/>
           {targetPoints.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r={Math.max(4, video.width / 300)} className="ram-active-point"/>)}</g>}
-      </svg>
+      </svg>}
       {phaseError && <p className="validation-box invalid"><Info size={16}/>{phaseError}{geometryPhase === 2 && validateRadialCups(geometry, video.width, video.height) && <Button variant="secondary" size="sm" onClick={() => { showGeometryPhase(1); const invalid = cupTargets.find(item => validateRadialCup(geometry, Number(item.split("-")[1]) as ArmId, video.width, video.height)); if (invalid) setTarget(invalid); }}>Corrigir pote</Button>}</p>}
     </section>}
     {step === 3 && <section className="wizard-section ram-fields"><h2>Critério de visita</h2><p>Estes limiares são configuráveis e precisam de calibração com anotações humanas antes de uso científico.</p>
@@ -258,7 +262,7 @@ export function RadialArmMazeExperimentWizard({ onBack, onComplete = () => {}, e
       <p>A área e os potes ficam salvos como preparação. Visitas por braço dependem de uma geometria própria e de tracking RAM validados para esta sessão antes do cálculo.</p>
       {(geometryError || policyError || error) && <p className="validation-box invalid"><Info size={16}/>{geometryError || policyError || error}</p>}
     </section>}
-    <div className="wizard-footer">{step < 3 ? <Button disabled={step === 0 ? !title.trim() || !subjectId.trim() : step === 1 ? !video : step === 2 && geometryPhase === 1 ? markedTargets < 8 : !!phaseError} onClick={() => step === 2 && geometryPhase < 2 ? showGeometryPhase(geometryPhase + 1) : setStep(current => current + 1)}>{step === 2 ? geometryPhase < 2 ? `Continuar: ${geometryPhases[geometryPhase + 1]}` : "Continuar para revisão" : "Continuar"} <ArrowRight size={16}/></Button>
+    <div className="wizard-footer">{step < 3 ? <Button disabled={step === 0 ? !title.trim() || !subjectId.trim() : step === 1 ? !video : step === 2 && geometryPhase === 1 ? markedTargets < 8 : !!phaseError} onClick={() => step === 2 && geometryPhase < 3 ? showGeometryPhase(geometryPhase + 1) : setStep(current => current + 1)}>{step === 2 ? geometryPhase < 3 ? `Continuar: ${geometryPhases[geometryPhase + 1]}` : "Continuar para revisão" : "Continuar"} <ArrowRight size={16}/></Button>
       : <Button disabled={busy || !!geometryError || !!policyError} onClick={() => void create()}>{busy ? "Salvando…" : existing ? "Salvar nova revisão" : "Salvar experimento de Labirinto Radial"}</Button>}</div>
   </div>;
 }

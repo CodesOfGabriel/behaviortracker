@@ -65,15 +65,8 @@ jobs:
           npm install --no-save --no-package-lock ffmpeg-static@5.3.0 @derhuerst/ffprobe-static@5.3.0
           node scripts/prepare-video-tools.mjs
 
-      - name: Download the pinned model bundle
-        shell: bash
-        run: |
-          gh release download models-wistar-df-v2-r1 \
-            --repo CodesOfGabriel/behaviortracker \
-            --dir models/wistar_df_v2 \
-            --pattern best_detector.pth \
-            --pattern snapshot-hrnet_w32-001.pt
-          node scripts/check-release-models.mjs
+      - name: Verify model registry and lightweight resources
+        run: node scripts/check-release-models.mjs
 
       - uses: dtolnay/rust-toolchain@stable
         with:
