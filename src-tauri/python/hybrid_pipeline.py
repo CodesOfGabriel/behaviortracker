@@ -2,6 +2,7 @@
 
 import csv
 import hashlib
+from importlib.metadata import version
 import json
 import math
 import time
@@ -11,6 +12,7 @@ import cv2
 import numpy as np
 import pandas as pd
 import torch
+import torchvision
 from torchvision.models.detection import fasterrcnn_resnet50_fpn_v2
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.transforms.functional import to_tensor
@@ -31,6 +33,7 @@ EXPECTED_POSE_SHA256 = __POSE_SHA256__
 EXPECTED_CONFIG_SHA256 = __CONFIG_SHA256__
 ARENA = __ARENA__ or {}
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+LOCAL_PROGRESS = globals().get("LOCAL_PROGRESS")
 KEYPOINTS = []
 DETECTOR_THRESHOLD = .30
 BBOX_MARGIN = .12
@@ -60,6 +63,11 @@ def detector_batch_size():
 
 def phase(message):
     print(f"BEHAVETRACKER_HYBRID_PHASE={message}", flush=True)
+
+
+def local_progress(stage, processed=None, total=None, fps=None):
+    if LOCAL_PROGRESS is not None:
+        LOCAL_PROGRESS(stage, processed, total, fps, gpu_name() if DEVICE.type == "cuda" else "CPU")
 
 
 def sha256(path):
@@ -187,6 +195,7 @@ def run_detector(video, mask):
 
     with torch.inference_mode():
         while True:
+            local_progress("tracking", len(rows), total or None, len(rows) / max(time.monotonic() - started, 1e-6))
             batch = []
             for _ in range(batch_size):
                 ok, frame = capture.read()
@@ -218,7 +227,7 @@ def run_detector(video, mask):
                 torch.cuda.synchronize()
             elapsed_batch = max(time.monotonic() - batch_start, 1e-6)
             batch_fps = len(predictions) / elapsed_batch
-            if successful_batches >= 3 and batch_size < 16 and batch_fps > 0:
+            if DEVICE.type == "cuda" and successful_batches >= 3 and batch_size < 16 and batch_fps > 0:
                 batch_size = min(16, batch_size * 2)
                 phase(f"Detector Wistar · lote ajustado para {batch_size} · {batch_fps:.2f} frames/s")
             for prediction in predictions:
@@ -247,12 +256,20 @@ def pose_dataframe(video, contexts, count):
         raise RuntimeError(f"Esperados 27 keypoints; configuração declarou {len(KEYPOINTS)}")
     runner = pep.get_pose_inference_runner(
         model_config=config, snapshot_path=str(MODELS / "snapshot-hrnet_w32-001.pt"),
-        max_individuals=1, device="cuda:0", batch_size=2,
+        max_individuals=1, device=str(DEVICE), batch_size=2 if DEVICE.type == "cuda" else 1,
     )
-    iterator = pep.VideoIterator(str(video))
+    if LOCAL_PROGRESS is None:
+        iterator = pep.VideoIterator(str(video))
+    else:
+        class LocalVideoIterator(pep.VideoIterator):
+            def __next__(self):
+                local_progress("pose", self._index, count)
+                return super().__next__()
+
+        iterator = LocalVideoIterator(str(video))
     iterator.set_context(contexts)
     predictions = pep.video_inference(
-        video=iterator, pose_runner=runner, detector_runner=None, robust_nframes=True,
+        video=iterator, pose_runner=runner, detector_runner=None, robust_nframes=LOCAL_PROGRESS is None,
     )
     if len(predictions) != count:
         raise RuntimeError(f"DeepLabCut retornou {len(predictions)}/{count} frames; alinhamento temporal não pode ser confirmado")
@@ -298,11 +315,13 @@ def filtered(values):
 
 def export_canonical(frame_df, detections, fps, width, height):
     rows = []
+    points = {part: tuple(column(frame_df, part, coordinate) for coordinate in ("x", "y", "likelihood"))
+              for part in KEYPOINTS}
     for frame in range(len(detections)):
         detection = detections[frame]
         bbox = (detection["x"], detection["y"], detection["w"], detection["h"]) if detection["observed"] else ("", "", "", "")
-        for bodypart in KEYPOINTS:
-            x, y, likelihood = column(frame_df, bodypart, "x")[frame], column(frame_df, bodypart, "y")[frame], column(frame_df, bodypart, "likelihood")[frame]
+        for bodypart, (xs, ys, likelihoods) in points.items():
+            x, y, likelihood = xs[frame], ys[frame], likelihoods[frame]
             valid = detection["observed"] and all(math.isfinite(value) for value in (x, y, likelihood)) and x >= 0 and y >= 0
             status = "valid" if valid and likelihood >= FC_THRESHOLD else "low_confidence" if valid else "missing"
             rows.append([frame, frame / fps, "animal_1", bodypart, x if valid else "", y if valid else "",
@@ -339,7 +358,7 @@ def export_quality_and_filtered(frame_df, detections, fps):
                 "filtered_y_px": "" if fy is None else fy,
                 "filtered_status": "valid" if fx is not None else "missing",
             })
-    reference = "mouse_center" if "mouse_center" in KEYPOINTS else None
+    reference = column(frame_df, "mouse_center", "likelihood") if "mouse_center" in KEYPOINTS else None
     for frame, detection in enumerate(detections):
         flags = []
         if not detection["observed"]:
@@ -347,7 +366,7 @@ def export_quality_and_filtered(frame_df, detections, fps):
         if reference is None:
             flags.append("centro_nao_confiavel")
         else:
-            likelihood = column(frame_df, reference, "likelihood")[frame]
+            likelihood = reference[frame]
             if not math.isfinite(likelihood) or likelihood < FC_THRESHOLD:
                 flags.append("centro_nao_confiavel")
         quality_rows.append({
@@ -360,15 +379,19 @@ def export_quality_and_filtered(frame_df, detections, fps):
 
 def main():
     phase("Inicializando pipeline de rastreamento")
+    local_progress("model_setup")
     if MODEL_BUNDLE_ID not in ("wistar_df_v1", "wistar_df_v2"):
         raise RuntimeError("Modelo de análise desconhecido")
     for filename, expected in (("best_detector.pth", EXPECTED_DETECTOR_SHA256),
                                ("snapshot-hrnet_w32-001.pt", EXPECTED_POSE_SHA256),
                                ("pytorch_config.yaml", EXPECTED_CONFIG_SHA256)):
         if sha256(MODELS / filename) != expected:
-            raise RuntimeError(f"Integridade do modelo remoto inválida: {filename}")
-    if DEVICE.type != "cuda":
+            raise RuntimeError(f"Integridade do modelo inválida: {filename}")
+    if DEVICE.type != "cuda" and LOCAL_PROGRESS is None:
         raise RuntimeError("O rastreamento requer CUDA")
+    if DEVICE.type == "cpu":
+        import os
+        torch.set_num_threads(min(8, os.cpu_count() or 1))
     OUTPUT.mkdir(parents=True, exist_ok=True)
     capture = cv2.VideoCapture(VIDEO)
     width, height = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)), int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -378,10 +401,13 @@ def main():
     phase("Preparando máscara da arena")
     mask = arena_mask(width, height, ARENA)
     phase("Executando detector Wistar")
+    local_progress("tracking", 0)
     detections, contexts, count, fps, width, height = run_detector(VIDEO, mask)
     phase("Executando HRNet adaptada")
+    local_progress("pose")
     pose = pose_dataframe(VIDEO, contexts, count)
     phase("Calculando controle de qualidade e filtro F+C")
+    local_progress("quality")
     export_quality_and_filtered(pose, detections, fps)
     phase("Gerando CSV canônico")
     export_canonical(pose, detections, fps, width, height)
@@ -406,6 +432,8 @@ def main():
         },
         "detectorBatchSize": LAST_DETECTOR_BATCH_SIZE,
         "poseLikelihoodThreshold": FC_THRESHOLD,
+        "runtime": {"device": str(DEVICE), "torch": torch.__version__, "torchvision": torchvision.__version__,
+                    "deepLabCut": version("deeplabcut"), "openCV": cv2.__version__},
         "artifacts": {"detections": "detections.csv", "poseRawCsv": "pose_raw.csv",
                       "poseRawH5": "pose_raw.h5", "poseFiltered": "pose_filtered.csv",
                       "quality": "qc_by_frame.csv", "canonical": "canonical_pose.csv"},

@@ -41,7 +41,7 @@ export interface VideoPreparation {
   uploadBytes: number;
   status: "optimized" | "original" | "unavailable";
   message: string;
-  policyVersion: "lossless-upload-1" | "quality-upload-2" | "fst-adaptive-1";
+  policyVersion: "lossless-upload-1" | "quality-upload-2" | "quality-upload-3" | "quality-upload-4" | "fst-adaptive-1" | "fst-adaptive-2";
   pixelVerified: boolean;
   frameCount: number | null;
   uploadWidth?: number | null;

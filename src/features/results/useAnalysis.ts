@@ -5,14 +5,14 @@ import { preparedGeometry, scaleArenaToUpload, scalePoseToOriginal } from "../co
 import { useAppStore } from "../../store/AppStore";
 import type { OpenFieldExperiment, TrackingSelection } from "../../types";
 import {
-  checkVideoStaging, getColabJobPreparation, getHybridBundleStatus, loadColabJobs, loadColabResult,
-  prepareVideo, startColabJob, waitForColabJob, type ColabJob,
+  getColabJobPreparation, getHybridBundleStatus, loadColabJobs, loadColabResult,
+  prepareColabVideo, startColabJob, waitForColabJob, type ColabJob,
 } from "../colab/analysis";
 import {
   COLAB_STATUS_EVENT, emptyColabSummary, isTauriRuntime, loadColabSummary,
   type OAuthProfileSummary,
 } from "../colab/connection";
-import { loadLocalResult } from "../local/api";
+import { loadLocalOpenFieldResult } from "../local/api";
 
 export function useAnalysis(experimentId: string) {
   const {
@@ -29,13 +29,11 @@ export function useAnalysis(experimentId: string) {
   const [summary, setSummary] = useState<OAuthProfileSummary>(emptyColabSummary);
   const [error, setError] = useState<string | null>(null);
   const [loadingResult, setLoadingResult] = useState(false);
-  const [clock, setClock] = useState(Date.now);
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
   const activity = analysisActivity[experimentId] ?? { starting: false, message: "", error: null, startedAt: null };
   const runningJob = history.find((job) => job.status === "running" || job.status === "queued");
-  const activeJob = activity.starting && !runningJob && !selectedHistoryId ? null : selectedHistoryId
-    ? history.find((job) => job.jobId === selectedHistoryId) ?? runningJob ?? history[0] ?? null
-    : runningJob ?? history[0] ?? null;
+  const activeJob = runningJob ?? (activity.starting && activity.engine === "colab" && !selectedHistoryId
+    ? null : history.find((job) => job.jobId === selectedHistoryId) ?? history[0] ?? null);
   const busy = activity.starting || Boolean(runningJob);
 
   useEffect(() => {
@@ -61,7 +59,6 @@ export function useAnalysis(experimentId: string) {
       void loadColabJobs(experimentId).then((jobs) => {
         if (active) setHistory(jobs.filter((job) => !job.diagnostic && !job.training));
       }).catch(() => undefined);
-      setClock(Date.now());
     };
     refresh();
     const timer = window.setInterval(refresh, 2_000);
@@ -76,7 +73,7 @@ export function useAnalysis(experimentId: string) {
     try {
       let samples = selection.engine === "colab"
         ? parseCanonicalPoseCsv(await loadColabResult(selection.jobId))
-        : await loadLocalResult(selection.jobId);
+        : await loadLocalOpenFieldResult(selection.jobId);
       if (selection.engine === "colab" && experiment) {
         const preparation = await getColabJobPreparation(experimentId, selection.jobId);
         if (preparation) samples = scalePoseToOriginal(samples, experiment.video, preparation);
@@ -111,13 +108,6 @@ export function useAnalysis(experimentId: string) {
     if (!isTauriRuntime()) { setError("A análise Colab requer o aplicativo desktop."); return; }
     if (!summary.connected) { setError("Conecte o Google Colab antes de iniciar a análise."); return; }
     const file = selectedFile ?? asset?.file;
-    let preparation = selectedFile ? undefined : experiment.video.preparation;
-    if (preparation && preparation.originalBytes > 100_000_000 && preparation.policyVersion !== "quality-upload-2") preparation = undefined;
-    if (!file && !preparation) {
-      analysisRequested.current = true;
-      fileRef.current?.click();
-      return;
-    }
     setAnalysisActivity(experimentId, { starting: true, engine: "colab", message: "Verificando a conexão com o Colab", error: null, startedAt: Date.now(), videoProgress: null });
     setError(null);
     setSelectedHistoryId(null);
@@ -133,21 +123,20 @@ export function useAnalysis(experimentId: string) {
         const bundle = await getHybridBundleStatus(bundleId);
         if (!bundle.installed && !bundle.remoteAvailable) throw new Error(bundle.error || `Bundle ${bundleId} ausente`);
       }
-      if (preparation && !await checkVideoStaging(experimentId, preparation.uploadId)) preparation = undefined;
-      if (!preparation && !file) {
+      const media = await prepareColabVideo(experimentId, experiment.video, file, (percent, message, detail) =>
+        setAnalysisActivity(experimentId, { message, videoProgress: detail
+          ? { phase: detail.phase, percent: detail.percent, remainingSec: detail.remainingSec }
+          : percent === 100 ? { phase: "complete", percent: 100, remainingSec: 0 } : null }));
+      if (!media) {
         analysisRequested.current = true;
         fileRef.current?.click();
         setError("Selecione novamente o vídeo original para processar.");
         return;
       }
-      updateExperiment(experimentId, { status: "processing" });
-      if (!preparation) {
-        preparation = await prepareVideo(experimentId, file!, experiment.video, (percent, message, detail) =>
-          setAnalysisActivity(experimentId, { message, videoProgress: detail
-            ? { phase: detail.phase, percent: detail.percent, remainingSec: detail.remainingSec }
-            : percent === 100 ? { phase: "complete", percent: 100, remainingSec: 0 } : null }));
-        updateExperiment(experimentId, { video: { ...experiment.video, preparation } });
-      }
+      const { preparation, originalSha256 } = media;
+      updateExperiment(experimentId, current => ({
+        status: "processing", video: { ...current.video, preparation, sha256: originalSha256 },
+      }));
       setAnalysisActivity(experimentId, { videoProgress: null });
       const geometry = preparedGeometry(experiment.video, preparation);
       const started = await startColabJob(experimentId, preparation.uploadId, {
@@ -167,7 +156,7 @@ export function useAnalysis(experimentId: string) {
         throw new Error("A execução terminou, mas o resultado não pôde ser aberto.");
       }
       if (completed.status === "failed") setError(`Poses preservadas; a execução parou após a inferência: ${completed.error || completed.message}`);
-      updateExperiment(experimentId, (current) => ({ video: { ...current.video, preparation }, status: "review" }));
+      updateExperiment(experimentId, { status: "review" });
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : String(reason);
       setError(message);
@@ -194,15 +183,10 @@ export function useAnalysis(experimentId: string) {
     }
   };
 
-  const started = activeJob ? Date.parse(activeJob.createdAt) : 0;
-  const ended = activeJob?.status === "running" || activeJob?.status === "queued"
-    ? clock : activeJob ? Date.parse(activeJob.updatedAt) : 0;
   return {
     fileRef, attachFile, run, selectSource, history, activeJob, busy, summary,
-    error: error ?? (activity.engine === "opencv" ? null : activity.error), message: activity.message, startedAt: activity.starting ? activity.startedAt : null,
+    error: error ?? (activity.engine === "opencv" ? null : activity.error),
     activityEngine: activity.engine,
-    videoProgress: activity.videoProgress,
-    loadingResult, selectedHistoryId, setSelectedHistoryId,
-    elapsedSec: Math.max(0, (ended - started) / 1000) || 0,
+    loadingResult, setSelectedHistoryId,
   };
 }

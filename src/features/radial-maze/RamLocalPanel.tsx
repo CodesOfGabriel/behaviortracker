@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import type { LocalAnalysisControls } from "../results/AnalysisWorkspace";
+import { LocalAuditVideo } from "../local/LocalAuditVideo";
+import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { RamReviewPanel } from "./RamReviewPanel";
 import { Cpu, Info } from "lucide-react";
 import { Button } from "../../components/ui/Button";
@@ -11,7 +13,10 @@ import { cancelLocalJob, getLocalEnvironment, listLocalJobs, loadLocalResult, se
 
 function errorText(reason: unknown) { return typeof reason === "string" ? reason : reason instanceof Error ? reason.message : String(reason); }
 
-export function RamLocalPanel({ experiment }: { experiment: RadialMazeExperiment }) {
+export function RamLocalPanel({ experiment, children }: {
+  experiment: RadialMazeExperiment;
+  children: (controls: LocalAnalysisControls) => ReactNode;
+}) {
   const { assets, setAsset, updateRadialMazeExperiment, analysisActivity, setAnalysisActivity } = useAppStore();
   const asset = assets[experiment.id];
   const [environment, setEnvironment] = useState<LocalEnvironment | null>(null);
@@ -76,7 +81,7 @@ export function RamLocalPanel({ experiment }: { experiment: RadialMazeExperiment
     const left = Math.min(...xs), top = Math.min(...ys), right = Math.max(...xs), bottom = Math.max(...ys);
     const arena = { cornersPx: [{ x: left, y: top }, { x: right, y: top }, { x: right, y: bottom }, { x: left, y: bottom }] };
     setRunning(true); setError(null);
-    setAnalysisActivity(experiment.id, { starting: true, engine: "opencv", startedAt: Date.now(), message: "Copiando vídeo", error: null });
+    setAnalysisActivity(experiment.id, { starting: true, engine: "opencv", startedAt: Date.now(), message: "Copiando vídeo", error: null, videoProgress: null });
     let started = false;
     try {
       const uploadId = await stageVideo(experiment.id, original, (_percent, text) => setAnalysisActivity(experiment.id, { message: text }));
@@ -112,10 +117,11 @@ export function RamLocalPanel({ experiment }: { experiment: RadialMazeExperiment
         await new Promise(resolve => window.setTimeout(resolve, 1_500));
       }
     } catch (reason) {
-      setError(errorText(reason));
+      const failure = errorText(reason);
+      setAnalysisActivity(experiment.id, { error: failure, message: failure });
       if (started) updateRadialMazeExperiment(experiment.id, current => ({ status: current.trackingSelection ? "review" : "failed" }));
     } finally {
-      setRunning(false); setAnalysisActivity(experiment.id, { starting: false });
+      setRunning(false); setAnalysisActivity(experiment.id, { starting: false, videoProgress: null });
     }
   }
 
@@ -129,7 +135,7 @@ export function RamLocalPanel({ experiment }: { experiment: RadialMazeExperiment
   const selectedPolygon = Array.isArray(selected?.config.walkablePolygonPx)
     ? selected.config.walkablePolygonPx as Point[] : experiment.geometry.walkablePolygonPx;
   const selectedRevision = selected?.config.geometryRevision;
-  return <section className="panel local-analysis-panel" aria-label="Tracking local RAM">
+  const panel = <section className="panel local-analysis-panel" aria-label="Tracking local RAM">
     <input ref={fileRef} type="file" accept="video/*" className="sr-only" onChange={attach} />
     <input ref={reviewFileRef} type="file" accept="video/*" className="sr-only" onChange={event => {
       const file = event.target.files?.[0]; event.target.value = "";
@@ -161,8 +167,7 @@ export function RamLocalPanel({ experiment }: { experiment: RadialMazeExperiment
           disabled={busy || !environment?.openclAvailable} onChange={event => setUseOpenCL(event.target.checked)} />
           <span>Solicitar OpenCL nesta execução (experimental; padrão CPU).</span></label>
       </details></div>
-    <div className="results-actions"><Button disabled={busy || !environment?.ready || !experiment.geometry.walkablePolygonPx} onClick={() => void run()}>{active || running ? "Processando…" : "Analisar localmente"}</Button>
-      {active && <Button variant="secondary" onClick={() => void cancelLocalJob(active.jobId).catch(reason => setError(errorText(reason)))}>Cancelar</Button>}</div>
+    {active && <Button variant="secondary" onClick={() => void cancelLocalJob(active.jobId).catch(reason => setError(errorText(reason)))}>Cancelar</Button>}
     {active && <p role="status">{active.report.phase === "recognition" ? "Reconhecendo contraste do animal" : `${active.report.framesProcessed ?? 0}${active.report.totalFrames ? ` / ${active.report.totalFrames}` : ""} frames · ${active.report.computeBackend ?? "CPU"}`}</p>}
     {selected?.report.segmentationSelection && <p className="local-detection-result">Contraste estimado: {selected.report.segmentationSelection.mode === "dark" ? "animal escuro" : "animal claro"} · limiar {selected.report.segmentationSelection.threshold} · {selected.report.segmentationSelection.inspectedFrames ?? selected.report.segmentationSelection.sampledFrames} frames inspecionados.</p>}
     {error && <div role="alert" className="validation-box invalid"><Info size={16} />{error}</div>}
@@ -172,9 +177,10 @@ export function RamLocalPanel({ experiment }: { experiment: RadialMazeExperiment
     {selected?.report.cameraMotionState === "unavailable" && <div role="status" className="validation-box"><Info size={16} />
       Não foi possível verificar a estabilidade da câmera com pontos estáticos na área marcada. Confira visualmente a geometria ao longo do vídeo.
     </div>}
-    {jobs.length > 0 && <div className="local-job-history"><h3>Execuções locais</h3>{jobs.map(job => <button key={job.jobId} type="button" disabled={job.state !== "succeeded"} aria-pressed={selected?.jobId === job.jobId}
+    {jobs.length > 0 && <div className="local-job-history"><h3>Execuções locais</h3>{jobs.map(job => <button key={job.jobId} type="button" disabled={busy || job.state !== "succeeded"} aria-pressed={selected?.jobId === job.jobId}
       onClick={() => { setSelectedId(job.jobId); updateRadialMazeExperiment(experiment.id, { status: "review", trackingSelection: { engine: "opencv", jobId: job.jobId } }); }}>
       <strong>{new Date(job.createdAt).toLocaleString("pt-BR")}</strong><span>{job.state} · {job.report.observationCoveragePct == null ? "cobertura indisponível" : `${(samplesJobId === job.jobId && samples.length ? 100*observed.length/samples.length : job.report.observationCoveragePct).toFixed(1)}% de cobertura`}</span></button>)}</div>}
+    {selected?.state === "succeeded" && <LocalAuditVideo key={selected.jobId} jobId={selected.jobId} />}
     {selected?.state === "succeeded" && samplesJobId === selected.jobId && <><Button variant="secondary" onClick={()=>reviewFileRef.current?.click()}>Abrir vídeo para revisão</Button>
       <RamReviewPanel key={selected.jobId} experiment={experiment} job={selected} raw={samples} videoUrl={asset?.objectUrl} /></>}
     {selected?.state === "succeeded" && samplesJobId === selected.jobId && <div className="ram-local-result"><p>{observed.length} de {samples.length} frames observados dentro da área analisável. Revise visualmente os pontos.</p>
@@ -185,4 +191,5 @@ export function RamLocalPanel({ experiment }: { experiment: RadialMazeExperiment
         {observed.filter((_, index) => index % stride === 0).map(sample => <circle key={sample.frameIndex} cx={sample.xPx!} cy={sample.yPx!} r={Math.max(2, experiment.video.width / 350)} fill="#51ddce" opacity=".6" />)}
       </svg></div>}
   </section>;
+  return children({ run: () => void run(), busy, ready: Boolean(environment?.ready && experiment.geometry.walkablePolygonPx), job: (active ?? jobs[0] ?? null), panel });
 }

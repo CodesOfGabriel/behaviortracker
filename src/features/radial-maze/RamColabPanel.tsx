@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { Download, Info } from "lucide-react";
-import { Button } from "../../components/ui/Button";
-import { checkVideoStaging, loadColabJobs, loadColabResult, loadRamArtifacts,
-  prepareFstVideo, startRamJob, waitForColabJob, type ColabJob } from "../colab/analysis";
+import type { ColabAnalysisControls } from "../results/AnalysisWorkspace";
+import { loadColabJobs, loadColabResult, loadRamArtifacts,
+  prepareColabVideo, startRamJob, waitForColabJob, type ColabJob } from "../colab/analysis";
 import { COLAB_STATUS_EVENT, emptyColabSummary, isTauriRuntime, loadColabSummary } from "../colab/connection";
 import { useAppStore } from "../../store/AppStore";
 import type { RadialMazeExperiment } from "../../types";
@@ -25,8 +25,11 @@ function parseRamResult(text: string): RamTrackingResult {
   return value;
 }
 
-export function RamColabPanel({ experiment }: { experiment: RadialMazeExperiment }) {
-  const { assets, setAsset, updateRadialMazeExperiment, navigate } = useAppStore();
+export function RamColabPanel({ experiment, children }: {
+  experiment: RadialMazeExperiment;
+  children: (controls: ColabAnalysisControls) => ReactNode;
+}) {
+  const { assets, setAsset, updateRadialMazeExperiment, analysisActivity, setAnalysisActivity } = useAppStore();
   const asset = assets[experiment.id];
   const fileRef = useRef<HTMLInputElement>(null);
   const [connected, setConnected] = useState(emptyColabSummary.connected);
@@ -34,8 +37,8 @@ export function RamColabPanel({ experiment }: { experiment: RadialMazeExperiment
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [result, setResult] = useState<RamTrackingResult | null>(null);
   const [artifacts, setArtifacts] = useState<{ name: string; url: string }[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
+  const activity = analysisActivity[experiment.id];
+  const busy = activity?.starting;
   const [error, setError] = useState<string | null>(null);
   const active = history.find(job => job.status === "queued" || job.status === "running");
   const selected = history.find(job => job.jobId === selectedId) ?? history[0];
@@ -85,47 +88,43 @@ export function RamColabPanel({ experiment }: { experiment: RadialMazeExperiment
     if (busy || active) return;
     if (!isTauriRuntime()) { setError("O processamento Colab requer o aplicativo desktop."); return; }
     if (!experiment.geometry.walkablePolygonPx) { setError("Marque a área analisável do labirinto antes da análise."); return; }
-    let preparation = experiment.video.preparation;
-    if (preparation?.policyVersion !== "fst-adaptive-1") preparation = undefined;
-    if (!preparation && !file) {
-      file = asset?.file;
-      if (!file) { fileRef.current?.click(); return; }
-    }
-    setBusy(true); setError(null); setMessage("Conferindo vídeo e conexão com o Colab");
+    setError(null);
+    setAnalysisActivity(experiment.id, { starting: true, engine: "colab", startedAt: Date.now(),
+      message: "Conferindo vídeo e conexão com o Colab", error: null, videoProgress: null });
     let started = false;
     try {
-      if (preparation && !await checkVideoStaging(experiment.id, preparation.uploadId)) preparation = undefined;
       const summary = await loadColabSummary(); setConnected(summary.connected);
       if (!summary.connected) throw new Error("Conecte o Colab antes de iniciar o tracking RAM.");
       if (summary.providerError) throw new Error(summary.providerError);
       if (summary.eligibleGpuCount < 1) throw new Error("Nenhuma GPU elegível está disponível no Colab.");
-      if (!preparation) {
-        if (!file) { fileRef.current?.click(); return; }
-        if (file.name !== experiment.video.filename || file.size !== experiment.video.sizeBytes) {
-          throw new Error("Selecione o mesmo arquivo usado para criar o experimento.");
-        }
-        const prepared = await prepareFstVideo(experiment.id, file, experiment.video,
-          (_progress, detail) => setMessage(detail), experiment.video.sha256);
-        preparation = prepared.preparation;
+      const media = await prepareColabVideo(experiment.id, experiment.video, file ?? asset?.file,
+        (_percent, message, detail) => setAnalysisActivity(experiment.id, { message, videoProgress: detail
+          ? { phase: detail.phase, percent: detail.percent, remainingSec: detail.remainingSec } : null }), true);
+      if (!media) { fileRef.current?.click(); return; }
+      const { preparation, originalSha256 } = media;
+      if (file) {
         setAsset(experiment.id, { ...asset, file, objectUrl: asset?.objectUrl ?? URL.createObjectURL(file) });
-        updateRadialMazeExperiment(experiment.id, current => ({ video: { ...current.video,
-          sha256: prepared.originalSha256, preparation } }));
       }
-      setMessage("Enviando análise RAM ao Colab");
+      updateRadialMazeExperiment(experiment.id, current => ({ video: { ...current.video, sha256: originalSha256, preparation } }));
+      setAnalysisActivity(experiment.id, { message: "Enviando análise RAM ao Colab", videoProgress: null });
       const job = await startRamJob(experiment, preparation);
       started = true;
       setSelectedId(job.jobId);
       setHistory(current => [job, ...current.filter(item => item.jobId !== job.jobId)]);
       updateRadialMazeExperiment(experiment.id, { status: "processing" });
       const done = await waitForColabJob(job.jobId, current => {
-        setMessage(current.message);
+        setAnalysisActivity(experiment.id, { message: current.message });
         setHistory(jobs => [current, ...jobs.filter(item => item.jobId !== current.jobId)]);
       });
       if (done.status === "failed" && !done.resultsReady) throw new Error(done.error ?? "Falha no tracking RAM.");
       updateRadialMazeExperiment(experiment.id, { status: "review", trackingSelection: { engine: "colab", jobId: done.jobId } });
       if (done.status === "failed") setError(`Dados preservados; execução interrompida: ${done.error}`);
-    } catch (reason) { setError(String(reason)); if (started) updateRadialMazeExperiment(experiment.id, { status: "failed" }); }
-    finally { setBusy(false); }
+    } catch (reason) {
+      const failure = reason instanceof Error ? reason.message : String(reason);
+      setError(failure);
+      setAnalysisActivity(experiment.id, { error: failure, message: failure });
+      if (started) updateRadialMazeExperiment(experiment.id, { status: "failed" });
+    } finally { setAnalysisActivity(experiment.id, { starting: false, videoProgress: null }); }
   };
   const attach = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; event.target.value = "";
@@ -133,23 +132,15 @@ export function RamColabPanel({ experiment }: { experiment: RadialMazeExperiment
   };
   const sampled = result?.frames.filter(row => row.mouseCenter).filter((_, index) => index % Math.max(1, Math.floor(result.frameCount / 800))) ?? [];
 
-  return <section className="panel ram-colab-panel">
+  const panel = <section className="panel ram-colab-panel">
     <input ref={fileRef} className="sr-only" type="file" accept="video/*" onChange={attach}/>
     <h2>Tracking no Colab</h2>
     <p>O detector Wistar v2 e a HRNet geram observações por frame dentro da área marcada. Esta execução é experimental e exige revisão humana antes de qualquer métrica de comportamento.</p>
-    <div className="results-actions">
-      <Button disabled={busy || Boolean(active) || !isTauriRuntime()} onClick={() => void run()}>{busy || active ? "Processando…" : "Executar no Colab"}</Button>
-      {!connected && isTauriRuntime() && <Button variant="secondary" onClick={() => navigate({ name: "colab" })}>Conectar Colab</Button>}
-    </div>
-    {!isTauriRuntime() && <p>O processamento Colab está disponível no aplicativo desktop.</p>}
-    {(busy || active) && <p role="status">{active ? `${active.progress}% · ${active.message}` : message}</p>}
-    {error && <div role="alert" className="validation-box invalid"><Info size={16}/>{error}</div>}
     {history.length > 0 && <div className="ram-revision-picker"><label>Execução
-      <select value={selected?.jobId ?? ""} onChange={event => { const jobId = event.target.value; setSelectedId(jobId);
+      <select disabled={busy || Boolean(active)} value={selected?.jobId ?? ""} onChange={event => { const jobId = event.target.value; setSelectedId(jobId);
         if (history.find(job => job.jobId === jobId)?.resultsReady) updateRadialMazeExperiment(experiment.id, { status: "review", trackingSelection: { engine: "colab", jobId } }); }}>
         {history.map(job => <option key={job.jobId} value={job.jobId}>{new Date(job.createdAt).toLocaleString("pt-BR")} · {job.status}</option>)}
       </select></label></div>}
-    {selected?.status === "failed" && <p role="alert">{selected.error ?? "Execução interrompida."}</p>}
     {result && <>
       <div className="validation-box"><Info size={17}/><span>Tracking experimental: {result.observedFrames} de {result.frameCount} frames com centro confiável dentro da área analisável. Nenhuma visita, erro de memória ou recompensa foi calculada.</span></div>
       {result.geometry.revision !== experiment.geometry.revision && <p>Esta execução usa a revisão {result.geometry.revision} da geometria. A geometria atual é a revisão {experiment.geometry.revision}.</p>}
@@ -161,4 +152,5 @@ export function RamColabPanel({ experiment }: { experiment: RadialMazeExperiment
       <div className="fst-exports"><h3>Arquivos da execução</h3><div>{artifacts.map(file => <a key={file.name} href={file.url} download={file.name}><Download size={15}/>{file.name}</a>)}</div></div>
     </>}
   </section>;
+  return children({ run: () => void run(), connected, job: active ?? selected ?? null, error, panel });
 }

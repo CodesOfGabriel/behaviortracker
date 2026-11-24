@@ -48,16 +48,17 @@ import type { BoundingBox, CorrectionEvent, Point, PoseSample, PoseStatus, Track
 import {
   loadColabResult,
   loadColabJobs,
-  checkVideoStaging,
+  getColabJobPreparation,
   getHybridBundleStatus,
-  prepareVideo,
+  prepareColabVideo,
   startColabJob,
   waitForColabJob,
   type ColabJob,
 } from "../colab/analysis";
+import { preparedGeometry, scaleArenaToUpload, scalePoseToOriginal } from "../colab/videoGeometry";
 import { AnalysisWorkflow } from "../colab/AnalysisWorkflow";
 import { displayAnalysisMessage, preparingNewAnalysis } from "../colab/workflow";
-import { loadLocalResult } from "../local/api";
+import { listLocalJobs, loadLocalOpenFieldResult, type LocalJob } from "../local/api";
 import { BoxOverlay } from "./BoxOverlay";
 import { HumanReferenceEditor } from "./HumanReferenceEditor";
 import {
@@ -164,6 +165,7 @@ function TrackingReviewEditor({ experimentId }: { experimentId: string }) {
   const [sourceLoading,setSourceLoading]=useState(false);
   const [drawingBox,setDrawingBox]=useState(false);
   const [analysisHistory, setAnalysisHistory] = useState<ColabJob[]>([]);
+  const [localHistory, setLocalHistory] = useState<LocalJob[]>([]);
   const [jobClock, setJobClock] = useState(() => Date.now());
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [drag, setDrag] = useState<PointDrag | null>(null);
@@ -185,6 +187,15 @@ function TrackingReviewEditor({ experimentId }: { experimentId: string }) {
     : experiment?.trackingSelection?.engine === "colab" ? analysisHistory.find(job => job.jobId === experiment.trackingSelection?.jobId)
     : analysisHistory.find((job) => job.resultsReady || job.status === "succeeded");
   const latestSuccessfulJobId = latestResultJob?.jobId;
+  const videoWidth = experiment?.video.width;
+  const videoHeight = experiment?.video.height;
+  const loadColabSamples = useCallback(async (jobId: string) => {
+    const samples = parseCanonicalPoseCsv(await loadColabResult(jobId));
+    const preparation = await getColabJobPreparation(experimentId, jobId);
+    return preparation && videoWidth && videoHeight
+      ? scalePoseToOriginal(samples, { width: videoWidth, height: videoHeight }, preparation)
+      : samples;
+  }, [experimentId, videoWidth, videoHeight]);
   const applySource = useCallback((selection:TrackingSelection,samples:PoseSample[]) => {
     if (!samples.length) throw new Error("A execução não contém frames para revisão.");
     videoRef.current?.pause(); setPlaying(false); dragRef.current=null;setDrag(null);setPlacingPoint(false);setDrawingBox(false);
@@ -207,12 +218,12 @@ function TrackingReviewEditor({ experimentId }: { experimentId: string }) {
     if (!selection) return;
     let cancelled=false;
     const token=++sourceRequestRef.current;setSourceLoading(true);
-    const promise=selection.engine==="opencv"?loadLocalResult(selection.jobId):loadColabResult(selection.jobId).then(parseCanonicalPoseCsv);
+    const promise=selection.engine==="opencv"?loadLocalOpenFieldResult(selection.jobId):loadColabSamples(selection.jobId);
     void promise.then(samples=>{if(!cancelled&&token===sourceRequestRef.current)applySource(selection,samples);})
       .catch(error=>{if(!cancelled&&token===sourceRequestRef.current)setCsvError(`A fonte salva não pôde ser carregada. Correções preservadas. ${String(error)}`);})
       .finally(()=>{if(!cancelled&&token===sourceRequestRef.current)setSourceLoading(false);});
     return()=>{cancelled=true;};
-  }, [experimentId,experiment?.trackingSelection?.engine,experiment?.trackingSelection?.jobId,latestSuccessfulJobId,!!trackingData[experimentId],applySource]);
+  }, [experimentId,experiment?.trackingSelection?.engine,experiment?.trackingSelection?.jobId,latestSuccessfulJobId,!!trackingData[experimentId],applySource,loadColabSamples]);
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
@@ -235,6 +246,15 @@ function TrackingReviewEditor({ experimentId }: { experimentId: string }) {
     };
   }, [experimentId]);
 
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let active = true;
+    void listLocalJobs(experimentId).then(jobs => {
+      if (active) setLocalHistory(jobs.filter(job => job.state === "succeeded"));
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [experimentId, analysisStarting]);
+
   const inputSamples = trackingData[experimentId] ?? [];
   const rawSamples = useMemo(() => inputSamples.map(originalPose), [inputSamples]);
   const [placingPoint, setPlacingPoint] = useState(false);
@@ -245,8 +265,14 @@ function TrackingReviewEditor({ experimentId }: { experimentId: string }) {
   );
   const displayedSamples = viewMode === "raw" ? rawSamples : correctedSamples;
   const macroMode = experiment?.referencePoint === "box_center";
-  const keypoints = useMemo(() => macroMode ? ["box_center"] : experiment?.trackingSelection?.engine==="opencv" ? [experiment.referencePoint]
-    : Array.from(new Set([experiment?.referencePoint??"body_center",...rawSamples.map((sample) => sample.keypoint),"nose","tail_base","left_ear","right_ear"])), [rawSamples, experiment?.referencePoint,experiment?.trackingSelection?.engine,macroMode]);
+  const localTracking = experiment?.trackingSelection?.engine === "opencv";
+  const referencePoint = experiment?.referencePoint ?? "body_center";
+  const keypoints = useMemo(() => {
+    if (macroMode) return ["box_center"];
+    const detectedPoints = rawSamples.map(sample => sample.keypoint);
+    const defaults = localTracking ? [] : ["nose", "tail_base", "left_ear", "right_ear"];
+    return Array.from(new Set([referencePoint, ...detectedPoints, ...defaults]));
+  }, [rawSamples, referencePoint, localTracking, macroMode]);
 
   useEffect(() => {
     if (keypoints.length && !keypoints.includes(selectedKeypoint)) setSelectedKeypoint(keypoints[0]);
@@ -406,7 +432,7 @@ function TrackingReviewEditor({ experimentId }: { experimentId: string }) {
     if(!selection)return;
     const token=++sourceRequestRef.current;setSourceLoading(true);setCsvError(null);
     try {
-      const samples=selection.engine==="opencv"?await loadLocalResult(selection.jobId):parseCanonicalPoseCsv(await loadColabResult(selection.jobId));
+      const samples=selection.engine==="opencv"?await loadLocalOpenFieldResult(selection.jobId):await loadColabSamples(selection.jobId);
       if(token===sourceRequestRef.current)applySource(selection,samples);
     }catch(error){if(token===sourceRequestRef.current)setCsvError(`Não foi possível trocar a fonte. O resultado atual e suas correções foram mantidos. ${String(error)}`);}
     finally{if(token===sourceRequestRef.current)setSourceLoading(false);}
@@ -552,13 +578,6 @@ function TrackingReviewEditor({ experimentId }: { experimentId: string }) {
       return;
     }
     const videoFile = selectedFile ?? asset?.file;
-    let preparation = selectedFile ? undefined : experiment.video.preparation;
-    if (!videoFile && !preparation) {
-      setCsvError("Selecione novamente o vídeo original para iniciar o processamento.");
-      analysisRequestedRef.current = true;
-      videoFileRef.current?.click();
-      return;
-    }
     setAnalysisActivity(experimentId, { starting: true, message: "Verificando a conexão com o Colab", error: null, videoProgress: null });
     setAnalysisJob(null);
     setSelectedJobId(null);
@@ -579,28 +598,27 @@ function TrackingReviewEditor({ experimentId }: { experimentId: string }) {
         const bundle = await getHybridBundleStatus(bundleId);
         if (!bundle.installed && !bundle.remoteAvailable) throw new Error(bundle.error || `Bundle ${bundleId} ausente`);
       }
-      if (preparation && !await checkVideoStaging(experiment.id, preparation.uploadId)) preparation = undefined;
-      if (!preparation && !videoFile) {
+      const media = await prepareColabVideo(experiment.id, experiment.video, videoFile, (percent, message, detail) =>
+        setAnalysisActivity(experimentId, { message, videoProgress: detail
+          ? { phase: detail.phase, percent: detail.percent, remainingSec: detail.remainingSec }
+          : percent === 100 ? { phase: "complete", percent: 100, remainingSec: 0 } : null }));
+      if (!media) {
         setCsvError("O vídeo não está mais no cache. Selecione novamente o original; o experimento e suas correções foram preservados.");
         analysisRequestedRef.current = true;
         videoFileRef.current?.click();
         return;
       }
-      updateExperiment(experiment.id, { status: "processing" });
-      if (!preparation) {
-        preparation = await prepareVideo(experiment.id, videoFile!, experiment.video, (percent, message, detail) =>
-          setAnalysisActivity(experimentId, { message, videoProgress: detail
-            ? { phase: detail.phase, percent: detail.percent, remainingSec: detail.remainingSec }
-            : percent === 100 ? { phase: "complete", percent: 100, remainingSec: 0 } : null }));
-        updateExperiment(experiment.id, { video: { ...experiment.video, preparation } });
-      }
+      const { preparation, originalSha256 } = media;
+      updateExperiment(experiment.id, current => ({
+        status: "processing", video: { ...current.video, preparation, sha256: originalSha256 },
+      }));
       setAnalysisActivity(experimentId, { videoProgress: null });
-      setAnalysisActivity(experimentId, { message: preparation.message });
+      const geometry = preparedGeometry(experiment.video, preparation);
       const started = await startColabJob(experiment.id, preparation.uploadId, {
-        width: experiment.video.width,
-        height: experiment.video.height,
+        width: geometry.width,
+        height: geometry.height,
         durationSec: experiment.video.durationSec,
-      }, experiment.arena, experiment.analysisEngine ?? "wistar_superanimal_hybrid_v1", bundleId);
+      }, scaleArenaToUpload(experiment.arena, experiment.video, preparation), experiment.analysisEngine ?? "wistar_superanimal_hybrid_v1", bundleId);
       setAnalysisJob(started);
       setAnalysisHistory((jobs) => [started, ...jobs.filter((job) => job.jobId !== started.jobId)]);
       setWorkspaceTab("runs");
@@ -613,7 +631,7 @@ function TrackingReviewEditor({ experimentId }: { experimentId: string }) {
         if (!completed.resultsReady) throw new Error(completed.error || "O job Colab falhou sem detalhes.");
         setCsvError(`Poses preservadas para revisão. A execução parou após a inferência: ${completed.error || completed.message}`);
       }
-      const samples = parseCanonicalPoseCsv(await loadColabResult(completed.jobId));
+      const samples = await loadColabSamples(completed.jobId);
       if(sourceRequestRef.current===sourceAtStart)applySource({engine:"colab",jobId:completed.jobId},samples);
       else setAnalysisActivity(experimentId, { message: "Execução concluída e salva. A fonte que você está revisando não foi alterada; selecione o novo resultado quando quiser." });
       updateExperiment(experiment.id,current=>({video:{...current.video,preparation},status:"review"}));
@@ -642,12 +660,15 @@ function TrackingReviewEditor({ experimentId }: { experimentId: string }) {
   const analysisBusy = analysisStarting || currentJob?.status === "running" || currentJob?.status === "queued";
   const hasExecutionRecord = analysisHistory.length > 0 || Boolean(experiment.trackingSelection);
   const sourceOptions = [
-    ...(!experiment.trackingSelection ? [{ value: "legacy", label: "Revisão anterior" }] : []),
-    ...(experiment.trackingSelection && !analysisHistory.some((job) => `colab:${job.jobId}` === trackingSourceKey(experiment.trackingSelection))
-      ? [{ value: trackingSourceKey(experiment.trackingSelection), label: `Fonte anterior · ${experiment.trackingSelection.engine} · ${experiment.trackingSelection.jobId.slice(0, 8)}` }] : []),
     ...analysisHistory.filter((job) => job.resultsReady || job.status === "succeeded")
       .map((job) => ({ value: `colab:${job.jobId}`, label: `Colab · ${job.modelBundleId || "modelo legado"} · ${new Date(job.createdAt).toLocaleString()} · ${job.jobId.slice(0, 8)}` })),
+    ...localHistory.map(job => ({ value: `opencv:${job.jobId}`,
+      label: `Máquina local · ${job.config.strategy === "wistar_hrnet" ? "Wistar + HRNet" : "OpenCV"} · ${new Date(job.createdAt).toLocaleString("pt-BR")}` })),
   ];
+  const savedSource = trackingSourceKey(experiment.trackingSelection);
+  if (!sourceOptions.some(option => option.value === savedSource)) {
+    sourceOptions.unshift({ value: savedSource, label: "Revisão anterior" });
+  }
   const editorLocked = viewMode === "raw" || sourceLoading;
   const positionLocked = editorLocked || !currentFrameSample;
   const changeWorkspace = (tab: WorkspaceTab) => {videoRef.current?.pause();setPlaying(false);cancelDrag();setDrawingBox(false);setWorkspaceTab(tab);};
@@ -675,7 +696,7 @@ function TrackingReviewEditor({ experimentId }: { experimentId: string }) {
       </header>
       {experiment.legacyReviewSource&&experiment.legacyReviewSource!=="legacy"&&experiment.corrections.some(event=>!event.reviewSource&&["MOVE_POINT","SET_BOX","CONFIRM_POINT","MARK_MISSING"].includes(event.type))&&<div className="editor-error"><Button size="sm" variant="ghost" disabled={sourceLoading} onClick={()=>updateExperiment(experiment.id,{legacyReviewSource:"legacy"})}>Reassociar correções antigas</Button></div>}
       {hasUnassignedCorrections(experiment)&&<div className="editor-error">
-        <span>Há correções antigas preservadas, mas sem identificação da execução. Elas não serão misturadas ao OpenCV. Selecione o resultado Colab que você corrigiu para associá-las.</span>
+        <span>Há correções antigas sem identificação da execução. Selecione o resultado Colab que você corrigiu para associá-las.</span>
         {experiment.trackingSelection?.engine==="colab"&&<Button size="sm" variant="secondary" disabled={sourceLoading} onClick={()=>updateExperiment(experiment.id,{legacyReviewSource:trackingSourceKey(experiment.trackingSelection)})}>Associar correções antigas a este Colab</Button>}
       </div>}
 

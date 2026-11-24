@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ColabJob, ColabJobEvent } from "./analysis";
-import { checkpoints, diaryEvents, displayAnalysisMessage, gpuMessage, preparingNewAnalysis, reportedFrameProgress } from "./workflow";
+import type { LocalJob } from "../local/api";
+import { checkpoints, diaryEvents, displayAnalysisMessage, gpuMessage, localCheckpoints, preparingNewAnalysis, reportedFrameProgress } from "./workflow";
 
 function event(id: number, stage: string, message = stage): ColabJobEvent {
   return { id, stage, message, progress: 0, status: "running", createdAt: "2026-11-06T12:00:00Z" };
@@ -13,6 +14,37 @@ function job(overrides: Partial<ColabJob>): ColabJob {
 }
 
 describe("checkpoints da análise", () => {
+  it("representa a fila, a detecção e o fim de uma execução local no card compartilhado", () => {
+    const queued: LocalJob = { jobId: "local-1", experimentId: "experiment-1", state: "queued",
+      error: null, createdAt: "2026-11-06T12:00:00Z", videoSha256: "sha", uploadId: "video-1", config: {}, report: {} };
+    expect(localCheckpoints(null, false, false, "open_field").every(step => step.state === "pending")).toBe(true);
+    expect(localCheckpoints(null, true, false, "open_field").find(step => step.state === "active")?.title).toBe("Preparando vídeo");
+    expect(localCheckpoints(queued, false, false, "open_field").find(step => step.state === "active")?.title).toBe("Preparando OpenCV");
+    const tracking: LocalJob = { ...queued, state: "running", report: { phase: "tracking", framesProcessed: 20 } };
+    expect(localCheckpoints(tracking, false, false, "open_field").find(step => step.state === "active")?.title).toBe("Detectando animal");
+    expect(localCheckpoints({ ...tracking, report: { phase: "rendering" } }, false, false, "open_field").at(-1))
+      .toMatchObject({ title: "Renderizando vídeo", state: "active" });
+    expect(localCheckpoints({ ...tracking, state: "cancelled" }, false, true, "open_field").find(step => step.state === "failed")?.title).toBe("Detectando animal");
+    expect(localCheckpoints({ ...tracking, state: "succeeded" }, false, false, "open_field").every(step => step.state === "done")).toBe(true);
+  });
+
+  it("exibe a referência de presença para o FST local e o envio de vídeo para o Colab", () => {
+    const reference: LocalJob = { jobId: "local-fst", experimentId: "experiment-1", state: "running",
+      error: null, createdAt: "2026-11-06T12:00:00Z", videoSha256: "sha", uploadId: "video-1", config: {}, report: { phase: "reference" } };
+    expect(localCheckpoints(reference, false, false, "forced_swim").find(step => step.state === "active")?.description).toContain("cilindros");
+    expect(checkpoints(job({ stage: "uploading" }), false, false, "forced_swim").find(step => step.state === "active")?.title).toBe("Enviando vídeo");
+  });
+
+  it("avança da detecção Wistar para a pose antes de preparar o vídeo anotado", () => {
+    const pose: LocalJob = { jobId: "local-wistar", experimentId: "experiment-1", state: "running",
+      error: null, createdAt: "2026-11-06T12:00:00Z", videoSha256: "sha", uploadId: "video-1",
+      config: { strategy: "wistar_hrnet" }, report: { phase: "pose", framesProcessed: 20 } };
+    const steps = localCheckpoints(pose, false, false, "open_field");
+    expect(steps[2]).toMatchObject({ title: "Detectando animal", state: "done" });
+    expect(steps[3]).toMatchObject({ title: "Estimando pose", state: "active" });
+    expect(steps[4].state).toBe("pending");
+  });
+
   it("mostra apenas contagens de frames explicitamente reportadas pelo Colab", () => {
     expect(reportedFrameProgress(job({stage:"inference",message:"SuperAnimal em execução · lote atual: Detector Wistar · 240/7356 (3.2 frames/s)"}),"open_field"))
       .toEqual({processed:240,total:7356,remaining:7116,scope:"Detecção"});

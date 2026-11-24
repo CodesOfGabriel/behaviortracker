@@ -1,4 +1,7 @@
 import type { ColabJob, ColabJobEvent } from "./analysis";
+import type { LocalJob } from "../local/api";
+
+export type WorkflowProtocol = NonNullable<ColabJob["protocol"]>;
 
 export const workflowSteps = [
   { title: "Preparando vídeo", description: "Leitura do arquivo e conferência dos frames", stages: ["preparing", "queued", "authorizing"] },
@@ -25,6 +28,44 @@ export const fstWorkflowSteps = [
 
 export type CheckpointState = "pending" | "active" | "done" | "failed";
 
+const ramWorkflowSteps = workflowSteps.map((step, index) => {
+  if (index === 5) return { ...step, description: "Detector Wistar e HRNet acompanham o animal dentro da área marcada" };
+  if (index === 6) return { ...step, description: "Centros observados e arquivos ficam disponíveis para revisão" };
+  return step;
+});
+
+const colabSteps = { open_field: workflowSteps, forced_swim: fstWorkflowSteps, radial_arm_maze: ramWorkflowSteps };
+
+export function localCheckpoints(job: LocalJob | null, preparing: boolean, failed: boolean, protocol: WorkflowProtocol) {
+  const wistar = job?.config.strategy === "wistar_hrnet" || (!job && protocol === "open_field");
+  const steps = wistar ? [
+    { title: "Preparando vídeo", description: "Reutilização da cópia de análise do projeto" },
+    { title: "Preparando modelos", description: "Configuração do ambiente Wistar e HRNet" },
+    { title: "Detectando animal", description: "Detector Wistar na área calibrada" },
+    { title: "Estimando pose", description: "HRNet estima 27 pontos anatômicos" },
+    { title: "Preparando resultados", description: "Verificação das poses e vídeo anotado para auditoria" },
+  ] : [
+    { title: "Preparando vídeo", description: "Leitura do arquivo e preparação da cópia local" },
+    { title: "Preparando OpenCV", description: "Inicialização do processamento no computador" },
+    { title: "Preparando detecção", description: protocol === "forced_swim" ? "Montagem da referência visual dos cilindros" : "Reconhecimento do animal na área analisável" },
+    { title: protocol === "forced_swim" ? "Detectando presença" : "Detectando animal", description: "Processamento dos frames no computador" },
+    { title: "Renderizando vídeo", description: "MP4 com as observações da execução para auditoria" },
+  ];
+  const phase = job?.report.phase;
+  const wistarStages: Record<string, number> = { tracking: 2, pose: 3, quality: 4, rendering: 4, complete: 4 };
+  const isFinal = phase === "rendering" || phase === "complete";
+  const current = !job ? 0 : wistar ? wistarStages[phase ?? ""] ?? 1
+    : isFinal ? 4 : phase === "reference" || phase === "recognition" ? 2
+      : phase || job.report.framesProcessed != null ? 3 : 1;
+  return steps.map((step, index) => {
+    let state: CheckpointState = "pending";
+    if (job?.state === "succeeded" || index < current) state = "done";
+    else if (index === current && failed) state = "failed";
+    else if (index === current && (job || preparing)) state = "active";
+    return { ...step, state };
+  });
+}
+
 export function preparingNewAnalysis(starting: boolean, liveJob: ColabJob | null, history: ColabJob[]) {
   return starting && !liveJob && !history.some((job) => job.status === "running" || job.status === "queued");
 }
@@ -35,7 +76,7 @@ export function displayAnalysisMessage(message: string) {
     .replace(/\s*[·:]\s*$/g, "").replace(/\s{2,}/g, " ").trim();
 }
 
-export function reportedFrameProgress(job: ColabJob | null, protocol: "open_field" | "forced_swim") {
+export function reportedFrameProgress(job: ColabJob | null, protocol: WorkflowProtocol) {
   if (!job || job.status !== "running" || job.stage !== "inference") return null;
   const match = protocol === "forced_swim"
     ? /FST_FRAMES=([A-Za-z0-9_]+):(\d+)\/(\d+)/.exec(job.message)
@@ -55,8 +96,8 @@ export function reportedFrameProgress(job: ColabJob | null, protocol: "open_fiel
   return { processed, total, remaining: total - processed, scope };
 }
 
-export function diaryEvents(events: ColabJobEvent[], protocol: "open_field" | "forced_swim") {
-  const steps = protocol === "forced_swim" ? fstWorkflowSteps : workflowSteps;
+export function diaryEvents(events: ColabJobEvent[], protocol: WorkflowProtocol) {
+  const steps = colabSteps[protocol];
   const entries: { id: number; createdAt: string; status: ColabJobEvent["status"]; message: string }[] = [];
   const seen = new Set<number>();
   for (const event of events) {
@@ -78,12 +119,12 @@ export function diaryEvents(events: ColabJobEvent[], protocol: "open_field" | "f
   return entries;
 }
 
-export function stageIndex(stage: string, protocol: "open_field" | "forced_swim" = "open_field") {
-  return (protocol === "forced_swim" ? fstWorkflowSteps : workflowSteps).findIndex((step) => (step.stages as readonly string[]).includes(stage));
+export function stageIndex(stage: string, protocol: WorkflowProtocol = "open_field") {
+  return colabSteps[protocol].findIndex((step) => (step.stages as readonly string[]).includes(stage));
 }
 
-export function checkpoints(job: ColabJob | null, preparing = false, localError = false, protocol: "open_field" | "forced_swim" = "open_field") {
-  const steps = protocol === "forced_swim" ? fstWorkflowSteps : workflowSteps;
+export function checkpoints(job: ColabJob | null, preparing = false, localError = false, protocol: WorkflowProtocol = "open_field") {
+  const steps = colabSteps[protocol];
   const events = job?.events ?? [];
   const currentIndex = job ? stageIndex(job.stage, protocol) : 0;
   return steps.map((step, index) => {

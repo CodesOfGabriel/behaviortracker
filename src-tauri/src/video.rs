@@ -27,7 +27,7 @@ struct VideoPreparationProgress<'a> {
     remaining_sec: Option<u64>,
 }
 
-fn emit_preparation_progress(app: &AppHandle, upload_id: &str, phase: &str,
+pub(crate) fn emit_preparation_progress(app: &AppHandle, upload_id: &str, phase: &str,
     percent: Option<u8>, remaining_sec: Option<u64>) {
     let _ = app.emit(VIDEO_PREPARATION_PROGRESS_EVENT,
         VideoPreparationProgress { upload_id, phase, percent, remaining_sec });
@@ -253,15 +253,107 @@ fn staged_video_available(
     experiment_id: &str,
     upload_id: &str,
 ) -> CommandResult<bool> {
+    Ok(staged_video_size(connection, experiment_id, upload_id)?.is_some())
+}
+
+fn staged_video_size(
+    connection: &rusqlite::Connection,
+    experiment_id: &str,
+    upload_id: &str,
+) -> CommandResult<Option<u64>> {
     let staged: Option<(String,i64,i64)> = connection.query_row(
         "SELECT local_path,expected_size,ready FROM video_staging WHERE upload_id=?1 AND experiment_id=?2",
         params![upload_id,experiment_id], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional()
         .map_err(|_| "Não foi possível consultar o vídeo preparado")?;
-    Ok(staged.is_some_and(|(path, size, ready)| {
-        size > 0
+    Ok(staged.and_then(|(path, size, ready)| {
+        (size > 0
             && ready == 1
-            && fs::metadata(path).is_ok_and(|info| info.is_file() && info.len() == size as u64)
+            && fs::metadata(path).is_ok_and(|info| info.is_file() && info.len() == size as u64))
+            .then_some(size as u64)
     }))
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StagedAnalysisVideo {
+    original_upload_id: Option<String>,
+    original_sha256: String,
+    preparation: Option<VideoPreparation>,
+}
+
+fn find_staged_analysis_video(
+    connection: &rusqlite::Connection,
+    experiment_id: &str,
+    filename: &str,
+    size: u64,
+    expected_sha256: Option<&str>,
+    preferred_upload_id: Option<&str>,
+    adaptive: bool,
+) -> CommandResult<Option<StagedAnalysisVideo>> {
+    let size_sql = i64::try_from(size).map_err(|_| "Tamanho de vídeo inválido")?;
+    let mut statement = connection.prepare(
+        "SELECT s.upload_id, s.sha256, p.prepared_upload_id, p.report_json
+           FROM video_staging s LEFT JOIN video_preparations p ON p.original_upload_id=s.upload_id
+          WHERE s.experiment_id=?1 AND s.original_filename=?2 AND s.expected_size=?3
+            AND s.ready=1 AND s.sha256 IS NOT NULL AND s.sha256<>''
+            AND (?4 IS NULL OR s.sha256=?4)
+            AND NOT EXISTS (SELECT 1 FROM video_preparations derived
+              WHERE derived.prepared_upload_id=s.upload_id AND derived.original_upload_id<>s.upload_id)
+          ORDER BY CASE WHEN s.upload_id=?5 OR p.prepared_upload_id=?5 THEN 0 ELSE 1 END,
+                   s.created_at DESC, s.rowid DESC",
+    ).map_err(|_| "Não foi possível consultar o cache do projeto")?;
+    let rows = statement.query_map(params![experiment_id, filename, size_sql, expected_sha256, preferred_upload_id],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?, row.get::<_, Option<String>>(3)?)),
+    ).map_err(|_| "Não foi possível localizar a mídia do projeto")?
+        .collect::<Result<Vec<_>, _>>().map_err(|_| "O registro da mídia do projeto é inválido")?;
+    let Some((first_id, first_sha256, first_prepared, _)) = rows.first() else { return Ok(None); };
+    let explicitly_linked = preferred_upload_id.is_some_and(|id| first_id == id || first_prepared.as_deref() == Some(id));
+    if !explicitly_linked && rows.iter().any(|(_, digest, _, _)| digest != first_sha256) {
+        return Ok(None);
+    }
+    let mut available_original = None;
+    for (id, digest, prepared_id, json) in &rows {
+        if digest != first_sha256 { continue; }
+        if available_original.is_none() && staged_video_available(connection, experiment_id, id)? {
+            available_original = Some(id.clone());
+        }
+        if let Some(report) = json.as_ref().and_then(|value| serde_json::from_str::<VideoPreparation>(value).ok()) {
+            if prepared_id.as_deref() == Some(report.upload_id.as_str())
+                && report.original_bytes == size
+                && compatible_preparation(&report, adaptive)
+                && staged_video_size(connection, experiment_id, &report.upload_id)? == Some(report.upload_bytes)
+            {
+                return Ok(Some(StagedAnalysisVideo {
+                    original_upload_id: available_original,
+                    original_sha256: first_sha256.clone(),
+                    preparation: Some(report),
+                }));
+            }
+        }
+    }
+    Ok(available_original.map(|id| StagedAnalysisVideo {
+        original_upload_id: Some(id),
+        original_sha256: first_sha256.clone(),
+        preparation: None,
+    }))
+}
+
+#[tauri::command]
+pub async fn get_staged_analysis_video(
+    app: AppHandle,
+    experiment_id: String,
+    filename: String,
+    size: u64,
+    expected_sha256: Option<String>,
+    preferred_upload_id: Option<String>,
+    adaptive: bool,
+) -> CommandResult<Option<StagedAnalysisVideo>> {
+    validate_local_id(&experiment_id, "Experimento")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let connection = open_database(&app)?;
+        find_staged_analysis_video(&connection, &experiment_id, &filename, size,
+            expected_sha256.as_deref(), preferred_upload_id.as_deref(), adaptive)
+    }).await.map_err(|_| "Consulta ao vídeo local interrompida".to_string())?
 }
 
 #[tauri::command]
@@ -269,11 +361,28 @@ pub fn check_video_staging(
     app: AppHandle,
     experiment_id: String,
     upload_id: String,
+    source: Option<bool>,
 ) -> CommandResult<bool> {
     validate_local_id(&experiment_id, "Experimento")?;
     validate_local_id(&upload_id, "Upload")?;
     prepare_tables(&app)?;
-    staged_video_available(&open_database(&app)?, &experiment_id, &upload_id)
+    let connection = open_database(&app)?;
+    if !staged_video_available(&connection, &experiment_id, &upload_id)? {
+        return Ok(false);
+    }
+    if source.unwrap_or(false) {
+        let source_id = original_upload_id(&connection, &upload_id)?;
+        return staged_video_available(&connection, &experiment_id, &source_id);
+    }
+    Ok(true)
+}
+
+pub(crate) fn original_upload_id(connection: &rusqlite::Connection, upload_id: &str) -> CommandResult<String> {
+    Ok(connection.query_row(
+        "SELECT original_upload_id FROM video_preparations WHERE prepared_upload_id=?1 LIMIT 1",
+        [upload_id], |row| row.get(0),
+    ).optional().map_err(|_| "Não foi possível identificar o vídeo original")?
+        .unwrap_or_else(|| upload_id.into()))
 }
 
 // Decodifica em streaming: somente hashes/tempos ficam na memória, não os pixels.
@@ -391,28 +500,42 @@ fn frame_timestamps_with_progress(
     input: &Path,
     on_frame: &mut impl FnMut(usize),
 ) -> CommandResult<Vec<f64>> {
-    let result = Command::new(ffprobe)
+    let mut child = Command::new(ffprobe)
         .args([
             "-v", "error", "-select_streams", "v:0", "-show_frames",
             "-show_entries", "frame=best_effort_timestamp_time",
             "-of", "compact=p=0:nk=1",
         ])
         .arg(input)
+        .stdout(Stdio::piped())
         .stderr(Stdio::null())
-        .output()
+        .spawn()
         .map_err(|_| "Não foi possível verificar os timestamps dos frames".to_string())?;
-    if !result.status.success() {
+    let result = read_frame_timestamps(&mut child, on_frame);
+    if result.is_err() {
+        let _ = child.kill();
+    }
+    let status = child.wait().map_err(|_| "Não foi possível concluir a leitura dos timestamps")?;
+    let timestamps = result?;
+    if !status.success() {
         return Err("O ffprobe não conseguiu ler os timestamps dos frames".into());
     }
+    on_frame(timestamps.len());
+    Ok(timestamps)
+}
+
+fn read_frame_timestamps(child: &mut Child, on_frame: &mut impl FnMut(usize)) -> CommandResult<Vec<f64>> {
+    let stdout = child.stdout.take().ok_or("Saída do ffprobe indisponível")?;
     let mut timestamps = Vec::new();
-    for line in String::from_utf8_lossy(&result.stdout).lines() {
+    for line in BufReader::new(stdout).lines() {
+        let line = line.map_err(|_| "Falha ao ler os timestamps dos frames")?;
         if line.trim().is_empty() {
             continue;
         }
         let timestamp = line
             .split('|')
             .next()
-            .unwrap_or(line)
+            .unwrap_or(&line)
             .trim()
             .parse::<f64>()
             .ok()
@@ -429,7 +552,6 @@ fn frame_timestamps_with_progress(
     if timestamps.is_empty() {
         return Err("Vídeo sem frames com timestamps decodificáveis".into());
     }
-    on_frame(timestamps.len());
     Ok(timestamps)
 }
 
@@ -480,12 +602,19 @@ fn source_frame_estimate(info: &Value) -> Option<usize> {
     else { None }
 }
 
-fn report_frame_progress(frames: usize, expected: Option<usize>, start: u8, end: u8,
-    progress: &mut impl FnMut(&str, Option<u8>, Option<u64>)) {
-    if let Some(expected) = expected.filter(|value| *value > 0) {
-        let fraction = (frames as f64 / expected as f64).clamp(0.0, 1.0);
-        let percent = start + ((end - start) as f64 * fraction).floor() as u8;
-        progress("verifying", Some(percent.min(end - 1)), None);
+fn frame_progress(expected: Option<usize>, start: u8, end: u8,
+    progress: &mut impl FnMut(&str, Option<u8>, Option<u64>)) -> impl FnMut(usize) + '_ {
+    let mut last_percent = start;
+    move |frames| {
+        if let Some(expected) = expected.filter(|value| *value > 0) {
+            let fraction = (frames as f64 / expected as f64).clamp(0.0, 1.0);
+            let percent = start + ((end - start) as f64 * fraction).floor() as u8;
+            let percent = percent.min(end - 1);
+            if percent > last_percent {
+                last_percent = percent;
+                progress("verifying", Some(percent), None);
+            }
+        }
     }
 }
 
@@ -535,12 +664,9 @@ fn optimize_quality_with_progress(input: &Path, output: &Path, ffmpeg: &Path, ff
     progress("checking", None, None);
     let info = probe(ffprobe, input)?;
     let stream = &info["streams"][0];
-    if stream["width"].as_u64() != Some(width.into()) || stream["height"].as_u64() != Some(height.into()) {
+    let (source_width, source_height) = display_dimensions(stream)?;
+    if (source_width, source_height) != (width.into(), height.into()) {
         return Err("Resolução diferente da calibração: original mantido".into());
-    }
-    if stream["side_data_list"].as_array().is_some_and(|items| items.iter().any(|v| v["rotation"].as_i64().is_some_and(|r| r != 0)))
-        || stream.pointer("/tags/rotate").and_then(Value::as_str).is_some_and(|v| v != "0") {
-        return Err("Vídeo com rotação: original mantido para preservar a geometria".into());
     }
     let (out_width, out_height) = upload_dimensions(width, height);
     let size = fs::metadata(input).map_err(|_| "Vídeo indisponível")?.len();
@@ -548,7 +674,7 @@ fn optimize_quality_with_progress(input: &Path, output: &Path, ffmpeg: &Path, ff
     progress("encoding", Some(0), None);
     let child = Command::new(ffmpeg)
         .args(["-v", "error", "-nostdin", "-n", "-stats_period", "0.5", "-progress", "pipe:1",
-            "-noautorotate", "-i"]).arg(input)
+            "-i"]).arg(input)
         .args(["-map", "0:v:0", "-an", "-sn", "-dn", "-map_metadata", "-1", "-vf", &scale,
             "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p",
             "-threads", "2", "-fps_mode", "passthrough", "-enc_time_base:v", "1/1000000",
@@ -561,16 +687,17 @@ fn optimize_quality_with_progress(input: &Path, output: &Path, ffmpeg: &Path, ff
     }
     let encoded = probe(ffprobe, output)?;
     if encoded["streams"][0]["width"].as_u64() != Some(out_width.into())
-        || encoded["streams"][0]["height"].as_u64() != Some(out_height.into()) {
+        || encoded["streams"][0]["height"].as_u64() != Some(out_height.into())
+        || display_rotation(&encoded["streams"][0]) != 0.0 {
         return Err("Resolução da cópia inesperada; original mantido".into());
     }
     let expected = source_frame_estimate(&info);
     progress("verifying", Some(80), None);
     let original = frame_timestamps_with_progress(ffprobe, input,
-        &mut |frames| report_frame_progress(frames, expected, 80, 90, progress))?;
+        &mut frame_progress(expected, 80, 90, progress))?;
     progress("verifying", Some(90), None);
     let compressed = frame_timestamps_with_progress(ffprobe, output,
-        &mut |frames| report_frame_progress(frames, Some(original.len()), 90, 99, progress))?;
+        &mut frame_progress(Some(original.len()), 90, 99, progress))?;
     progress("verifying", Some(99), None);
     let (timing_matches, frame_count, max_delta) = timing_diagnostics(&original, &compressed);
     if !timing_matches {
@@ -580,6 +707,23 @@ fn optimize_quality_with_progress(input: &Path, output: &Path, ffmpeg: &Path, ff
         ));
     }
     Ok((frame_count as u64, out_width, out_height))
+}
+
+fn display_rotation(stream: &Value) -> f64 {
+    stream["side_data_list"].as_array().into_iter().flatten()
+        .find_map(|item| item["rotation"].as_f64())
+        .unwrap_or(0.0)
+        .rem_euclid(360.0)
+}
+
+fn display_dimensions(stream: &Value) -> CommandResult<(u64, u64)> {
+    let width = stream["width"].as_u64().ok_or("Largura do vídeo indisponível")?;
+    let height = stream["height"].as_u64().ok_or("Altura do vídeo indisponível")?;
+    match display_rotation(stream) {
+        0.0 | 180.0 => Ok((width, height)),
+        90.0 | 270.0 => Ok((height, width)),
+        _ => Err("Rotação incompatível com a calibração: original mantido".into()),
+    }
 }
 
 pub(crate) fn sha256(path: &Path) -> CommandResult<String> {
@@ -722,10 +866,10 @@ fn optimize_with_progress(input: &Path, output: &Path, ffmpeg: &Path, ffprobe: &
     let expected = source_frame_estimate(&info);
     progress("verifying", Some(80), None);
     let original = fingerprints_with_progress(ffmpeg, input,
-        &mut |frames| report_frame_progress(frames, expected, 80, 90, progress))?;
+        &mut frame_progress(expected, 80, 90, progress))?;
     progress("verifying", Some(90), None);
     let compressed = fingerprints_with_progress(ffmpeg, output,
-        &mut |frames| report_frame_progress(frames, Some(original.len()), 90, 99, progress))?;
+        &mut frame_progress(Some(original.len()), 90, 99, progress))?;
     progress("verifying", Some(99), None);
     if !identical_frames(&original, &compressed) {
         return Err("Frames ou timestamps divergiram; original mantido".into());
@@ -733,8 +877,20 @@ fn optimize_with_progress(input: &Path, output: &Path, ffmpeg: &Path, ffprobe: &
     Ok(original.len() as u64)
 }
 
-const QUALITY_POLICY: &str = "quality-upload-3";
+const QUALITY_POLICY: &str = "quality-upload-4";
+pub(crate) const QUALITY_THRESHOLD_BYTES: u64 = 100_000_000;
 const FST_POLICY: &str = "fst-adaptive-2";
+
+fn compatible_preparation(report: &VideoPreparation, adaptive: bool) -> bool {
+    let version = report.policy_version.as_str();
+    if adaptive {
+        return matches!(version, FST_POLICY | "fst-adaptive-1");
+    }
+    matches!(version, QUALITY_POLICY | "lossless-upload-1")
+        || (matches!(version, "quality-upload-2" | "quality-upload-3")
+            && report.status == "optimized"
+            && matches!((report.upload_width, report.upload_height), (Some(w), Some(h)) if w > 0 && h > 0))
+}
 
 #[derive(Debug)]
 struct AdaptivePreparation {
@@ -963,45 +1119,28 @@ pub(crate) fn prepare_staged_video_with_policy(
     prepare_staged_video_with_progress(app, upload_id, width, height, fst_adaptive, &mut |_, _, _| {})
 }
 
-fn prepare_staged_video_with_progress(app: &AppHandle, upload_id: &str, width: u32, height: u32,
+pub(crate) fn prepare_staged_video_with_progress(app: &AppHandle, upload_id: &str, width: u32, height: u32,
     fst_adaptive: bool, progress: &mut impl FnMut(&str, Option<u8>, Option<u64>))
     -> CommandResult<VideoPreparation> {
     validate_local_id(upload_id, "Upload")?;
     prepare_tables(app)?;
     let connection = open_database(app)?;
-    let cached: Option<String> = connection.query_row("SELECT report_json FROM video_preparations WHERE original_upload_id = ?1 OR prepared_upload_id = ?1 ORDER BY rowid DESC LIMIT 1",
-        [upload_id], |row| row.get(0)).optional().map_err(|_| "Não foi possível consultar a preparação".to_string())?;
-    if let Some(cached) = cached {
-        let report: VideoPreparation =
-            serde_json::from_str(&cached).map_err(|_| "Preparação local ilegível")?;
-        let compatible = if fst_adaptive {
-            report.policy_version == FST_POLICY
-        } else {
-            report.policy_version == QUALITY_POLICY || report.policy_version == "lossless-upload-1"
-        };
-        if compatible {
-            let path: String = connection
-                .query_row(
-                    "SELECT local_path FROM video_staging WHERE upload_id = ?1 AND ready = 1",
-                    [&report.upload_id],
-                    |row| row.get(0),
-                )
-                .map_err(|_| "Cópia preparada não encontrada")?;
-            if fs::metadata(&path).is_ok_and(|file| file.len() == report.upload_bytes) {
-                return Ok(report);
-            }
-            return Err(
-                "O cache do vídeo não está mais disponível. Selecione novamente o original.".into(),
-            );
-        }
-        connection.execute(
-            "DELETE FROM video_preparations WHERE original_upload_id = ?1 OR prepared_upload_id = ?1",
-            [upload_id],
-        ).map_err(|_| "Não foi possível invalidar a preparação incompatível".to_string())?;
-    }
+    let original_id = original_upload_id(&connection, upload_id)?;
+    let cached: Option<String> = connection.query_row(
+        "SELECT report_json FROM video_preparations WHERE original_upload_id=?1",
+        [&original_id], |row| row.get(0),
+    ).optional().map_err(|_| "Não foi possível consultar a preparação")?;
     let (input, experiment_id, filename, size_sql, ready): (String, String, String, i64, i64) = connection.query_row(
-        "SELECT local_path, experiment_id, original_filename, expected_size, ready FROM video_staging WHERE upload_id = ?1", [upload_id],
+        "SELECT local_path, experiment_id, original_filename, expected_size, ready FROM video_staging WHERE upload_id = ?1", [&original_id],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))).map_err(|_| "Vídeo local não encontrado")?;
+    if let Some(report) = cached.as_ref().and_then(|value| serde_json::from_str::<VideoPreparation>(value).ok()) {
+        if compatible_preparation(&report, fst_adaptive)
+            && i64::try_from(report.original_bytes).ok() == Some(size_sql)
+            && staged_video_size(&connection, &experiment_id, &report.upload_id)? == Some(report.upload_bytes)
+        {
+            return Ok(report);
+        }
+    }
     let size = u64::try_from(size_sql).map_err(|_| "Tamanho de vídeo inválido")?;
     if ready != 1
         || fs::metadata(&input)
@@ -1011,13 +1150,28 @@ fn prepare_staged_video_with_progress(app: &AppHandle, upload_id: &str, width: u
     {
         return Err("Vídeo local incompleto".into());
     }
+    let new_original_id;
+    let upload_id = if cached.is_some() {
+        // Keep the old prepared ID and dimensions available for historical jobs.
+        // Register a new preparation against the same original file without copying it.
+        new_original_id = new_uuid_v4();
+        connection.execute(
+            "INSERT INTO video_staging (upload_id,experiment_id,local_path,original_filename,expected_size,received_size,sha256,ready)
+             SELECT ?1,experiment_id,local_path,original_filename,expected_size,received_size,sha256,ready
+               FROM video_staging WHERE upload_id=?2",
+            params![&new_original_id, &original_id],
+        ).map_err(|_| "Não foi possível registrar o original para outra preparação")?;
+        &new_original_id
+    } else {
+        &original_id
+    };
     let mut report = VideoPreparation {
         upload_id: upload_id.into(),
         original_bytes: size,
         upload_bytes: size,
         status: "original".into(),
         message: "Original mantido".into(),
-        policy_version: if size > 100_000_000 { QUALITY_POLICY } else { "lossless-upload-1" }.into(),
+        policy_version: if size > QUALITY_THRESHOLD_BYTES { QUALITY_POLICY } else { "lossless-upload-1" }.into(),
         pixel_verified: false,
         frame_count: None,
         upload_width: Some(width),
@@ -1123,7 +1277,7 @@ fn prepare_staged_video_with_progress(app: &AppHandle, upload_id: &str, width: u
     if let (Some(ffmpeg), Some(ffprobe)) = (binary("ffmpeg"), binary("ffprobe")) {
         let prepared_id = new_uuid_v4();
         let output = staging_directory(app)?.join(format!("{prepared_id}.mp4"));
-        let quality = size > 100_000_000;
+        let quality = size > QUALITY_THRESHOLD_BYTES;
         let result = if quality {
             optimize_quality_with_progress(Path::new(&input), &output, &ffmpeg, &ffprobe,
                 width, height, progress)
@@ -1150,7 +1304,7 @@ fn prepare_staged_video_with_progress(app: &AppHandle, upload_id: &str, width: u
                 report.upload_height = Some(upload_height);
                 if quality {
                     report.policy_version = QUALITY_POLICY.into();
-                    report.message = format!("Vídeo otimizado para envio: {upload_width} × {upload_height} px, áudio removido, frames e tempos conferidos. A compactação altera os pixels.");
+                    report.message = format!("Cópia otimizada: {upload_width} × {upload_height} px, áudio removido, frames e tempos conferidos. A compactação altera os pixels.");
                 } else {
                     report.message = "Compactação sem perda verificada: mesmos pixels, frames e sincronização (tolerância de 1 ms).".into();
                 }
@@ -1365,6 +1519,53 @@ pub(crate) fn prepare_diagnostic_video(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn colab_reuses_local_preparation_and_falls_back_to_the_cached_original() {
+        let root = std::env::temp_dir().join(format!("behavetracker-reuse-{}", new_uuid_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let original = root.join("video.mov");
+        let prepared = root.join("video-prepared.mp4");
+        fs::write(&prepared, b"mp4").unwrap();
+        let connection = rusqlite::Connection::open_in_memory().unwrap();
+        connection.execute_batch(include_str!("../migrations/001_initial.sql")).unwrap();
+        for (id, path, name, size, digest) in [
+            ("original", &original, "video.mov", 8, "source"),
+            ("optimized", &prepared, "video.mov.prepared.mp4", 3, "derived"),
+        ] {
+            connection.execute(
+                "INSERT INTO video_staging (upload_id,experiment_id,local_path,original_filename,expected_size,received_size,sha256,ready)
+                 VALUES (?1,'project',?2,?3,?4,?4,?5,1)",
+                params![id, path.to_string_lossy(), name, size, digest],
+            ).unwrap();
+        }
+        let report = serde_json::json!({
+            "uploadId":"optimized", "originalBytes":8, "uploadBytes":3, "status":"optimized",
+            "message":"Vídeo pronto", "policyVersion":"quality-upload-4", "pixelVerified":false,
+            "frameCount":12, "uploadWidth":1920, "uploadHeight":1080,
+        });
+        connection.execute("INSERT INTO video_preparations VALUES ('original','optimized',?1)", [report.to_string()]).unwrap();
+        let resolve = |project, hash, adaptive| {
+            find_staged_analysis_video(&connection, project, "video.mov", 8, hash, Some("optimized"), adaptive).unwrap()
+        };
+        let media = resolve("project", Some("source"), false).unwrap();
+        assert_eq!(media.preparation.unwrap().upload_id, "optimized");
+        assert!(media.original_upload_id.is_none());
+        assert!(resolve("another-project", Some("source"), false).is_none());
+        assert!(resolve("project", Some("different-video"), false).is_none());
+        assert!(resolve("project", Some("source"), true).is_none());
+        assert!(find_staged_analysis_video(&connection, "project", "video.mov", 8, None, None, false)
+            .unwrap().unwrap().preparation.is_some());
+
+        fs::write(&original, b"original").unwrap();
+        fs::remove_file(&prepared).unwrap();
+        let fallback = resolve("project", Some("source"), false).unwrap();
+        assert!(fallback.preparation.is_none());
+        assert_eq!(fallback.original_upload_id.as_deref(), Some("original"));
+        fs::remove_file(&original).unwrap();
+        fs::remove_dir(&root).unwrap();
+    }
+
     #[test]
     fn adaptive_preparation_passthrough_remux_and_transcode() {
         let (Some(ffmpeg), Some(ffprobe)) = (binary("ffmpeg"), binary("ffprobe")) else { return; };
@@ -1541,6 +1742,20 @@ mod tests {
         assert!(Command::new(&ffmpeg).args(["-v", "error", "-f", "lavfi", "-i", "testsrc2=size=2048x1152:rate=2",
             "-frames:v", "2", "-c:v", "rawvideo", "-f", "nut"]).arg(&high_res).status().unwrap().success());
         assert_eq!(optimize_quality(&high_res, &downscaled, &ffmpeg, &ffprobe, 2048, 1152).unwrap(), (2, 1920, 1080));
+
+        let lossless = root.join("lossless.mp4");
+        assert!(Command::new(&ffmpeg).args(["-v", "error", "-i"]).arg(&input)
+            .args(["-an", "-c:v", "libx264", "-crf", "0"]).arg(&lossless).status().unwrap().success());
+        for (angle, width, height) in [("180", 160, 120), ("90", 120, 160)] {
+            let rotated = root.join(format!("rotated-{angle}.mov"));
+            let normalized = root.join(format!("normalized-{angle}.mp4"));
+            assert!(Command::new(&ffmpeg).args(["-v", "error", "-display_rotation:v:0", angle, "-i"])
+                .arg(&lossless).args(["-c", "copy"]).arg(&rotated).status().unwrap().success());
+            assert_ne!(display_rotation(&probe(&ffprobe, &rotated).unwrap()["streams"][0]), 0.0);
+            assert_eq!(optimize_quality(&rotated, &normalized, &ffmpeg, &ffprobe, width, height).unwrap(),
+                (24, width, height));
+            assert_eq!(display_rotation(&probe(&ffprobe, &normalized).unwrap()["streams"][0]), 0.0);
+        }
         fs::remove_dir_all(root).unwrap();
     }
     #[test]

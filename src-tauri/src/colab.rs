@@ -1,6 +1,6 @@
 use std::{
     fs::{self, File, OpenOptions},
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     thread,
     time::{Duration, Instant},
@@ -9,10 +9,9 @@ use std::{
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use rand::RngCore;
 use reqwest::blocking::{Client, Response};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager};
 
 use crate::oauth::{google_access_token, open_database, CommandResult};
@@ -34,7 +33,7 @@ const HYBRID_COMMON_FILES: [(&str, u64, &str); 2] = [
     ("pytorch_config.yaml", 5996, "847076c1253f53816155fe247ca1448a13039498d902c2d75b24dac9d800f907"),
 ];
 
-fn hybrid_bundle_files(bundle_id: &str) -> CommandResult<[(&'static str, u64, &'static str); 3]> {
+pub(crate) fn hybrid_bundle_files(bundle_id: &str) -> CommandResult<[(&'static str, u64, &'static str); 3]> {
     let detector = match bundle_id {
         "wistar_df_v1" => ("best_detector.pth", 173406835, "efc08b431067384e46acee488a4d9173d3cf9c1b5c9158dc0606e7371a51dbc2"),
         "wistar_df_v2" => ("best_detector.pth", 173392347, "211891e0ec5f5b3f56d0f0be5b9255319ce9857284e72e558ccfc9f4ca93eef0"),
@@ -205,11 +204,15 @@ struct ImagePoint {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct AnalysisArena {
+pub(crate) struct AnalysisArena {
     revision: u32,
     video_width: u32,
     video_height: u32,
     corners_px: [ImagePoint; 4],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    width_cm: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    height_cm: Option<f64>,
     #[serde(default)]
     rim_corners_px: Option<[ImagePoint; 4]>,
     #[serde(default)]
@@ -226,10 +229,14 @@ fn default_engine_id() -> String {
 
 impl AnalysisArena {
     fn validate(&self, workload: &AnalysisWorkload) -> CommandResult<()> {
+        self.validate_geometry(workload.width, workload.height)
+    }
+
+    pub(crate) fn validate_geometry(&self, width: u32, height: u32) -> CommandResult<()> {
         if self.video_width == 0
             || self.video_height == 0
-            || self.video_width != workload.width
-            || self.video_height != workload.height
+            || self.video_width != width
+            || self.video_height != height
         {
             return Err("A geometria precisa corresponder à resolução do vídeo.".into());
         }
@@ -271,6 +278,11 @@ impl AnalysisArena {
         }
         if self.reference_frame_sec.is_some_and(|value| !value.is_finite() || value < 0.0) {
             return Err("O frame de referência da calibração é inválido.".into());
+        }
+        if self.width_cm.is_some() != self.height_cm.is_some()
+            || [self.width_cm, self.height_cm].into_iter().flatten().any(|value| !value.is_finite() || value <= 0.0)
+        {
+            return Err("As dimensões em centímetros da arena são inválidas.".into());
         }
         Ok(())
     }
@@ -491,11 +503,19 @@ pub(crate) fn staging_directory(app: &AppHandle) -> CommandResult<PathBuf> {
 }
 
 #[tauri::command]
-pub fn begin_video_staging(
+pub async fn begin_video_staging(
     app: AppHandle,
     experiment_id: String,
     filename: String,
     expected_size: i64,
+) -> CommandResult<VideoStaging> {
+    tauri::async_runtime::spawn_blocking(move || {
+        begin_video_staging_on_disk(&app, experiment_id, filename, expected_size)
+    }).await.map_err(|_| "Preparação da cópia local interrompida")?
+}
+
+fn begin_video_staging_on_disk(
+    app: &AppHandle, experiment_id: String, filename: String, expected_size: i64,
 ) -> CommandResult<VideoStaging> {
     validate_local_id(&experiment_id, "Experimento")?;
     if expected_size <= 0 || expected_size > MAX_VIDEO_SIZE {
@@ -504,16 +524,15 @@ pub fn begin_video_staging(
     if filename.trim().is_empty() || filename.len() > 512 {
         return Err("Nome de vídeo inválido.".into());
     }
-    prepare_tables(&app)?;
+    let connection = open_database(app)?;
     let upload_id = new_uuid_v4();
-    let path = staging_directory(&app)?.join(format!("{upload_id}{}", safe_extension(&filename)));
+    let path = staging_directory(app)?.join(format!("{upload_id}{}", safe_extension(&filename)));
     OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&path)
         .map_err(|_| "Não foi possível criar o arquivo temporário do vídeo.".to_string())?;
-    open_database(&app)?
-        .execute(
+    if connection.execute(
             "INSERT INTO video_staging
              (upload_id, experiment_id, local_path, original_filename, expected_size)
              VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -525,7 +544,10 @@ pub fn begin_video_staging(
                 expected_size
             ],
         )
-        .map_err(|_| "Não foi possível registrar o upload temporário.".to_string())?;
+        .is_err() {
+        let _ = fs::remove_file(&path);
+        return Err("Não foi possível registrar o upload temporário.".into());
+    }
     Ok(VideoStaging {
         upload_id,
         expected_size,
@@ -534,20 +556,22 @@ pub fn begin_video_staging(
 }
 
 #[tauri::command]
-pub fn append_video_staging_chunk(
+pub async fn append_video_staging_chunk(
     app: AppHandle,
     upload_id: String,
     offset: i64,
     bytes: Vec<u8>,
 ) -> CommandResult<VideoStaging> {
-    append_video_staging_bytes(&app, &upload_id, offset, &bytes)
+    tauri::async_runtime::spawn_blocking(move || {
+        append_video_staging_bytes(&app, &upload_id, offset, &bytes)
+    }).await.map_err(|_| "Gravação do bloco de vídeo interrompida")?
 }
 
 #[tauri::command]
-pub fn append_video_staging_raw(app: AppHandle, request: tauri::ipc::Request<'_>) -> CommandResult<VideoStaging> {
+pub async fn append_video_staging_raw(app: AppHandle, request: tauri::ipc::Request<'_>) -> CommandResult<VideoStaging> {
     let upload_id = request.headers().get("x-upload-id")
         .and_then(|value| value.to_str().ok())
-        .ok_or("ID do upload ausente")?;
+        .ok_or("ID do upload ausente")?.to_owned();
     let offset = request.headers().get("x-offset")
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.parse::<i64>().ok())
@@ -555,7 +579,11 @@ pub fn append_video_staging_raw(app: AppHandle, request: tauri::ipc::Request<'_>
     let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
         return Err("Bloco binário do vídeo ausente".into());
     };
-    append_video_staging_bytes(&app, upload_id, offset, bytes)
+    if bytes.is_empty() || bytes.len() > LOCAL_CHUNK_LIMIT {
+        return Err("Bloco de vídeo inválido.".into());
+    }
+    let bytes = bytes.clone();
+    append_video_staging_chunk(app, upload_id, offset, bytes).await
 }
 
 fn append_video_staging_bytes(app: &AppHandle, upload_id: &str, offset: i64, bytes: &[u8]) -> CommandResult<VideoStaging> {
@@ -563,8 +591,15 @@ fn append_video_staging_bytes(app: &AppHandle, upload_id: &str, offset: i64, byt
     if bytes.is_empty() || bytes.len() > LOCAL_CHUNK_LIMIT {
         return Err("Bloco de vídeo inválido.".into());
     }
-    prepare_tables(&app)?;
-    let connection = open_database(&app)?;
+    let mut connection = open_database(app)?;
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|_| "Não foi possível iniciar a gravação do bloco de vídeo.")?;
+    let staging = write_video_staging_block(&transaction, upload_id, offset, bytes)?;
+    transaction.commit().map_err(|_| "Não foi possível confirmar a gravação do bloco de vídeo.")?;
+    Ok(staging)
+}
+
+fn write_video_staging_block(connection: &Connection, upload_id: &str, offset: i64, bytes: &[u8]) -> CommandResult<VideoStaging> {
     let (path, expected_size, received_size, ready): (String, i64, i64, i64) = connection
         .query_row(
             "SELECT local_path, expected_size, received_size, ready
@@ -581,10 +616,17 @@ fn append_video_staging_bytes(app: &AppHandle, upload_id: &str, offset: i64, byt
         return Err("O vídeo recebido é maior que o tamanho declarado.".into());
     }
     let mut file = OpenOptions::new()
-        .append(true)
+        .write(true)
         .open(&path)
         .map_err(|_| "Não foi possível abrir o vídeo temporário.".to_string())?;
-    file.write_all(&bytes)
+    let actual_size = file.metadata().map_err(|_| "Não foi possível conferir a cópia local.")?.len();
+    if actual_size < offset as u64 {
+        return Err("A cópia local do vídeo está incompleta.".into());
+    }
+    // Um bloco gravado antes de uma falha no SQLite pode ser reenviado no mesmo offset.
+    file.seek(SeekFrom::Start(offset as u64))
+        .and_then(|_| file.write_all(bytes))
+        .and_then(|_| if actual_size > next_size as u64 { file.set_len(next_size as u64) } else { Ok(()) })
         .map_err(|_| "Falha ao gravar um bloco do vídeo.".to_string())?;
     connection
         .execute(
@@ -603,10 +645,15 @@ fn append_video_staging_bytes(app: &AppHandle, upload_id: &str, offset: i64, byt
 }
 
 #[tauri::command]
-pub fn finish_video_staging(app: AppHandle, upload_id: String) -> CommandResult<VideoStaging> {
+pub async fn finish_video_staging(app: AppHandle, upload_id: String) -> CommandResult<VideoStaging> {
+    tauri::async_runtime::spawn_blocking(move || {
+        finish_video_staging_on_disk(&app, upload_id)
+    }).await.map_err(|_| "Validação da cópia local interrompida")?
+}
+
+fn finish_video_staging_on_disk(app: &AppHandle, upload_id: String) -> CommandResult<VideoStaging> {
     validate_local_id(&upload_id, "Upload")?;
-    prepare_tables(&app)?;
-    let connection = open_database(&app)?;
+    let connection = open_database(app)?;
     let (path, expected_size, received_size): (String, i64, i64) = connection
         .query_row(
             "SELECT local_path, expected_size, received_size
@@ -623,20 +670,7 @@ pub fn finish_video_staging(app: AppHandle, upload_id: String) -> CommandResult<
             "Upload incompleto: recebidos {received_size} de {expected_size} bytes."
         ));
     }
-    let mut file = File::open(&path)
-        .map_err(|_| "Não foi possível validar o vídeo temporário.".to_string())?;
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0_u8; REMOTE_CHUNK_SIZE];
-    loop {
-        let read = file
-            .read(&mut buffer)
-            .map_err(|_| "Falha ao validar o vídeo temporário.".to_string())?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-    }
-    let sha256 = format!("{:x}", hasher.finalize());
+    let sha256 = crate::video::sha256(Path::new(&path))?;
     connection
         .execute(
             "UPDATE video_staging
@@ -2268,7 +2302,7 @@ fn validate_hybrid_directory(root: &Path, bundle_id: &str) -> CommandResult<Vec<
     }).collect()
 }
 
-fn hybrid_bundle_paths(app: &AppHandle, bundle_id: &str) -> CommandResult<Vec<(String, String)>> {
+pub(crate) fn hybrid_bundle_paths(app: &AppHandle, bundle_id: &str) -> CommandResult<Vec<(String, String)>> {
     hybrid_bundle_files(bundle_id)?;
     let packaged = app.path().resource_dir().ok().map(|root| root.join("models").join(bundle_id));
     let installed = app.path().app_data_dir().map_err(|_| "Diretório do app indisponível")?.join("models").join(bundle_id);
@@ -3371,6 +3405,20 @@ pub fn get_colab_job_video(app: AppHandle, job_id: String) -> CommandResult<Valu
     prepare_tables(&app)?;
     let connection = open_database(&app)?;
     let status: String = connection.query_row("SELECT status FROM colab_jobs WHERE job_id = ?1", [&job_id], |row| row.get(0)).map_err(|_| "Job não encontrado")?;
+    let directory = app.path().app_data_dir().map_err(|_| "Diretório do app indisponível")?.join("results");
+    let repaired = directory.join(format!("{job_id}-dlc-activity.mp4"));
+    if status == "succeeded" && repaired.is_file() {
+        return Ok(json!({"jobId": job_id, "videoPath": repaired, "videoError": null, "needsActivityRebuild": false}));
+    }
+    let geometry: Option<String> = connection.query_row(
+        "SELECT geometry_json FROM colab_job_geometry WHERE job_id=?1", [&job_id], |row| row.get(0),
+    ).optional().map_err(|_| "Não foi possível consultar a geometria do vídeo")?;
+    let needs_activity_rebuild = status == "succeeded"
+        && geometry.and_then(|value| serde_json::from_str::<Value>(&value).ok()).is_some_and(|value| {
+            value["engineId"] == "wistar_superanimal_hybrid_v1"
+                && value["arena"].is_object()
+                && (value["arena"]["widthCm"].is_null() || value["arena"]["heightCm"].is_null())
+        });
     let artifact: Option<(Option<String>, Option<String>)> = connection.query_row(
         "SELECT labeled_video_path,video_error FROM colab_job_artifacts WHERE job_id = ?1", [&job_id], |row| Ok((row.get(0)?, row.get(1)?)))
         .optional().map_err(|_| "Não foi possível consultar o vídeo local")?;
@@ -3379,10 +3427,84 @@ pub fn get_colab_job_video(app: AppHandle, job_id: String) -> CommandResult<Valu
         else { "Esta execução não possui vídeo rotulado. Reprocesse no Colab para gerá-lo." };
     let (mut path, mut error) = artifact.unwrap_or((None, Some(absent.into())));
     if let Some(candidate) = &path {
-        let expected = app.path().app_data_dir().map_err(|_| "Diretório do app indisponível")?.join("results").join(format!("{job_id}-dlc.mp4"));
+        let expected = directory.join(format!("{job_id}-dlc.mp4"));
         if Path::new(candidate) != expected || !expected.is_file() { path = None; error = Some("O vídeo de resultado não está mais no dispositivo. Reprocesse no Colab.".into()); }
     }
-    Ok(json!({"jobId": job_id, "videoPath": path, "videoError": error}))
+    Ok(json!({"jobId": job_id, "videoPath": path, "videoError": error, "needsActivityRebuild": needs_activity_rebuild}))
+}
+
+fn apply_saved_activity_calibration(saved: &mut AnalysisArena, current: &AnalysisArena) -> CommandResult<()> {
+    if saved.width_cm.is_none() && saved.height_cm.is_none() {
+        let same_floor = saved.corners_px.iter().zip(&current.corners_px).all(|(a, b)| {
+            (a.x - b.x * f64::from(saved.video_width) / f64::from(current.video_width)).abs() <= 0.5
+                && (a.y - b.y * f64::from(saved.video_height) / f64::from(current.video_height)).abs() <= 0.5
+        });
+        if saved.revision != current.revision || !same_floor {
+            return Err("A calibração do projeto diverge da calibração desta execução. Gere o vídeo com uma nova análise.".into());
+        }
+        saved.width_cm = current.width_cm;
+        saved.height_cm = current.height_cm;
+    }
+    if ![saved.width_cm, saved.height_cm].into_iter().all(|value| value.is_some_and(|cm| cm.is_finite() && cm > 0.0)) {
+        return Err("As medidas em centímetros da arena estão indisponíveis.".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) async fn rebuild_colab_activity_video(app: AppHandle, experiment_id: String, job_id: String, arena: AnalysisArena) -> CommandResult<()> {
+    validate_local_id(&experiment_id, "Experimento")?;
+    validate_local_id(&job_id, "Execução")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        static RENDERING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = RENDERING.try_lock().map_err(|_| "Já há um vídeo do Colab sendo renderizado neste computador.")?;
+        let directory = app.path().app_data_dir().map_err(|_| "Diretório do app indisponível")?.join("results");
+        let target = directory.join(format!("{job_id}-dlc-activity.mp4"));
+        let db = open_database(&app)?;
+        let (upload_id, geometry): (String, String) = db.query_row(
+            "SELECT j.upload_id, g.geometry_json FROM colab_jobs j JOIN colab_job_geometry g ON g.job_id=j.job_id
+              WHERE j.job_id=?1 AND j.experiment_id=?2 AND j.status='succeeded'",
+            params![job_id, experiment_id], |row| Ok((row.get(0)?, row.get(1)?)),
+        ).map_err(|_| "Execução concluída do Colab não encontrada neste projeto.")?;
+        let geometry: Value = serde_json::from_str(&geometry).map_err(|_| "Geometria salva inválida.")?;
+        if geometry["engineId"] != "wistar_superanimal_hybrid_v1" {
+            return Err("A renderização do gráfico está disponível para execuções Wistar de Campo Aberto.".into());
+        }
+        if target.is_file() {
+            return Ok(());
+        }
+        let mut saved: AnalysisArena = serde_json::from_value(geometry["arena"].clone()).map_err(|_| "Calibração da execução indisponível.")?;
+        apply_saved_activity_calibration(&mut saved, &arena)?;
+        let (video, sha256): (String, String) = db.query_row(
+            "SELECT local_path,sha256 FROM video_staging WHERE experiment_id=?1 AND ready=1
+              AND upload_id=COALESCE((SELECT prepared_upload_id FROM video_preparations WHERE original_upload_id=?2),?2)",
+            params![experiment_id, upload_id], |row| Ok((row.get(0)?, row.get(1)?)),
+        ).map_err(|_| "O vídeo usado no Colab não foi encontrado no cache do projeto.")?;
+        drop(db);
+        if !Path::new(&video).is_file() || crate::video::sha256(Path::new(&video))? != sha256 {
+            return Err("A cópia usada pelo Colab saiu do cache ou foi alterada.".into());
+        }
+        let ffmpeg = crate::video::binary("ffmpeg").ok_or("FFmpeg indisponível para renderizar o vídeo.")?;
+        let mut child = std::process::Command::new(crate::local_tracking::python(&app)?)
+            .args(["-X", "utf8", "-"]).arg(video).arg(&directory).arg(&job_id)
+            .arg(serde_json::to_string(&saved).map_err(|_| "Calibração inválida para a renderização.")?)
+            .arg(ffmpeg).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped()).spawn()
+            .map_err(|_| "Prepare o ambiente OpenCV local para atualizar o vídeo do Colab.")?;
+        if let Some(mut input) = child.stdin.take() {
+            if let Err(error) = input.write_all(include_bytes!("../python/hybrid_render.py")) {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("Não foi possível iniciar o renderizador: {error}"));
+            }
+        }
+        let result = child.wait_with_output().map_err(|_| "Renderização interrompida.")?;
+        if !result.status.success() || !target.is_file() {
+            let details: String = String::from_utf8_lossy(&result.stderr).trim().chars().take(1500).collect();
+            return Err(format!("Não foi possível atualizar o gráfico do vídeo. {details}").trim_end().into());
+        }
+        Ok(())
+    }).await.map_err(|_| "Renderização interrompida.".to_string())?
 }
 
 #[tauri::command]
@@ -3685,6 +3807,31 @@ mod tests {
     }
 
     #[test]
+    fn saved_activity_uses_calibration_only_for_the_same_floor_revision_and_geometry() {
+        let mut original = calibrated_arena();
+        original.width_cm = Some(75.0);
+        original.height_cm = Some(60.0);
+        let serialized = serde_json::to_value(&original).unwrap();
+        assert_eq!(serialized["widthCm"], 75.0);
+        assert_eq!(serialized["heightCm"], 60.0);
+
+        let mut saved = calibrated_arena();
+        saved.video_width /= 2;
+        saved.video_height /= 2;
+        for point in &mut saved.corners_px {
+            point.x /= 2.0;
+            point.y /= 2.0;
+        }
+        super::apply_saved_activity_calibration(&mut saved.clone(), &original).unwrap();
+        let mut changed = original.clone();
+        changed.corners_px[0].x += 20.0;
+        assert!(super::apply_saved_activity_calibration(&mut saved.clone(), &changed).is_err());
+        super::apply_saved_activity_calibration(&mut saved, &original).unwrap();
+        assert_eq!(saved.width_cm, Some(75.0));
+        assert_eq!(saved.height_cm, Some(60.0));
+    }
+
+    #[test]
     fn validates_both_areas_without_requiring_projected_floor_to_be_inside_rim() {
         let mut arena = calibrated_arena();
         let workload = AnalysisWorkload {
@@ -3759,6 +3906,30 @@ mod tests {
     fn sanitizes_video_extensions() {
         assert_eq!(safe_extension("arena.MP4"), ".mp4");
         assert_eq!(safe_extension("arena.bad/ext"), ".mp4");
+    }
+
+    #[test]
+    fn staging_block_retry_replaces_uncommitted_bytes() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        crate::database::migrate(&mut connection).unwrap();
+        let path = std::env::temp_dir().join(format!("staging-{}.mp4", new_uuid_v4()));
+        std::fs::write(&path, b"abc").unwrap();
+        connection.execute(
+            "INSERT INTO video_staging (upload_id, experiment_id, local_path, original_filename, expected_size, received_size)
+             VALUES ('upload','experiment',?1,'video.mp4',6,3)",
+            [path.to_string_lossy().as_ref()],
+        ).unwrap();
+        {
+            let transaction = connection.transaction().unwrap();
+            super::write_video_staging_block(&transaction, "upload", 3, b"xyz").unwrap();
+            transaction.rollback().unwrap();
+        }
+        let transaction = connection.transaction().unwrap();
+        super::write_video_staging_block(&transaction, "upload", 3, b"def").unwrap();
+        transaction.commit().unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"abcdef");
+        assert!(super::write_video_staging_block(&connection, "upload", 3, b"xyz").is_err());
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

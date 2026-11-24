@@ -4,8 +4,11 @@ import { ArrowRight, LoaderCircle } from "lucide-react";
 import {
   COLAB_PROFILE_ID,
   isTauriRuntime,
+  saveGoogleDesktopCredentials,
+  type GoogleDesktopCredentials,
   type OAuthProfileSummary,
 } from "../colab/connection";
+import { GoogleCredentialsImport } from "../colab/GoogleCredentialsImport";
 
 function errorMessage(error: unknown) {
   return typeof error === "string" ? error : error instanceof Error ? error.message : "Não foi possível entrar com o Google.";
@@ -30,10 +33,14 @@ export function LoginPage({ summary, checking, checkError, onSessionChange, onRe
   onRetry: () => void;
   onLocalAccess: () => void;
 }) {
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<"connect" | "save" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [clientId, setClientId] = useState("");
+  const [clientId, setClientId] = useState<string | null>(null);
+  const [credentialsSaved, setCredentialsSaved] = useState(false);
   const desktop = isTauriRuntime();
+  const busy = pending !== null;
+  const configured = Boolean(summary.clientId && summary.hasClientSecret);
+  const displayedClientId = summary.managedClient ? summary.clientId : clientId ?? summary.clientId;
 
   async function openLegalPage(event: MouseEvent<HTMLAnchorElement>, page: "privacy" | "terms") {
     if (!desktop) return;
@@ -46,8 +53,9 @@ export function LoginPage({ summary, checking, checkError, onSessionChange, onRe
   }
 
   async function signIn() {
-    setBusy(true);
+    setPending("connect");
     setError(null);
+    setCredentialsSaved(false);
     try {
       const connected = await invoke<OAuthProfileSummary>("start_google_auth", { profileId: COLAB_PROFILE_ID });
       if (!connected.connected) throw new Error("A conta Google não foi conectada. Tente novamente.");
@@ -55,26 +63,33 @@ export function LoginPage({ summary, checking, checkError, onSessionChange, onRe
     } catch (reason) {
       setError(errorMessage(reason));
     } finally {
-      setBusy(false);
+      setPending(null);
     }
   }
 
-  async function saveClientId(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
+  async function saveCredentials(credentials: GoogleDesktopCredentials) {
+    setPending("save");
     setError(null);
+    setCredentialsSaved(false);
     try {
-      const updated = await invoke<OAuthProfileSummary>("save_google_oauth_config", {
-        profileId: COLAB_PROFILE_ID,
-        clientId: clientId.trim(),
-        clientSecret: null,
-      });
+      const updated = await saveGoogleDesktopCredentials(credentials);
       onSessionChange(updated);
-      setClientId("");
+      setClientId(null);
+      setCredentialsSaved(true);
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function saveFromForm(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const clientSecret = String(new FormData(form).get("clientSecret") ?? "").trim();
+    try {
+      await saveCredentials({ clientId: displayedClientId.trim(), clientSecret });
+      form.reset();
     } catch (reason) {
       setError(errorMessage(reason));
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -94,11 +109,11 @@ export function LoginPage({ summary, checking, checkError, onSessionChange, onRe
             <button
               className="login-google-button"
               type="button"
-              disabled={checking || busy || !desktop || !summary.clientId}
+              disabled={checking || busy || !desktop || !configured}
               onClick={() => void signIn()}
             >
-              {busy ? <LoaderCircle size={18} className="login-spinner" /> : <GoogleMark />}
-              {busy ? "Aguardando autorização…" : checking ? "Verificando sessão…" : "Entrar com Google"}
+              {pending === "connect" ? <LoaderCircle size={18} className="login-spinner" /> : <GoogleMark />}
+              {pending === "connect" ? "Aguardando autorização…" : checking ? "Verificando sessão…" : "Entrar com Google"}
               {!busy && !checking && <ArrowRight size={16} className="login-arrow" />}
             </button>
             <button className="login-google-button" type="button" disabled={checking || busy || !desktop} onClick={onLocalAccess}>
@@ -109,17 +124,25 @@ export function LoginPage({ summary, checking, checkError, onSessionChange, onRe
               <span aria-hidden="true">·</span>
               <a href="https://behavior.usetars.com/terms" target="_blank" rel="noopener noreferrer" onClick={(event) => void openLegalPage(event, "terms")}>Termos de Serviço</a>
             </nav>
-            {busy && <p className="login-hint" role="status">Conclua a autorização na janela do navegador.</p>}
+            {pending === "connect" && <p className="login-hint" role="status">Conclua a autorização na janela do navegador.</p>}
             {!desktop && <p className="login-error" role="alert">O login Google está disponível no aplicativo desktop.</p>}
             {(error || checkError) && <div className="login-error" role="alert">{error || checkError}{checkError && <button type="button" onClick={onRetry}>Tentar novamente</button>}</div>}
-            {desktop && !checking && !summary.clientId && (
-              <details className="login-setup">
-                <summary>Configurar acesso Google neste build</summary>
-                <p>Informe o Client ID OAuth de um aplicativo para computador.</p>
-                <form onSubmit={(event) => void saveClientId(event)}>
+            {credentialsSaved && <p className="login-hint" role="status">Credenciais salvas. Clique em Entrar com Google.</p>}
+            {desktop && !checking && (!summary.managedClient || !configured) && (
+              <details className="login-setup" open={!configured || undefined}>
+                <summary>Configurar acesso Google neste aplicativo</summary>
+                <p>{summary.clientId && !summary.hasClientSecret
+                  ? "Falta o Client Secret do cliente OAuth configurado. Importe o JSON desse cliente para habilitar o login."
+                  : "Importe o JSON do cliente OAuth do tipo Aplicativo para computador ou preencha os campos abaixo."}</p>
+                <GoogleCredentialsImport disabled={busy} managedClientId={summary.managedClient ? summary.clientId : undefined}
+                  onImport={saveCredentials} onError={reason => setError(errorMessage(reason))} />
+                <form onSubmit={(event) => void saveFromForm(event)}>
                   <label htmlFor="login-client-id">Client ID</label>
-                  <input id="login-client-id" value={clientId} onChange={(event) => setClientId(event.target.value)} required autoComplete="off" placeholder="…apps.googleusercontent.com" />
-                  <button type="submit" disabled={busy || !clientId.trim()}>Salvar configuração</button>
+                  <input id="login-client-id" value={displayedClientId} onChange={(event) => setClientId(event.target.value)}
+                    required readOnly={summary.managedClient} disabled={busy} autoComplete="off" placeholder="…apps.googleusercontent.com" />
+                  <label htmlFor="login-client-secret">Client Secret</label>
+                  <input id="login-client-secret" name="clientSecret" type="password" autoComplete="new-password" required disabled={busy} />
+                  <button type="submit" disabled={busy || !displayedClientId.trim()}>Salvar configuração</button>
                 </form>
               </details>
             )}

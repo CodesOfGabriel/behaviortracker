@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import type { LocalAnalysisControls } from "./AnalysisWorkspace";
+import { LocalAuditVideo } from "../local/LocalAuditVideo";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { Cpu, Download, Info } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { downloadText } from "../../lib/csv";
@@ -20,7 +22,10 @@ export function nearestFrame(times: number[], second: number) {
   return second - times[low - 1] <= times[low] - second ? low - 1 : low;
 }
 
-export function ForcedSwimLocalPanel({ experiment }: { experiment: ForcedSwimExperiment }) {
+export function ForcedSwimLocalPanel({ experiment, children }: {
+  experiment: ForcedSwimExperiment;
+  children: (controls: LocalAnalysisControls) => ReactNode;
+}) {
   const { assets, setAsset, updateForcedSwimExperiment, analysisActivity, setAnalysisActivity } = useAppStore();
   const asset = assets[experiment.id];
   const [environment, setEnvironment] = useState<LocalEnvironment | null>(null);
@@ -86,7 +91,7 @@ export function ForcedSwimLocalPanel({ experiment }: { experiment: ForcedSwimExp
       setError("Selecione o vídeo original deste experimento."); return;
     }
     setRunning(true); setError(null);
-    setAnalysisActivity(experiment.id, { starting: true, engine: "opencv", startedAt: Date.now(), message: "Copiando vídeo", error: null });
+    setAnalysisActivity(experiment.id, { starting: true, engine: "opencv", startedAt: Date.now(), message: "Copiando vídeo", error: null, videoProgress: null });
     let started = false;
     try {
       const uploadId = await stageVideo(experiment.id, original, (_percent, text) => setAnalysisActivity(experiment.id, { message: text }));
@@ -118,10 +123,11 @@ export function ForcedSwimLocalPanel({ experiment }: { experiment: ForcedSwimExp
         await new Promise(resolve => window.setTimeout(resolve, 1_500));
       }
     } catch (reason) {
-      setError(errorText(reason));
+      const failure = errorText(reason);
+      setAnalysisActivity(experiment.id, { error: failure, message: failure });
       if (started) updateForcedSwimExperiment(experiment.id, current => ({ status: current.trackingSelection ? "review" : "failed" }));
     } finally {
-      setRunning(false); setAnalysisActivity(experiment.id, { starting: false });
+      setRunning(false); setAnalysisActivity(experiment.id, { starting: false, videoProgress: null });
     }
   }
 
@@ -147,7 +153,7 @@ export function ForcedSwimLocalPanel({ experiment }: { experiment: ForcedSwimExp
   }, [result]);
   const frame = nearestFrame(frameTimes, time);
   const frameRows = rowsByFrame.get(frame) ?? [];
-  return <section className="panel local-analysis-panel fst-local-panel" aria-label="Análise local FST">
+  const panel = <section className="panel local-analysis-panel fst-local-panel" aria-label="Análise local FST">
     <input ref={fileRef} type="file" accept="video/*" className="sr-only" onChange={attach} />
     <h2><Cpu size={20} /> Análise local de presença</h2>
     <p>OpenCV examina cada cilindro no vídeo original usando a CPU.</p>
@@ -155,13 +161,13 @@ export function ForcedSwimLocalPanel({ experiment }: { experiment: ForcedSwimExp
     {!environment?.ready ? <div className="local-setup"><p>{environment?.message ?? "Verificando OpenCV…"}</p>
       <Button variant="secondary" disabled={settingUp || !isTauriRuntime()} onClick={() => void setup()}>{settingUp ? "Preparando…" : "Preparar análise local"}</Button></div>
       : <p className="local-environment">OpenCV {environment.version} · CPU</p>}
-    <div className="results-actions"><Button disabled={busy || !environment?.ready} onClick={() => void run()}>{active || running ? "Processando…" : "Analisar localmente"}</Button>
-      {active && <Button variant="secondary" onClick={() => void cancelLocalJob(active.jobId).catch(reason => setError(errorText(reason)))}>Cancelar</Button>}</div>
+    {active && <Button variant="secondary" onClick={() => void cancelLocalJob(active.jobId).catch(reason => setError(errorText(reason)))}>Cancelar</Button>}
     {active && <p role="status">{active.report.phase === "reference" ? "Montando referência visual · " : "Presença · "}{active.report.phase === "reference" ? active.report.referenceFrames ?? 0 : active.report.framesProcessed ?? 0}{active.report.totalFrames ? ` / ${active.report.totalFrames}` : ""} frames · {active.report.computeBackend ?? "CPU"}</p>}
     {error && <div role="alert" className="validation-box invalid"><Info size={16} />{error}</div>}
-    {jobs.length > 0 && <div className="local-job-history"><h3>Execuções locais</h3>{jobs.map(job => <button key={job.jobId} type="button" disabled={job.state !== "succeeded"} aria-pressed={selected?.jobId === job.jobId}
+    {jobs.length > 0 && <div className="local-job-history"><h3>Execuções locais</h3>{jobs.map(job => <button key={job.jobId} type="button" disabled={busy || job.state !== "succeeded"} aria-pressed={selected?.jobId === job.jobId}
       onClick={() => { setSelectedId(job.jobId); updateForcedSwimExperiment(experiment.id, { trackingSelection: { engine: "opencv", jobId: job.jobId }, status: "review" }); }}>
       <strong>{new Date(job.createdAt).toLocaleString("pt-BR")}</strong><span>{job.state} · {job.report.computeBackend ?? "CPU"}</span></button>)}</div>}
+    {result && <LocalAuditVideo key={result.runId} jobId={result.runId} protocol="presence" />}
     {result && <div className="fst-local-result"><div className="results-video-heading"><div><h3>Presença por cilindro</h3><p>{result.video.frameCount} frames · {result.video.fps.toFixed(3)} FPS · sem classificação automática</p></div>
       <Button variant="secondary" icon={<Download size={15} />} onClick={() => downloadText(`fst-local-${result.runId}.json`, JSON.stringify(result, null, 2), "application/json")}>Exportar dados</Button></div>
       {result.subjects.map(subject => { const counts = presenceCounts.get(subject.animalId);
@@ -173,4 +179,5 @@ export function ForcedSwimLocalPanel({ experiment }: { experiment: ForcedSwimExp
               <text x={tank?.roiPx.x ?? 0} y={(tank?.roiPx.y ?? 0) + 24} fill={row.presence === "UNCERTAIN" ? "#e9b85c" : "#51ddce"} stroke="#111" strokeWidth="3" paintOrder="stroke" fontSize={Math.max(15, result.video.width / 75)}>{row.animalId}: {row.presence}</text></g>; })}
         </svg></div>}</div>}
   </section>;
+  return children({ run: () => void run(), busy, ready: Boolean(environment?.ready), job: (active ?? jobs[0] ?? null), panel });
 }

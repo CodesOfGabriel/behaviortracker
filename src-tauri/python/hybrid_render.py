@@ -8,6 +8,7 @@ import math
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 
 
 SOURCE = "behavetracker-hybrid-df-v2"
@@ -48,16 +49,22 @@ def visual_point(row, width, height):
     return None
 
 
+def has_calibration(arena):
+    corners = (arena or {}).get("cornersPx")
+    measures = ((arena or {}).get(key) for key in ("widthCm", "heightCm"))
+    return bool(corners and len(corners) == 4
+                and all(isinstance(value, (int, float)) and math.isfinite(value) and value > 0 for value in measures))
+
+
 def locomotor_series(poses, timestamps, arena, width, height):
     """Velocidade em cm/s, usando somente pares consecutivos de mouse_center válidos."""
     import cv2
     import numpy as np
 
     result = [None] * len(timestamps)
-    corners = (arena or {}).get("cornersPx")
-    width_cm, height_cm = (arena or {}).get("widthCm"), (arena or {}).get("heightCm")
-    if not corners or len(corners) != 4 or not width_cm or not height_cm:
+    if not has_calibration(arena):
         return result
+    corners, width_cm, height_cm = arena["cornersPx"], arena["widthCm"], arena["heightCm"]
     source = np.float32([[p["x"], p["y"]] for p in corners])
     destination = np.float32([[0, 0], [width_cm, 0], [width_cm, height_cm], [0, height_cm]])
     matrix = cv2.getPerspectiveTransform(source, destination)
@@ -120,7 +127,7 @@ def digest(path):
     return value.hexdigest()
 
 
-def draw_panel(frame, index, timestamp, total, model, animal, valid_count, score, speed, series, timestamps, immobile):
+def draw_panel(frame, index, timestamp, total, model, animal, valid_count, score, speed, series, timestamps, immobile, calibrated=True):
     import cv2
 
     height, width = frame.shape[:2]
@@ -162,6 +169,9 @@ def draw_panel(frame, index, timestamp, total, model, animal, valid_count, score
     visible_start = timestamp - 10
     visible = range(bisect_left(timestamps, visible_start), index + 1)
     cap = max((series[j] for j in visible if series[j] is not None), default=1.0)
+    if not any(series[j] is not None for j in visible):
+        label("SEM PARES VALIDOS NESTE TRECHO" if calibrated else "CALIBRACAO INDISPONIVEL",
+              x0 + round(6 * scale), (y0 + y1) // 2, (175, 175, 175), .35)
     cap = max(2.0, cap)
     label(f"{cap:.0f}", left + round(4 * scale), y0 + round(4 * scale), size=.34)
     label("0", left + round(9 * scale), y1, size=.34)
@@ -182,31 +192,33 @@ def draw_panel(frame, index, timestamp, total, model, animal, valid_count, score
     label("agora", x1 - round(42 * scale), top + chart_h - round(5 * scale), size=.37)
 
 
-def render(video, output_dir, arena):
+def render(video, output_dir, arena, *, job_id=None, ffmpeg_path=None, progress=None):
     import cv2
 
     root = Path(output_dir)
+    prefix = f"{job_id}-" if job_id else ""
+    video_name = f"{job_id}-dlc-activity.mp4" if job_id else "dlc_labeled.mp4"
     report = {"schemaVersion": 1, "available": False, "source": SOURCE,
-              "filename": "dlc_labeled.mp4", "error": None}
-    temporary = root / "dlc_labeled.partial.mp4"
+              "filename": video_name, "error": None}
     target = root / report["filename"]
+    temporary = target.with_suffix(".partial.mp4")
     process = None
     capture = None
     try:
-        ffmpeg = shutil.which("ffmpeg")
+        ffmpeg = ffmpeg_path or shutil.which("ffmpeg")
         if ffmpeg is None:
             raise RuntimeError("FFmpeg não disponível")
-        manifest = json.loads((root / "run_manifest.json").read_text())
+        manifest = json.loads((root / f"{prefix}run_manifest.json").read_text(encoding="utf-8"))
         expected = int(manifest["frameCount"])
         width, height, fps = int(manifest["frameWidth"]), int(manifest["frameHeight"]), float(manifest["fps"])
         if expected <= 0 or width <= 0 or height <= 0 or fps <= 0:
             raise ValueError("Metadados de vídeo inválidos")
-        with (root / "detections.csv").open(newline="") as handle:
+        with (root / f"{prefix}detections.csv").open(newline="", encoding="utf-8") as handle:
             detections = list(csv.DictReader(handle))
         if len(detections) != expected:
             raise ValueError("Contagem de detecções incompatível")
         poses = {}
-        with (root / "canonical_pose.csv").open(newline="") as handle:
+        with (root / (f"{job_id}.csv" if job_id else "canonical_pose.csv")).open(newline="", encoding="utf-8-sig") as handle:
             for row in csv.DictReader(handle):
                 poses.setdefault(int(row["frame_index"]), []).append(row)
         if len(poses) != expected or any(len(poses.get(i, [])) != 27 for i in range(expected)):
@@ -219,6 +231,7 @@ def render(video, output_dir, arena):
             raise ValueError("Timestamps de poses inválidos")
         pose_rows = [poses[index] for index in range(expected)]
         raw_speeds = locomotor_series(pose_rows, timestamps, arena, width, height)
+        calibrated = has_calibration(arena)
         speeds = smooth_series(raw_speeds, timestamps)
         immobility = immobility_flags(raw_speeds, timestamps)
         capture = cv2.VideoCapture(str(video))
@@ -230,6 +243,8 @@ def render(video, output_dir, arena):
             stdin=subprocess.PIPE, stderr=subprocess.PIPE)
         colors = {"cornersPx": (80, 195, 35), "rimCornersPx": (65, 185, 245)}
         for index in range(expected):
+            if progress is not None:
+                progress(index, expected)
             ok, frame = capture.read()
             if not ok:
                 raise RuntimeError(f"Vídeo terminou no frame {index}")
@@ -259,7 +274,7 @@ def render(video, output_dir, arena):
                     valid_count += 1
             draw_panel(frame, index, timestamps[index], expected, manifest.get("modelBundleId", "Wistar D+F"),
                        poses[index][0].get("animal_id", "animal_1"), valid_count, score,
-                       speeds[index], speeds, timestamps, immobility[index])
+                       speeds[index], speeds, timestamps, immobility[index], calibrated)
             legend_y = height - max(12, round(height * .025))
             legend_x = 12
             for name, region in (("cabeca", "head"), ("orelhas", "ears"), ("tronco", "trunk"), ("anterior", "front"),
@@ -286,7 +301,8 @@ def render(video, output_dir, arena):
         temporary.replace(target)
         report.update(available=True, sizeBytes=target.stat().st_size, sha256=digest(target), frameCount=expected,
                       width=width, height=height, fps=fps, playbackEncoding="h264-yuv420p",
-                      visualization={"version": "scientific-video-1", "reference": "mouse_center",
+                      visualization={"version": "scientific-video-2", "reference": "mouse_center",
+                                     "calibrated": calibrated, "validSpeedPairs": sum(speed is not None for speed in raw_speeds),
                                      "visualLikelihoodMinimum": VISUAL_LIKELIHOOD,
                                      "metricLikelihoodMinimum": METRIC_LIKELIHOOD,
                                      "smoothingSec": SMOOTHING_SEC, "maxPairGapSec": MAX_PAIR_GAP_SEC,
@@ -302,5 +318,14 @@ def render(video, output_dir, arena):
             process.kill()
             process.wait()
         temporary.unlink(missing_ok=True)
-    (root / "video_artifact.json").write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
+    if not job_id:
+        (root / "video_artifact.json").write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
     return report
+
+
+if __name__ == "__main__":
+    video, output_dir, job_id, calibration, ffmpeg = sys.argv[1:]
+    result = render(video, output_dir, json.loads(calibration), job_id=job_id, ffmpeg_path=ffmpeg)
+    if not result["available"]:
+        print(result["error"], file=sys.stderr)
+        raise SystemExit(1)

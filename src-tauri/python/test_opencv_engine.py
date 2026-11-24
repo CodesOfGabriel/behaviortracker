@@ -2,14 +2,16 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 try:
     import cv2
     import numpy as np
 except ImportError:
     cv2 = np = None
-from opencv_engine import HybridSegmenter, ManualVisualTracker, Segmenter, TemporalTracker, run, select_segmentation
+from opencv_engine import HybridSegmenter, ManualVisualTracker, Segmenter, TemporalTracker, run, select_segmentation, write_json
 
 
 def config(**overrides):
@@ -25,6 +27,41 @@ class TemporalTests(unittest.TestCase):
         tracker.observe((12,20),.1)
         self.assertAlmostEqual(tracker.predict(.2)[0],14)
         self.assertIsNone(tracker.predict(.4))
+
+
+class StatusFileTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == "win32", "Bloqueio de substituição específico do Windows")
+    def test_retries_atomic_replace_after_windows_reader_releases_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "status.json"
+            previous = {"state": "running", "framesProcessed": 228}
+            current = {"state": "succeeded", "framesProcessed": 300}
+            write_json(path, previous)
+            with path.open(encoding="utf-8") as reader:
+                def release_reader(_delay):
+                    self.assertEqual(json.load(reader), previous)
+                    reader.close()
+
+                with patch("opencv_engine.time.sleep", side_effect=release_reader) as wait:
+                    write_json(path, current)
+                wait.assert_called_once()
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8")), current)
+            self.assertFalse(path.with_suffix(".json.tmp").exists())
+
+    def test_persistent_lock_preserves_previous_status_and_stops_retrying(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "status.json"
+            previous = {"state": "running"}
+            write_json(path, previous)
+            locked = PermissionError("locked")
+            locked.winerror = 5
+            with patch("opencv_engine.os.replace", side_effect=locked) as replace, patch("opencv_engine.time.sleep") as wait:
+                with self.assertRaises(PermissionError):
+                    write_json(path, {"state": "succeeded"})
+            self.assertGreater(wait.call_count, 0)
+            self.assertLessEqual(replace.call_count, 8)
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8")), previous)
+            self.assertFalse(path.with_suffix(".json.tmp").exists())
 
 
 @unittest.skipIf(cv2 is None,"OpenCV opcional não instalado no ambiente de testes")
@@ -109,6 +146,25 @@ class OpenCVTests(unittest.TestCase):
             self.assertEqual(records[0]["keypoint"],"box_center")
             self.assertFalse(records[0]["referenceApproved"])
             self.assertEqual(records[0]["likelihood"],0)
+
+            prepared = root / "prepared.mp4"
+            subprocess.run([shutil.which("ffmpeg"), "-v", "error", "-i", str(video),
+                            "-vf", "scale=160:120", "-c:v", "libx264", str(prepared)], check=True)
+            cfg["maxWidth"] = 160
+            cfg["videoPreparation"] = {"status": "optimized", "uploadWidth": 160, "uploadHeight": 120}
+            audit = root / "results" / "audit.mp4"
+            (root/"request.json").write_text(json.dumps({"video": str(prepared), "config": cfg,
+                "ffprobe": shutil.which("ffprobe"), "ffmpeg": shutil.which("ffmpeg"), "auditVideo": str(audit)}))
+            run(root/"request.json")
+            report = json.loads((root/"status.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["state"], "succeeded")
+            self.assertEqual(report["phase"], "complete")
+            self.assertTrue(audit.is_file(), report.get("videoError"))
+            prepared_records = [json.loads(line) for line in (root/"samples.jsonl").read_text().splitlines()]
+            self.assertEqual(len(prepared_records), len(records))
+            self.assertEqual([r["timestampSec"] for r in prepared_records], [r["timestampSec"] for r in records])
+            self.assertAlmostEqual(prepared_records[0]["xPx"], records[0]["xPx"], delta=2)
+            self.assertAlmostEqual(prepared_records[0]["yPx"], records[0]["yPx"], delta=2)
 
     def test_initial_box_selects_animal_not_another_bright_object(self):
         image=self.frame();cv2.ellipse(image,(220,100),(12,8),0,0,360,(255,255,255),-1)

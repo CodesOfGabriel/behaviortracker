@@ -87,6 +87,30 @@ class HybridRenderTests(unittest.TestCase):
                        series[4], series, times, False)
             self.assertEqual(lines.count((153, 211, 52)), 2)
 
+    def test_empty_chart_explains_missing_calibration_or_missing_pairs(self):
+        labels = []
+        fake_cv2 = types.SimpleNamespace(
+            FONT_HERSHEY_SIMPLEX=0, LINE_AA=0,
+            rectangle=lambda *args: None, addWeighted=lambda *args: None,
+            putText=lambda frame, label, *args: labels.append(label),
+            circle=lambda *args: None, line=lambda *args: None,
+        )
+
+        class Frame:
+            shape = (720, 1280, 3)
+
+            def copy(self):
+                return self
+
+        with patch.dict(sys.modules, {"cv2": fake_cv2}):
+            draw_panel(Frame(), 0, 0, 2, "wistar", "animal_1", 0, None,
+                       None, [None, None], [0, .25], False, calibrated=False)
+            self.assertIn("CALIBRACAO INDISPONIVEL", labels)
+            labels.clear()
+            draw_panel(Frame(), 0, 0, 2, "wistar", "animal_1", 0, None,
+                       None, [None, None], [0, .25], False, calibrated=True)
+            self.assertIn("SEM PARES VALIDOS NESTE TRECHO", labels)
+
 
 if __name__ == "__main__":
     unittest.main()

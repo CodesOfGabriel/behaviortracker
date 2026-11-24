@@ -23,16 +23,18 @@ import { applyCorrections } from "../../lib/corrections";
 import { detectorTrajectory } from "../../lib/boxes";
 import { preferredReference, reviewEvents, trackingSourceKey } from "../../lib/tracking-reviews";
 import { downloadText, poseToCsv } from "../../lib/csv";
-import { centerPolygonPx, pointsToSvg } from "../../lib/geometry";
 import { calculateOftMetrics, METRIC_POLICY } from "../../lib/metrics";
-import { metricEligible, originalPose, referencePoseSamples, trajectorySegments } from "../../lib/pose";
+import { metricEligible, originalPose, referencePoseSamples } from "../../lib/pose";
 import { formatDuration } from "../../lib/format";
 import { useAppStore } from "../../store/AppStore";
-import { loadColabVideo } from "../colab/analysis";
+import { loadColabVideo, rebuildColabActivityVideo } from "../colab/analysis";
 import { isTauriRuntime } from "../colab/connection";
-import { AnalysisWorkflow } from "../colab/AnalysisWorkflow";
+import { AnalysisWorkspace } from "./AnalysisWorkspace";
 import { useAnalysis } from "./useAnalysis";
 import { LocalAnalysisPanel } from "../local/LocalAnalysisPanel";
+import { LocalAuditVideo } from "../local/LocalAuditVideo";
+import { listLocalJobs } from "../local/api";
+import { RunTrajectory } from "./RunTrajectory";
 import type { OftMetrics, OpenFieldExperiment } from "../../types";
 
 function metricValue(value: number | null, suffix: string, digits = 1) {
@@ -62,21 +64,30 @@ export function Results({ experimentId }: { experimentId: string }) {
   const { getExperiment, navigate, trackingData, updateExperiment } = useAppStore();
   const analysis = useAnalysis(experimentId);
   const experiment = getExperiment(experimentId) as OpenFieldExperiment | undefined;
-  const [trajectorySource, setTrajectorySource] = useState<"detector" | "anatomical">("detector");
-  const [pendingView, setPendingView] = useState<"colab" | "local" | "runs">("colab");
-  const [resultView, setResultView] = useState<"summary" | "video" | "trajectory" | "details" | "local" | "exports" | "runs">("summary");
+  const [resultView, setResultView] = useState<"summary" | "video" | "trajectory" | "details" | "exports" | "runs">(
+    experiment?.status === "processing" ? "runs" : "summary",
+  );
   const [videoExportError, setVideoExportError] = useState<string | null>(null);
-  const [modelVideo, setModelVideo] = useState<{ jobId: string; videoUrl: string | null; videoError: string | null } | null>(null);
+  const [modelVideo, setModelVideo] = useState<Awaited<ReturnType<typeof loadColabVideo>> | null>(null);
   const [modelVideoLoading, setModelVideoLoading] = useState(false);
   const [modelVideoPlaybackError, setModelVideoPlaybackError] = useState(false);
   const [modelVideoRefresh, setModelVideoRefresh] = useState(0);
-  const selectedColabJobId = experiment?.trackingSelection?.engine === "colab" ? experiment.trackingSelection.jobId : null;
+  const [refreshingActivityJob, setRefreshingActivityJob] = useState<string | null>(null);
+  const [activityVideoError, setActivityVideoError] = useState<{ jobId: string; message: string } | null>(null);
+  const [latestLocalJobId, setLatestLocalJobId] = useState<string | null>(null);
+  const [localHistoryError, setLocalHistoryError] = useState<string | null>(null);
+  const selection = experiment?.trackingSelection;
+  const showingArtifacts = resultView === "video" || resultView === "trajectory";
+  const latestColabJob = analysis.history.find(job => job.resultsReady || job.status === "succeeded");
+  const selectedColabJobId = selection?.engine === "colab" ? selection.jobId : latestColabJob?.jobId ?? null;
+  const selectedLocalJobId = selection?.engine === "opencv" ? selection.jobId : latestLocalJobId;
   const selectedColabStage = analysis.history.find((job) => job.jobId === selectedColabJobId);
+  const isHybridVideo = (selectedColabStage?.engineId ?? experiment?.analysisEngine) === "wistar_superanimal_hybrid_v1";
   const selectedVideoStage = `${selectedColabStage?.status}:${selectedColabStage?.stage}`;
   const activeModelVideo = modelVideo?.jobId === selectedColabJobId ? modelVideo : null;
 
   useEffect(() => {
-    if (!selectedColabJobId || !isTauriRuntime()) return;
+    if (resultView !== "video" || !selectedColabJobId || !isTauriRuntime()) return;
     let cancelled = false;
     setModelVideoLoading(true);
     setModelVideoPlaybackError(false);
@@ -85,13 +96,23 @@ export function Results({ experimentId }: { experimentId: string }) {
       .catch((error) => {
         if (!cancelled) setModelVideo({
           jobId: selectedColabJobId,
+          videoPath: null,
           videoUrl: null,
           videoError: typeof error === "string" ? error : "Não foi possível consultar o vídeo desta análise.",
         });
       })
       .finally(() => { if (!cancelled) setModelVideoLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedColabJobId, selectedVideoStage, modelVideoRefresh]);
+  }, [resultView, selectedColabJobId, selectedVideoStage, modelVideoRefresh]);
+  useEffect(() => {
+    if (!showingArtifacts || !isTauriRuntime() || selection?.engine === "opencv") return;
+    let live = true;
+    setLocalHistoryError(null);
+    void listLocalJobs(experimentId)
+      .then(jobs => { if (live) setLatestLocalJobId(jobs.find(job => job.state === "succeeded")?.jobId ?? null); })
+      .catch(error => { if (live) setLocalHistoryError(error instanceof Error ? error.message : String(error)); });
+    return () => { live = false; };
+  }, [experimentId, selection?.engine, selection?.jobId, showingArtifacts]);
   const inputSamples = trackingData[experimentId] ?? [];
   const versionC = inputSamples.some((sample) => sample.processingVersion === "dlc-adapted-trajectory-c-1");
   const events = useMemo(() => experiment ? reviewEvents(experiment) : [], [experiment]);
@@ -101,7 +122,9 @@ export function Results({ experimentId }: { experimentId: string }) {
       experiment?.video.preparation?.frameCount ?? 0),
     [rawSamples, experiment?.video.width, experiment?.video.height, experiment?.video.preparation?.frameCount],
   );
-  const hasDetectorTrack = experiment?.trackingSelection?.engine === "colab" && detectorTrack.observedFrames > 0;
+  const wistarLocal = experiment?.trackingSelection?.engine === "opencv"
+    && inputSamples.some(sample => sample.keypoint === "mouse_center" && sample.source === "detected");
+  const hasDetectorTrack = (experiment?.trackingSelection?.engine === "colab" || wistarLocal) && detectorTrack.observedFrames > 0;
   const reviewedSamples = useMemo(
     () => applyCorrections(inputSamples, events),
     [events, inputSamples],
@@ -126,6 +149,32 @@ export function Results({ experimentId }: { experimentId: string }) {
   if (!experiment) {
     return <div className="page not-found"><h1>Experimento não encontrado</h1><Button onClick={() => navigate({ name: "dashboard" })}>Voltar</Button></div>;
   }
+  const workspace = <div key="analysis" hidden={Boolean(metrics && resultView !== "runs")}
+    role={metrics ? "tabpanel" : undefined} id={metrics ? "oft-result-runs-panel" : undefined}
+    aria-labelledby={metrics ? "oft-result-runs-tab" : undefined}>
+    <LocalAnalysisPanel experiment={experiment} selectSource={analysis.selectSource}
+      colabBusy={analysis.busy && analysis.activityEngine !== "opencv"}>
+      {local => <AnalysisWorkspace experimentId={experimentId} protocol="open_field"
+        defaultEngine={experiment.trackingSelection?.engine ?? "colab"} disabled={analysis.loadingResult}
+        local={{ ...local, run: () => { setResultView("runs"); local.run(); } }}
+        colab={{
+          run: () => { setResultView("runs"); void analysis.run(); },
+          connected: analysis.summary.connected, job: analysis.activeJob, error: analysis.error,
+          panel: <section className="panel results-runs-panel">
+            <h2>Execuções no Colab</h2>
+            {analysis.history.length ? <div className="analysis-history-list">{analysis.history.map(job =>
+              <button type="button" className={`analysis-run analysis-run-${job.status}`} key={job.jobId} disabled={analysis.busy}
+                aria-pressed={analysis.activeJob?.jobId === job.jobId}
+                onClick={() => {
+                  analysis.setSelectedHistoryId(job.jobId);
+                  if (job.resultsReady || job.status === "succeeded") void analysis.selectSource({ engine: "colab", jobId: job.jobId });
+                }}>
+                <strong>{job.modelBundleId || "Colab"}</strong><span>{new Date(job.createdAt).toLocaleString("pt-BR")} · {job.status}</span>
+              </button>)}</div> : <p>Nenhuma execução registrada.</p>}
+          </section>,
+        }} />}
+    </LocalAnalysisPanel>
+  </div>;
   if (!metrics) {
     return (
       <div className="page results-page">
@@ -135,37 +184,14 @@ export function Results({ experimentId }: { experimentId: string }) {
           <div><div className="eyebrow">Análise Completa · Open Field Test</div><h1>{experiment.title}</h1><p>{experiment.subjectId} · Aguardando resultado do tracking</p></div>
           <div className="results-actions">
             <Button variant="secondary" onClick={() => navigate({ name: "validation", experimentId })}>Referência humana</Button>
-            <Button disabled={analysis.busy || analysis.loadingResult} onClick={() => { setPendingView("colab"); void analysis.run(); }}>{analysis.busy ? "Processando…" : "Analisar no Colab"}</Button>
-            {!analysis.summary.connected && <Button variant="secondary" onClick={() => navigate({ name: "colab" })}>Conectar Colab</Button>}
           </div>
         </section>
-        {analysis.error && <div className="validation-box invalid"><AlertTriangle size={16} />{analysis.error}</div>}
-        <EditorTabs id="oft-pending" label="Áreas da análise de Campo Aberto" value={pendingView} onChange={setPendingView}
-          items={[{ id: "colab", label: "Colab" }, { id: "local", label: "Análise local" }, { id: "runs", label: "Execuções" }]} />
-        <div role="tabpanel" id="oft-pending-local-panel" aria-labelledby="oft-pending-local-tab" hidden={pendingView !== "local"}>
-          <LocalAnalysisPanel experiment={experiment} selectSource={analysis.selectSource} colabBusy={analysis.busy && analysis.activityEngine !== "opencv"} />
-        </div>
-        <div role="tabpanel" id="oft-pending-colab-panel" aria-labelledby="oft-pending-colab-tab" hidden={pendingView !== "colab"}>
-        {analysis.activityEngine !== "opencv" && <AnalysisWorkflow job={analysis.activeJob} preparing={analysis.busy && !analysis.activeJob} message={analysis.message}
-          localError={analysis.error} elapsedSec={analysis.elapsedSec} startedAt={analysis.startedAt} localProgress={analysis.videoProgress} />}
+        {workspace}
         {analysis.loadingResult && <p role="status">Carregando resultado salvo…</p>}
-        </div>
-        <div role="tabpanel" id="oft-pending-runs-panel" aria-labelledby="oft-pending-runs-tab" hidden={pendingView !== "runs"}>
-        {analysis.history.length > 0 && <div className="analysis-history-list">{analysis.history.map((job) =>
-          <button type="button" className={`analysis-run analysis-run-${job.status}`} key={job.jobId}
-            onClick={() => { analysis.setSelectedHistoryId(job.jobId); if (job.resultsReady || job.status === "succeeded") void analysis.selectSource({ engine: "colab", jobId: job.jobId }); }}>
-            <div><strong>{job.modelBundleId || "Colab"}</strong><small>{new Date(job.createdAt).toLocaleString("pt-BR")} · {job.status}</small></div>
-          </button>)}</div>}
-        </div>
       </div>
     );
   }
 
-  const centerPolygon = centerPolygonPx(experiment.arena);
-  const displayDetectorTrack = hasDetectorTrack && trajectorySource === "detector";
-  const trajectory = displayDetectorTrack ? detectorTrack.segments
-    : trajectorySegments(samples.map((sample) => metricEligible(sample) ? sample : { ...sample, status: "missing" }));
-  const startPoint = trajectory[0]?.[0], endPoint = trajectory.at(-1)?.at(-1);
   const centerPct = metrics.centerPctClassifiable ?? 0;
   const versionLabel = versionC ? `Versão C · ${events.length} correções desta fonte` : `Dados da análise · ${events.length} correções desta fonte`;
 
@@ -227,6 +253,19 @@ export function Results({ experimentId }: { experimentId: string }) {
     }
   };
 
+  const refreshActivityVideo = async (jobId: string) => {
+    setRefreshingActivityJob(jobId);
+    setActivityVideoError(null);
+    try {
+      await rebuildColabActivityVideo(experiment.id, jobId, experiment.arena, experiment.video);
+      setModelVideoRefresh(value => value + 1);
+    } catch (error) {
+      setActivityVideoError({ jobId, message: error instanceof Error ? error.message : String(error) });
+    } finally {
+      setRefreshingActivityJob(null);
+    }
+  };
+
   return (
     <div className="page results-page">
       <input ref={analysis.fileRef} type="file" accept="video/*" className="sr-only" onChange={analysis.attachFile} />
@@ -239,44 +278,15 @@ export function Results({ experimentId }: { experimentId: string }) {
         </div>
         <div className="results-actions">
           <Button variant="secondary" onClick={() => navigate({ name: "validation", experimentId })}>Referência humana</Button>
-          <Button variant="secondary" disabled={analysis.busy} onClick={() => { setResultView("runs"); void analysis.run(); }}>{analysis.busy ? "Processando…" : "Reprocessar no Colab"}</Button>
-          {!analysis.summary.connected && <Button variant="secondary" onClick={() => navigate({ name: "colab" })}>Conectar Colab</Button>}
           <Button variant="secondary" icon={<Download size={16} />} onClick={() => setResultView("exports")}>Exportar</Button>
           <Button icon={<Check size={16} />} disabled={analysis.busy || !localMetricsReady} onClick={() => updateExperiment(experiment.id, { status: "completed" })}>Concluir análise</Button>
         </div>
       </section>
-      {analysis.error && <div className="validation-box invalid"><AlertTriangle size={16} />{analysis.error}</div>}
+      {analysis.error && resultView !== "runs" && <div className="validation-box invalid"><AlertTriangle size={16} />{analysis.error}</div>}
       <EditorTabs id="oft-result" label="Áreas dos resultados de Campo Aberto" value={resultView} onChange={setResultView}
         items={[{ id: "summary", label: "Resumo" }, { id: "video", label: "Vídeo" }, { id: "trajectory", label: "Trajetória" },
-          { id: "details", label: "Detalhes" }, { id: "runs", label: "Execuções" }, { id: "local", label: "Análise local" }, { id: "exports", label: "Arquivos" }]} />
-      <div role="tabpanel" id="oft-result-local-panel" aria-labelledby="oft-result-local-tab" hidden={resultView !== "local"}>
-        <LocalAnalysisPanel experiment={experiment} selectSource={analysis.selectSource} colabBusy={analysis.busy && analysis.activityEngine !== "opencv"} />
-      </div>
-      <div role="tabpanel" id="oft-result-runs-panel" aria-labelledby="oft-result-runs-tab" hidden={resultView !== "runs"}>
-      {analysis.busy && analysis.activityEngine !== "opencv" && <AnalysisWorkflow job={analysis.activeJob} preparing={!analysis.activeJob} message={analysis.message}
-        localError={analysis.error} elapsedSec={analysis.elapsedSec} startedAt={analysis.startedAt} localProgress={analysis.videoProgress} />}
-      <section className="panel results-runs-panel"><h2>Execuções no Colab</h2>
-        {analysis.history.length ? <div className="analysis-history-list">{analysis.history.map((job) =>
-          <button type="button" className={`analysis-run analysis-run-${job.status}`} key={job.jobId}
-            aria-pressed={experiment.trackingSelection?.engine === "colab" && experiment.trackingSelection.jobId === job.jobId}
-            onClick={() => { analysis.setSelectedHistoryId(job.jobId); if (job.resultsReady || job.status === "succeeded") void analysis.selectSource({ engine: "colab", jobId: job.jobId }); }}>
-            <strong>{job.modelBundleId || "Colab"}</strong><span>{new Date(job.createdAt).toLocaleString("pt-BR")} · {job.status}</span>
-          </button>)}</div> : <p>Nenhuma execução registrada.</p>}
-      </section>
-      {(analysis.history.filter((job) => job.resultsReady || job.status === "succeeded").length > 1
-        || (experiment.trackingSelection?.engine === "opencv" && analysis.history.some(job => job.resultsReady || job.status === "succeeded"))) &&
-        <label className="results-source-select">Execução exibida
-          <select value={experiment.trackingSelection?.engine === "colab" ? experiment.trackingSelection.jobId : ""}
-            onChange={(event) => void analysis.selectSource({ engine: "colab", jobId: event.target.value })}>
-            {experiment.trackingSelection?.engine !== "colab" && <option value="">Resultado atual</option>}
-            {experiment.trackingSelection?.engine === "colab" && !analysis.history.some((job) => job.jobId === experiment.trackingSelection?.jobId)
-              && <option value={experiment.trackingSelection.jobId}>Execução atual · {experiment.trackingSelection.jobId.slice(0, 8)}</option>}
-            {analysis.history.filter((job) => job.resultsReady || job.status === "succeeded").map((job) =>
-              <option key={job.jobId} value={job.jobId}>{job.modelBundleId || "Colab"} · {new Date(job.createdAt).toLocaleString("pt-BR")}</option>)}
-          </select>
-        </label>}
-      </div>
-      {videoExportError && resultView === "exports" && <div className="validation-box invalid"><AlertTriangle size={16} />{videoExportError}</div>}
+          { id: "details", label: "Detalhes" }, { id: "runs", label: "Análise" }, { id: "exports", label: "Arquivos" }]} />
+      {workspace}
 
       <div role="tabpanel" id="oft-result-exports-panel" aria-labelledby="oft-result-exports-tab" hidden={resultView !== "exports"}>
         <section className="export-drawer panel">
@@ -300,7 +310,9 @@ export function Results({ experimentId }: { experimentId: string }) {
           <span>Tempo válido nas métricas: {metrics.coveragePct.toFixed(1)}%</span>
         </> : <Badge tone={metrics.coveragePct >= 90 ? "success" : "warning"} dot>Cobertura {metrics.coveragePct.toFixed(1)}%</Badge>}
         <span>{versionLabel}</span>
-        <span>{experiment.video.timingSource === "synthetic" ? "Dados sintéticos" : experiment.trackingSelection?.engine === "opencv" ? "OpenCV · caixa / silhueta" : "Colab · pontos anatômicos"}</span>
+        <span>{experiment.video.timingSource === "synthetic" ? "Dados sintéticos"
+          : wistarLocal ? "Máquina local · Wistar + HRNet"
+          : experiment.trackingSelection?.engine === "opencv" ? "OpenCV · caixa / silhueta" : "Colab · pontos anatômicos"}</span>
         <span>Centro: {Math.round(experiment.arena.centerAreaFraction * 100)}% da área</span>
       </section>
 
@@ -314,17 +326,22 @@ export function Results({ experimentId }: { experimentId: string }) {
       </div>
 
       <div role="tabpanel" id="oft-result-video-panel" aria-labelledby="oft-result-video-tab" hidden={resultView !== "video"}>
+      {resultView === "video" && <>
       {selectedColabJobId && (
         <section className="results-video-section" aria-label="Vídeo com pontos anatômicos da análise Colab">
           <div className="results-video-heading">
             <div>
-              <h2>Vídeo {experiment.analysisEngine === "wistar_superanimal_hybrid_v1" ? "científico" : "exportado"} da análise</h2>
-              <p>MP4 do Colab para esta execução. {experiment.analysisEngine === "wistar_superanimal_hybrid_v1" && "O gráfico, quando presente, usa o mouse_center bruto do modelo. "}As métricas abaixo incluem eventuais correções antigas desta execução.</p>
+              <h2>Vídeo · Google Colab</h2>
+              <p>MP4 da execução selecionada do Colab. {isHybridVideo && "O gráfico usa o ponto mouse_center bruto e a calibração da arena."}</p>
             </div>
             <Button size="sm" variant="secondary" icon={<RefreshCw size={15} />} disabled={modelVideoLoading}
               onClick={() => setModelVideoRefresh((value) => value + 1)}>Recarregar</Button>
             {activeModelVideo?.videoUrl && <Button size="sm" variant="secondary" icon={<Download size={15} />}
               onClick={() => void exportColabVideo()}>Baixar MP4</Button>}
+            {activeModelVideo?.needsActivityRebuild &&
+              <Button size="sm" variant="secondary" loading={refreshingActivityJob === selectedColabJobId}
+                disabled={refreshingActivityJob !== null || modelVideoLoading}
+                onClick={() => void refreshActivityVideo(selectedColabJobId)}>Atualizar gráfico</Button>}
           </div>
           <div className="dlc-video-panel results-video-player">
             {modelVideoLoading ? <p className="results-video-message" role="status">Carregando vídeo salvo no dispositivo…</p>
@@ -337,34 +354,29 @@ export function Results({ experimentId }: { experimentId: string }) {
                 </>
               ) : <p className="results-video-message" role="status">{activeModelVideo?.videoError ?? "Esta análise ainda não disponibilizou um vídeo. Recarregue após a renderização terminar ou consulte o diário da execução."}</p>}
           </div>
+          {activityVideoError?.jobId === selectedColabJobId && <p className="results-video-message" role="alert">{activityVideoError.message}</p>}
+          {videoExportError && <p className="results-video-message" role="alert">{videoExportError}</p>}
         </section>
       )}
-      {!selectedColabJobId && <div className="panel results-empty-panel">Esta execução não possui vídeo renderizado pelo Colab.</div>}
+      {!selectedColabJobId && <section className="panel results-empty-panel"><h2>Vídeo · Google Colab</h2><p>Nenhuma execução disponível.</p></section>}
+      {selectedLocalJobId ? <LocalAuditVideo key={selectedLocalJobId} jobId={selectedLocalJobId} title="Vídeo · Máquina local" />
+        : <section className="panel results-empty-panel"><h2>Vídeo · Máquina local</h2>
+          <p role={localHistoryError ? "alert" : "status"}>{localHistoryError ?? "Nenhuma execução disponível."}</p></section>}
+      </>}
       </div>
 
       <div role="tabpanel" id="oft-result-trajectory-panel" aria-labelledby="oft-result-trajectory-tab" hidden={resultView !== "trajectory"}>
-      <div className="results-main-grid">
-        <section className="panel trajectory-card">
-          <div className="panel-header"><div><h2>Trajetória espacial</h2><p>{displayDetectorTrack ? "Centro geométrico das caixas observadas, sem preencher frames sem detecção." : "Segmentos válidos da referência anatômica ou do centro da caixa, com correções aplicadas."}</p></div><Badge>{displayDetectorTrack ? "Caixa do detector" : versionC ? "Versão C" : "Referência 2D"}</Badge></div>
-          {hasDetectorTrack && <div className="trajectory-source-toggle" role="group" aria-label="Origem da trajetória">
-            <button type="button" className={displayDetectorTrack ? "active" : ""} aria-pressed={displayDetectorTrack} onClick={() => setTrajectorySource("detector")}>Caixa do detector</button>
-            <button type="button" className={!displayDetectorTrack ? "active" : ""} aria-pressed={!displayDetectorTrack} onClick={() => setTrajectorySource("anatomical")}>Ponto anatômico</button>
-          </div>}
-          <div className="trajectory-canvas">
-            <svg viewBox={`0 0 ${experiment.video.width} ${experiment.video.height}`} preserveAspectRatio="xMidYMid meet">
-              <rect width={experiment.video.width} height={experiment.video.height} fill="#f1f3ee" />
-              <polygon points={pointsToSvg(experiment.arena.cornersPx)} fill="#e7eae3" stroke="#9ca9a2" strokeWidth="5" />
-              <polygon points={pointsToSvg(centerPolygon)} fill="#85ae98" fillOpacity=".11" stroke="#4ca383" strokeWidth="3" strokeDasharray="10 8" />
-              {trajectory.map((segment, index) => <polyline key={index} points={pointsToSvg(segment)} fill="none" stroke={displayDetectorTrack ? "#f0f0ed" : "#a7adb2"} strokeWidth={displayDetectorTrack ? "2.5" : "4"} strokeOpacity=".82" strokeLinecap="round" strokeLinejoin="round" />)}
-              {startPoint && <circle cx={startPoint.x} cy={startPoint.y} r="9" fill="#a7adb2" stroke="#242628" strokeWidth="3" />}
-              {endPoint && <circle cx={endPoint.x} cy={endPoint.y} r="9" fill="#242628" />}
-            </svg>
-            <div className="trajectory-legend"><span><i className="start" /> Início</span><span><i className="end" /> Fim</span><span><i className="center" /> Centro</span>{displayDetectorTrack && <span><i className="detector" /> Caixa observada</span>}</div>
-          </div>
-        </section>
+      {resultView === "trajectory" && <>
+      <div className="results-trajectory-grid">
+        <RunTrajectory key={`colab:${selectedColabJobId}`} experiment={experiment} engine="colab" jobId={selectedColabJobId}
+          currentSamples={selection?.engine === "colab" || (!selection && !selectedColabJobId) ? inputSamples : undefined} />
+        <RunTrajectory key={`opencv:${selectedLocalJobId}`} experiment={experiment} engine="opencv" jobId={selectedLocalJobId}
+          currentSamples={selection?.engine === "opencv" ? inputSamples : undefined} />
+      </div>
+      {localHistoryError && <p className="results-video-message" role="alert">{localHistoryError}</p>}
 
-        <section className="panel zone-card">
-          <div className="panel-header compact"><div><h2>Ocupação por zona</h2><p>Percentual do tempo classificável.</p></div></div>
+        <section className="panel zone-card results-trajectory-zones">
+          <div className="panel-header compact"><div><h2>Ocupação por zona</h2><p>Percentual do tempo classificável da execução selecionada{selection ? selection.engine === "colab" ? " no Google Colab" : " na máquina local" : ""}.</p></div></div>
           <div className="zone-donut" style={{ background: `conic-gradient(#00d9a0 0 ${centerPct}%, #34594e ${centerPct}% 100%)` }}><div><strong>{centerPct.toFixed(1)}%</strong><span>no centro</span></div></div>
           <div className="zone-breakdown">
             <div><span><i className="center" /> Centro</span><strong>{formatDuration(metrics.centerTimeSec)}</strong></div>
@@ -372,7 +384,7 @@ export function Results({ experimentId }: { experimentId: string }) {
             <div><span><i className="unknown" /> Desconhecido</span><strong>{formatDuration(metrics.unknownTimeSec)}</strong></div>
           </div>
         </section>
-      </div>
+      </>}
       </div>
 
       <div role="tabpanel" id="oft-result-details-panel" aria-labelledby="oft-result-details-tab" hidden={resultView !== "details"}>

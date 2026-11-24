@@ -672,9 +672,9 @@ fn token_error_message(status: u16, body: &str, context: &str) -> String {
         .unwrap_or("");
     let detail = match code {
         "invalid_request" if description.contains("client_secret") =>
-            "O Google exige a credencial deste cliente. Verifique a configuração OAuth e tente novamente.",
+            "O Google exige o Client Secret deste cliente. Importe o JSON OAuth Desktop em Configurar acesso Google.",
         "invalid_client" =>
-            "O Google não reconheceu as credenciais deste aplicativo. Tente conectar novamente.",
+            "O Google recusou as credenciais deste cliente. Confira se o Client ID e o Client Secret pertencem ao mesmo cliente OAuth Desktop.",
         "invalid_grant" =>
             "A autorização expirou ou foi revogada. Conecte a conta Google novamente.",
         "access_denied" => "O Google recusou a permissão solicitada.",
@@ -1407,7 +1407,7 @@ mod tests {
             r#"{"error":"invalid_request","error_description":"client_secret is missing.","access_token":"do-not-display"}"#,
             "Conexão não concluída",
         );
-        assert!(message.contains("Verifique a configuração OAuth"));
+        assert!(message.contains("Importe o JSON OAuth Desktop"));
         assert!(!message.contains("do-not-display"));
     }
 

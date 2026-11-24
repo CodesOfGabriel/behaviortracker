@@ -79,7 +79,7 @@ def fetch_model(url, destination, expected_size, expected_sha256, *, progress=No
 
 
 def install_bundle(registry, app_data_dir, runtime_id, *, progress=None, cancelled=None, bundled_config_dir=None):
-    """Future local neural inference shares the downloader and app data cache.
+    """Install the verified checkpoint bundle in the app data cache.
 
     Called only on explicit demand by a neural runtime, never during app startup.
     Cache eviction is manual; verified bundles survive application updates.

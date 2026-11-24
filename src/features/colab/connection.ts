@@ -42,3 +42,29 @@ export function loadColabSummary() {
 export function publishColabSummary(summary: OAuthProfileSummary) {
   window.dispatchEvent(new CustomEvent<OAuthProfileSummary>(COLAB_STATUS_EVENT, { detail: summary }));
 }
+
+export type GoogleDesktopCredentials = { clientId: string; clientSecret: string };
+
+export function parseGoogleDesktopCredentials(text: string, managedClientId?: string): GoogleDesktopCredentials {
+  let document: { installed?: { client_id?: unknown; client_secret?: unknown } } | null;
+  try {
+    document = JSON.parse(text);
+  } catch {
+    throw new Error("Selecione o JSON de credenciais baixado do Google Cloud.");
+  }
+
+  const clientId = document?.installed?.client_id;
+  const clientSecret = document?.installed?.client_secret;
+  if (typeof clientId !== "string" || !clientId.trim().endsWith(".apps.googleusercontent.com")
+    || typeof clientSecret !== "string" || !clientSecret.trim()) {
+    throw new Error("O JSON deve conter o Client ID e o Client Secret de um cliente OAuth do tipo Aplicativo para computador.");
+  }
+  if (managedClientId && clientId.trim() !== managedClientId) {
+    throw new Error("O JSON pertence a outro cliente OAuth. Selecione o arquivo do cliente usado por esta versão do aplicativo.");
+  }
+  return { clientId: clientId.trim(), clientSecret: clientSecret.trim() };
+}
+
+export function saveGoogleDesktopCredentials(credentials: GoogleDesktopCredentials) {
+  return invoke<OAuthProfileSummary>("save_google_oauth_config", { profileId: COLAB_PROFILE_ID, ...credentials });
+}

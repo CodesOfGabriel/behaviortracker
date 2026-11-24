@@ -1,6 +1,6 @@
 //! Jobs locais isolados do Colab e dos resultados científicos selecionados.
 use crate::{
-    colab::{new_uuid_v4, validate_local_id},
+    colab::{hybrid_bundle_files, hybrid_bundle_paths, new_uuid_v4, validate_local_id, AnalysisArena},
     oauth::{open_database, CommandResult},
     video,
 };
@@ -17,6 +17,9 @@ use tauri::{AppHandle, Manager};
 
 static INSTALLING: AtomicBool = AtomicBool::new(false);
 static STARTING: AtomicBool = AtomicBool::new(false);
+static RENDERING_SAVED_VIDEO: AtomicBool = AtomicBool::new(false);
+const AUDIT_VIDEO_SCRIPT: &str = include_str!("../python/local_audit_video.py");
+const WISTAR_STRATEGY: &str = "wistar_hrnet";
 
 struct OperationGuard(&'static AtomicBool);
 impl OperationGuard {
@@ -43,7 +46,7 @@ fn root(app: &AppHandle) -> CommandResult<PathBuf> {
 pub(crate) fn prepare_tables(app: &AppHandle) -> CommandResult<()> {
     open_database(app).map(|_| ())
 }
-fn python(app: &AppHandle) -> CommandResult<PathBuf> {
+pub(crate) fn python(app: &AppHandle) -> CommandResult<PathBuf> {
     if let Some(path) = std::env::var_os("BEHAVETRACKER_PYTHON") {
         return Ok(path.into());
     }
@@ -96,6 +99,10 @@ pub async fn setup_local_tracking_environment(app: AppHandle) -> CommandResult<V
 fn folder(app: &AppHandle, job: &str) -> CommandResult<PathBuf> {
     validate_local_id(job, "Execução")?;
     Ok(root(app)?.join(job))
+}
+fn audit_video_path(app: &AppHandle, job_id: &str) -> CommandResult<PathBuf> {
+    Ok(app.path().app_data_dir().map_err(|_| "Dados do app indisponíveis")?
+        .join("results").join(format!("{job_id}-local-audit.mp4")))
 }
 fn read_json(path: &std::path::Path) -> Option<Value> {
     fs::read_to_string(path)
@@ -320,7 +327,9 @@ pub async fn start_local_tracking(
     app: AppHandle,
     experiment_id: String,
     upload_id: String,
-    config: Value,
+    mut config: Value,
+    optimize_video: Option<bool>,
+    expected_video_sha256: Option<String>,
 ) -> CommandResult<Value> {
     validate_local_id(&experiment_id, "Experimento")?;
     validate_local_id(&upload_id, "Upload")?;
@@ -334,8 +343,18 @@ pub async fn start_local_tracking(
         let connection=open_database(&app)?;
         let active:bool=connection.query_row("SELECT EXISTS(SELECT 1 FROM local_tracking_jobs WHERE state IN ('queued','running'))",[],|r|r.get(0)).map_err(|_|"Consulta local indisponível")?;
         if active{return Err("Aguarde ou cancele a análise local ativa".into());}
-        let (path,digest,size):(String,String,i64)=connection.query_row("SELECT local_path,sha256,expected_size FROM video_staging WHERE upload_id=?1 AND experiment_id=?2 AND ready=1",params![upload_id,experiment_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(|_|"Selecione o vídeo original")?;
+        let optimize_video = optimize_video.unwrap_or(false);
+        let requested_id = upload_id;
+        let upload_id = if optimize_video {
+            video::original_upload_id(&connection, &requested_id)?
+        } else {
+            requested_id.clone()
+        };
+        let (mut path,digest,size):(String,String,i64)=connection.query_row("SELECT local_path,sha256,expected_size FROM video_staging WHERE upload_id=?1 AND experiment_id=?2 AND ready=1",params![upload_id,experiment_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(|_|"Selecione o vídeo original")?;
         if size<=0||fs::metadata(&path).map_err(|_|"Cache do vídeo ausente")?.len()!=size as u64||video::sha256(std::path::Path::new(&path))?!=digest{return Err("Cache do vídeo alterado; selecione novamente o original".into());}
+        if expected_video_sha256.is_some_and(|expected| expected != digest) {
+            return Err("O SHA-256 não corresponde ao vídeo original do experimento.".into());
+        }
         if let Some(guidance) = config.get("guidance").filter(|value| !value.is_null()) {
             let source = guidance["sourceJobId"].as_str().ok_or("Execução de origem ausente")?;
             let (state,source_digest):(String,String)=connection.query_row(
@@ -345,9 +364,30 @@ pub async fn start_local_tracking(
             if state!="succeeded" || source_digest!=digest {return Err("A revisão manual não pertence a uma execução concluída deste vídeo".into());}
             verify_guidance_frames(&folder(&app,source)?.join("samples.jsonl"),guidance["anchors"].as_array().unwrap())?;
         }
+        if optimize_video && size as u64 > video::QUALITY_THRESHOLD_BYTES {
+            let width = config["width"].as_u64().unwrap() as u32;
+            let height = config["height"].as_u64().unwrap() as u32;
+            let prepared = video::prepare_staged_video_with_progress(
+                &app, &upload_id, width, height, false, &mut |phase, percent, remaining_sec| {
+                    video::emit_preparation_progress(&app, &requested_id, phase, percent, remaining_sec);
+                },
+            )?;
+            if prepared.status == "optimized" {
+                let (prepared_path, prepared_digest): (String, String) = connection.query_row(
+                    "SELECT local_path,sha256 FROM video_staging WHERE upload_id=?1 AND experiment_id=?2 AND ready=1",
+                    params![prepared.upload_id,experiment_id], |row| Ok((row.get(0)?,row.get(1)?)),
+                ).map_err(|_| "Cópia otimizada indisponível")?;
+                if video::sha256(std::path::Path::new(&prepared_path))? != prepared_digest {
+                    return Err("O cache da cópia otimizada está alterado.".into());
+                }
+                path = prepared_path;
+            }
+            config["videoPreparation"] = json!(prepared);
+        }
         let id=new_uuid_v4();let directory=folder(&app,&id)?;fs::create_dir_all(&directory).map_err(|_|"Pasta da execução indisponível")?;
-        let request=json!({"video":path,"config":config,"ffprobe":ffprobe,"ffmpeg":ffmpeg});
+        let request=json!({"video":path,"config":config,"ffprobe":ffprobe,"ffmpeg":ffmpeg,"auditVideo":audit_video_path(&app,&id)?});
         fs::write(directory.join("request.json"),request.to_string()).map_err(|_|"Solicitação local indisponível")?;
+        fs::write(directory.join("local_audit_video.py"), AUDIT_VIDEO_SCRIPT).map_err(|_|"Gerador de vídeo de auditoria indisponível")?;
         fs::write(directory.join("engine.py"),include_str!("../python/opencv_engine.py")).map_err(|_|"Motor local indisponível")?;
         fs::write(directory.join("ram_color.py"), include_str!("../python/ram_color.py"))
             .map_err(|_| "Motor RAM Color indisponível")?;
@@ -366,8 +406,170 @@ pub async fn start_local_tracking(
             })();
             if let Err(error)=work {if let Ok(db)=open_database(&task_app){let _=db.execute("UPDATE local_tracking_jobs SET state='failed',error=?2 WHERE job_id=?1",params![task_id,error]);}}
         });
-        Ok(json!({"jobId":id,"state":"queued","config":config,"videoSha256":digest,"experimentId":experiment_id,"createdAt":created_at}))
+        Ok(json!({"jobId":id,"state":"queued","config":config,"videoSha256":digest,"experimentId":experiment_id,"createdAt":created_at,"uploadId":upload_id}))
     }).await.map_err(|_|"Inicialização interrompida".to_string())?
+}
+
+fn wistar_python(app: &AppHandle) -> CommandResult<PathBuf> {
+    if let Some(path) = std::env::var_os("BEHAVETRACKER_WISTAR_PYTHON") {
+        return Ok(path.into());
+    }
+    Ok(root(app)?.join("wistar-venv").join(if cfg!(windows) {
+        "Scripts/python.exe"
+    } else {
+        "bin/python"
+    }))
+}
+
+#[tauri::command]
+pub async fn start_local_wistar(
+    app: AppHandle,
+    experiment_id: String,
+    upload_id: String,
+    original_sha256: String,
+    width: u32,
+    height: u32,
+    arena: AnalysisArena,
+    model_bundle_id: String,
+) -> CommandResult<Value> {
+    validate_local_id(&experiment_id, "Experimento")?;
+    validate_local_id(&upload_id, "Upload")?;
+    let model_hashes = hybrid_bundle_files(&model_bundle_id)?
+        .into_iter().map(|(name, _, digest)| (name, digest)).collect::<std::collections::BTreeMap<_, _>>();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _operation = OperationGuard::acquire(&STARTING)?;
+        let connection = open_database(&app)?;
+        let active: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM local_tracking_jobs WHERE state IN ('queued','running'))",
+            [], |row| row.get(0),
+        ).map_err(|_| "Consulta local indisponível")?;
+        if active { return Err("Aguarde ou cancele a análise local ativa".into()); }
+        let original_id = video::original_upload_id(&connection, &upload_id)?;
+        let (path, size, digest, source_digest, report): (String, i64, String, String, String) = connection.query_row(
+            "SELECT s.local_path,s.expected_size,s.sha256,o.sha256,p.report_json
+             FROM video_preparations p
+             JOIN video_staging s ON s.upload_id=p.prepared_upload_id
+             JOIN video_staging o ON o.upload_id=p.original_upload_id
+             WHERE p.original_upload_id=?1 AND s.upload_id=?2 AND s.experiment_id=?3
+               AND o.experiment_id=?3 AND s.ready=1 AND o.ready=1",
+            params![original_id, upload_id, experiment_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        ).map_err(|_| "Vídeo preparado do experimento indisponível")?;
+        if original_sha256 != source_digest {
+            return Err("O SHA-256 não corresponde ao vídeo original do experimento.".into());
+        }
+        if size <= 0 || fs::metadata(&path).map_err(|_| "Cache do vídeo ausente")?.len() != size as u64
+            || video::sha256(std::path::Path::new(&path))? != digest {
+            return Err("O cache do vídeo preparado foi alterado.".into());
+        }
+        let preparation: video::VideoPreparation = serde_json::from_str(&report)
+            .map_err(|_| "Metadados do vídeo preparado inválidos")?;
+        let upload_width = preparation.upload_width.unwrap_or(width);
+        let upload_height = preparation.upload_height.unwrap_or(height);
+        if width > 16384 || height > 16384 || upload_width > width || upload_height > height {
+            return Err("Resolução do vídeo preparado inválida".into());
+        }
+        arena.validate_geometry(upload_width, upload_height)?;
+        let ffmpeg = video::binary("ffmpeg").ok_or("FFmpeg não encontrado. Instale FFmpeg para gerar o vídeo anotado.")?;
+        let directory = root(&app)?;
+        let config = json!({"strategy": WISTAR_STRATEGY, "modelBundleId": model_bundle_id,
+            "width": width, "height": height, "arena": arena, "videoPreparation": preparation});
+        let id = new_uuid_v4();
+        let job_directory = folder(&app, &id)?;
+        fs::create_dir_all(job_directory.join("hybrid")).map_err(|_| "Pasta da execução indisponível")?;
+        for (filename, content) in [
+            ("local_wistar.py", include_str!("../python/local_wistar.py")),
+            ("hybrid_pipeline.py", include_str!("../python/hybrid_pipeline.py")),
+            ("hybrid/detector_wistar.py", include_str!("../python/hybrid/detector_wistar.py")),
+            ("hybrid_render.py", include_str!("../python/hybrid_render.py")),
+            ("model_delivery.py", include_str!("../python/model_delivery.py")),
+            ("bundle.json", include_str!("../../models/wistar_df_v2/manifest.json")),
+            ("pytorch_config.yaml", include_str!("../../models/wistar_df_v2/pytorch_config.yaml")),
+            ("engine.py", include_str!("../python/opencv_engine.py")),
+        ] {
+            fs::write(job_directory.join(filename), content).map_err(|_| "Motor Wistar local indisponível")?;
+        }
+        connection.execute(
+            "INSERT INTO local_tracking_jobs(job_id,experiment_id,upload_id,video_sha256,config_json,state) VALUES (?1,?2,?3,?4,?5,'queued')",
+            params![id, experiment_id, original_id, source_digest, config.to_string()],
+        ).map_err(|_| "Não foi possível registrar a execução Wistar")?;
+        let created_at: String = connection.query_row(
+            "SELECT created_at FROM local_tracking_jobs WHERE job_id=?1", [&id], |row| row.get(0),
+        ).map_err(|_| "Data da execução indisponível")?;
+        let task_id = id.clone();
+        let task_config = config.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let work = (|| -> CommandResult<()> {
+                let db = open_database(&app)?;
+                db.execute("UPDATE local_tracking_jobs SET state='running' WHERE job_id=?1", [&task_id])
+                    .map_err(|_| "Estado da análise Wistar indisponível")?;
+                let models = hybrid_bundle_paths(&app, &model_bundle_id);
+                let model_dir = match models {
+                    Ok(files) => std::path::Path::new(&files[0].1).parent().map(std::path::Path::to_path_buf),
+                    Err(error) if model_bundle_id != "wistar_df_v2" => return Err(error),
+                    Err(_) => None,
+                };
+                let request = json!({"video": path, "config": task_config, "preparedSha256": digest,
+                    "appData": app.path().app_data_dir().map_err(|_| "Dados do app indisponíveis")?,
+                    "runtime": directory.join("wistar-venv"), "models": model_dir, "modelHashes": model_hashes,
+                    "ffmpeg": ffmpeg, "auditVideo": audit_video_path(&app, &task_id)?});
+                let request_file = job_directory.join("request.json");
+                fs::write(&request_file, request.to_string()).map_err(|_| "Solicitação Wistar indisponível")?;
+                let log = File::create(job_directory.join("engine.log")).map_err(|_| "Log indisponível")?;
+                let override_python = std::env::var_os("BEHAVETRACKER_WISTAR_PYTHON");
+                let (program, mode) = match override_python {
+                    Some(python) => (python, "analyze"),
+                    None => (std::env::var_os("BEHAVETRACKER_BOOTSTRAP_PYTHON").unwrap_or_else(|| {
+                        if cfg!(windows) { "python".into() } else { "python3".into() }
+                    }), "prepare"),
+                };
+                let status = Command::new(program).args(["-X", "utf8", "-u"])
+                    .arg(job_directory.join("local_wistar.py")).arg(request_file).arg(mode)
+                    .stdout(Stdio::from(log.try_clone().map_err(|_| "Log indisponível")?))
+                    .stderr(Stdio::from(log)).status()
+                    .map_err(|_| "Python não encontrado. Instale Python 3.10 a 3.13 de 64 bits para usar Wistar local.")?;
+                if !status.success() { return Err("O processo Wistar local foi interrompido. Consulte engine.log.".into()); }
+                let report = read_json(&job_directory.join("status.json")).ok_or("O motor Wistar terminou sem confirmar resultado")?;
+                let state = report["state"].as_str().filter(|state| ["succeeded", "cancelled", "failed"].contains(state))
+                    .ok_or("Estado terminal Wistar inválido")?;
+                db.execute("UPDATE local_tracking_jobs SET state=?2,error=?3 WHERE job_id=?1",
+                    params![task_id, state, report["error"].as_str()]).map_err(|_| "Não foi possível salvar resultado Wistar")?;
+                Ok(())
+            })();
+            if let Err(error) = work {
+                if let Ok(db) = open_database(&app) {
+                    let _ = db.execute("UPDATE local_tracking_jobs SET state='failed',error=?2 WHERE job_id=?1", params![task_id, error]);
+                }
+            }
+        });
+        Ok(json!({"jobId": id, "state": "queued", "config": config, "videoSha256": source_digest,
+            "experimentId": experiment_id, "createdAt": created_at, "uploadId": original_id}))
+    }).await.map_err(|_| "Inicialização Wistar interrompida".to_string())?
+}
+
+#[tauri::command]
+pub async fn get_local_wistar_result(app: AppHandle, job_id: String) -> CommandResult<Option<Value>> {
+    let directory = folder(&app, &job_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let db = open_database(&app)?;
+        let (state, config): (String, String) = db.query_row(
+            "SELECT state,config_json FROM local_tracking_jobs WHERE job_id=?1", [&job_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).map_err(|_| "Execução local não encontrada")?;
+        let config: Value = serde_json::from_str(&config).map_err(|_| "Configuração local inválida")?;
+        if config["strategy"] != WISTAR_STRATEGY { return Ok(None); }
+        let report = read_json(&directory.join("status.json")).ok_or("Resultado Wistar ainda indisponível")?;
+        if !["succeeded", "running"].contains(&state.as_str()) || report["state"] != "succeeded" {
+            return Err("Somente execuções concluídas podem ser usadas como resultado".into());
+        }
+        let path = directory.join("canonical_pose.csv");
+        if fs::metadata(&path).map_err(|_| "CSV Wistar indisponível")?.len() > 256 * 1024 * 1024 {
+            return Err("O resultado Wistar excede 256 MiB".into());
+        }
+        let csv = fs::read_to_string(path).map_err(|_| "CSV Wistar indisponível")?;
+        Ok(Some(json!({"csv": csv, "width": config["width"], "height": config["height"],
+            "preparation": config["videoPreparation"]})))
+    }).await.map_err(|_| "Leitura Wistar interrompida".to_string())?
 }
 
 fn validate_fst_config(config: &Value) -> CommandResult<()> {
@@ -438,8 +640,9 @@ pub async fn start_local_fst(app: AppHandle, experiment_id: String, upload_id: S
         let mut run_config = config;
         run_config["jobId"] = json!(id);
         run_config["videoSha256"] = json!(digest);
-        let request = json!({"video":path,"config":run_config,"ffprobe":ffprobe,"ffmpeg":ffmpeg});
+        let request = json!({"video":path,"config":run_config,"ffprobe":ffprobe,"ffmpeg":ffmpeg,"auditVideo":audit_video_path(&app,&id)?});
         fs::write(directory.join("request.json"), request.to_string()).map_err(|_| "Solicitação local indisponível")?;
+        fs::write(directory.join("local_audit_video.py"), AUDIT_VIDEO_SCRIPT).map_err(|_|"Gerador de vídeo de auditoria indisponível")?;
         fs::write(directory.join("fst_engine.py"), include_str!("../python/local_fst_engine.py")).map_err(|_| "Motor FST indisponível")?;
         fs::write(directory.join("fst_presence.py"), include_str!("../python/fst_presence.py")).map_err(|_| "Presença FST indisponível")?;
         fs::write(directory.join("engine.py"), include_str!("../python/opencv_engine.py")).map_err(|_| "Leitura de vídeo indisponível")?;
@@ -491,6 +694,69 @@ pub fn get_local_fst_result(app: AppHandle, job_id: String) -> CommandResult<Val
     }
     Ok(value)
 }
+#[tauri::command]
+pub async fn get_local_audit_video(app: AppHandle, job_id: String, render: bool) -> CommandResult<Value> {
+    validate_local_id(&job_id, "Execução")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let db = open_database(&app)?;
+        let (experiment_id, upload_id, config, state): (String, String, String, String) = db.query_row(
+            "SELECT experiment_id,upload_id,config_json,state FROM local_tracking_jobs WHERE job_id=?1", [&job_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        ).map_err(|_| "Execução local não encontrada")?;
+        let directory = folder(&app, &job_id)?;
+        let destination = audit_video_path(&app, &job_id)?;
+        let report = read_json(&directory.join("status.json")).ok_or("Estado da execução indisponível")?;
+        if report["state"] != "succeeded" || !["running", "succeeded"].contains(&state.as_str()) {
+            return Err("O vídeo fica disponível após a conclusão da análise local.".into());
+        }
+        if destination.is_file() {
+            return Ok(json!({"videoPath": destination, "videoError": null}));
+        }
+        if !render {
+            return Ok(json!({"videoPath": null, "videoError": report["videoError"]}));
+        }
+
+        let _guard = OperationGuard::acquire(&RENDERING_SAVED_VIDEO)?;
+        let request_file = directory.join("request.json");
+        let request = read_json(&request_file).ok_or("Solicitação original da análise indisponível")?;
+        let config: Value = serde_json::from_str(&config).map_err(|_| "Configuração local inválida")?;
+        let preparation = &config["videoPreparation"];
+        let source_id = if preparation["status"] == "optimized" {
+            preparation["uploadId"].as_str().ok_or("Cópia otimizada indisponível")?
+        } else { &upload_id };
+        let (path, digest): (String, String) = db.query_row(
+            "SELECT local_path,sha256 FROM video_staging WHERE upload_id=?1 AND experiment_id=?2 AND ready=1",
+            params![source_id, experiment_id], |row| Ok((row.get(0)?, row.get(1)?)),
+        ).map_err(|_| "O vídeo usado na análise saiu do cache. Analise novamente com o arquivo original.")?;
+        drop(db);
+        if request["video"] != path || request["config"] != config {
+            return Err("A solicitação salva diverge da execução selecionada.".into());
+        }
+        let source = std::path::Path::new(&path);
+        if !source.is_file() || video::sha256(source)? != digest {
+            return Err("A cópia do vídeo está ausente ou foi alterada. Analise novamente com o arquivo original.".into());
+        }
+        let ffmpeg = video::binary("ffmpeg").ok_or("FFmpeg não encontrado")?;
+        let output = if config["strategy"] == WISTAR_STRATEGY {
+            if request["preparedSha256"] != digest || request["auditVideo"] != json!(destination) {
+                return Err("O vídeo preparado diverge do registro da inferência Wistar.".into());
+            }
+            Command::new(wistar_python(&app)?)
+                .args(["-X", "utf8"]).arg(directory.join("local_wistar.py"))
+                .arg(request_file).arg("render").arg(ffmpeg).output()
+        } else {
+            Command::new(python(&app)?)
+                .args(["-X", "utf8", "-c", AUDIT_VIDEO_SCRIPT])
+                .arg(request_file).arg(&destination).arg(ffmpeg).output()
+        }.map_err(|_| "Não foi possível iniciar a renderização do vídeo")?;
+        if !output.status.success() || !destination.is_file() {
+            let details: String = String::from_utf8_lossy(&output.stderr).trim().chars().take(1500).collect();
+            return Err(if details.is_empty() { "Não foi possível renderizar o vídeo".into() } else { details });
+        }
+        Ok(json!({"videoPath": destination, "videoError": null}))
+    }).await.map_err(|_| "Renderização do vídeo interrompida".to_string())?
+}
+
 #[tauri::command]
 pub fn list_local_tracking_jobs(
     app: AppHandle,

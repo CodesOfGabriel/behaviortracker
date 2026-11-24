@@ -6,6 +6,7 @@ Fundo e limiar são estáticos: um animal imóvel não é absorvido pelo fundo.
 import json
 import math
 import os
+from contextlib import suppress
 from pathlib import Path
 import subprocess
 import sys
@@ -17,7 +18,20 @@ VERSION = "opencv-box-6"
 def write_json(path, value):
     temporary = Path(str(path) + ".tmp")
     temporary.write_text(json.dumps(value, ensure_ascii=False, allow_nan=False), encoding="utf-8")
-    os.replace(temporary, path)
+    try:
+        for delay in (.01, .02, .04, .08, .16, .2, .2, None):
+            try:
+                os.replace(temporary, path)
+                return
+            except OSError as error:
+                # A Windows reader can temporarily prevent an atomic replacement.
+                if delay is None or getattr(error, "winerror", None) not in {5, 32, 33}:
+                    raise
+                time.sleep(delay)
+    except OSError:
+        with suppress(OSError):
+            temporary.unlink(missing_ok=True)
+        raise
 
 
 def timestamps(video, ffprobe):
@@ -46,9 +60,10 @@ def timestamps(video, ffprobe):
         child.wait()
 
 
-def read_frames(video, ffmpeg, width, height):
+def read_frames(video, ffmpeg, width, height, autorotate=False):
     import numpy as np
-    child = subprocess.Popen([ffmpeg,"-v","error","-noautorotate","-i",video,"-an","-sn","-fps_mode","passthrough","-f","rawvideo","-pix_fmt","bgr24","pipe:1"],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+    orientation = [] if autorotate else ["-noautorotate"]
+    child = subprocess.Popen([ffmpeg,"-v","error",*orientation,"-i",video,"-an","-sn","-fps_mode","passthrough","-f","rawvideo","-pix_fmt","bgr24","pipe:1"],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
     size=width*height*3
     try:
         while True:
@@ -523,12 +538,12 @@ def select_segmentation(samples, config):
     return evaluate_segmentation(samples, config, segmentation_thresholds(samples, config), len(samples))
 
 
-def inspect_video_segmentation(video, ffmpeg, config):
+def inspect_video_segmentation(open_frames, config):
     import cv2 as cv
     width, height = config["width"], config["height"]
     scale = min(1., config.get("maxWidth", 1280) / width)
     size = (round(width * scale), round(height * scale))
-    capture = read_frames(video, ffmpeg, width, height)
+    capture = open_frames()
     samples = []
     try:
         for index, frame in enumerate(capture):
@@ -539,7 +554,7 @@ def inspect_video_segmentation(video, ffmpeg, config):
     finally:
         capture.close()
     thresholds = segmentation_thresholds(samples, config)
-    capture = read_frames(video, ffmpeg, width, height)
+    capture = open_frames()
     def evaluated_frames():
         for index, frame in enumerate(capture):
             yield index, frame
@@ -564,17 +579,29 @@ def run(request_path):
     metadata=json.loads(subprocess.check_output([request["ffprobe"],"-v","error","-select_streams","v:0","-show_streams","-of","json",video]))["streams"][0]
     if profile: stage_seconds["probe"] += time.perf_counter()-started
     total=int(metadata.get("nb_frames","0")) if str(metadata.get("nb_frames","")).isdigit() else 0
-    rotation=any(float(side.get("rotation",0))%360 for side in metadata.get("side_data_list",[]))
-    if (metadata["width"],metadata["height"]) != (config["width"], config["height"]) or rotation:
+    rotation = next((float(side["rotation"]) % 360 for side in metadata.get("side_data_list", [])
+                     if "rotation" in side), 0)
+    preparation = config.get("videoPreparation")
+    autorotate = bool(preparation and preparation["status"] != "optimized")
+    frame_size = (metadata["width"], metadata["height"])
+    if autorotate and rotation in (90, 270):
+        frame_size = frame_size[::-1]
+    expected_size = ((preparation["uploadWidth"], preparation["uploadHeight"])
+                     if preparation else (config["width"], config["height"]))
+    if frame_size != expected_size or rotation not in ((0, 90, 180, 270) if autorotate else (0,)):
         raise ValueError("Resolução/rotação do vídeo não corresponde à arena. Reabra o original e confira a calibração")
+
+    def open_frames():
+        return read_frames(video, request["ffmpeg"], *frame_size, autorotate=autorotate)
+
     selection = None
     is_ram_color = config.get("strategy") == "ram_color_geometry_v2"
     if config["mode"] == "auto" and not is_ram_color:
         write_json(status_path, {"version": VERSION, "state": "running", "phase": "recognition",
                                  "framesProcessed": 0, "totalFrames": total})
-        selection = inspect_video_segmentation(video, request["ffmpeg"], config)
+        selection = inspect_video_segmentation(open_frames, config)
         config = {**config, "mode": selection["mode"], "threshold": selection["threshold"]}
-    capture=read_frames(video,request["ffmpeg"],config["width"],config["height"])
+    capture = open_frames()
     background = None
     if config["mode"] == "background":
         reference = config.get("backgroundFrameIndex")
@@ -584,7 +611,7 @@ def run(request_path):
             background=next(capture,None)
             if background is None:raise ValueError("Frame de fundo não existe")
         capture.close()
-        capture=read_frames(video,request["ffmpeg"],config["width"],config["height"])
+        capture = open_frames()
     segmenter = Segmenter(config, background)
     color = None
     if is_ram_color:
@@ -740,7 +767,10 @@ def run(request_path):
                     "frameLatencyP95Ms": ordered[min(len(ordered)-1, int(.95*len(ordered)))],
                     "frameLatencyMaxMs": ordered[-1],
                     "frameLatencyDefinition": "read_frame_return_to_sample_and_periodic_status; ffmpeg decode and PTS run concurrently"}
-            write_json(status_path, report)
+        if request.get("auditVideo"):
+            from local_audit_video import finalize
+            finalize(request, root, report, parent, write_json)
+        write_json(status_path, report)
     except BaseException as error:
         elapsed = time.perf_counter()-started
         report.update(state="failed", error=str(error)[:2000], framesProcessed=index,

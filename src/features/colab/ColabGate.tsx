@@ -21,8 +21,10 @@ import {
   isTauriRuntime,
   loadColabSummary,
   publishColabSummary,
+  type GoogleDesktopCredentials,
   type OAuthProfileSummary,
 } from "./connection";
+import { GoogleCredentialsImport } from "./GoogleCredentialsImport";
 
 type ActiveAction = "load" | "save" | "connect" | "restore" | "check" | "delete" | null;
 
@@ -43,7 +45,7 @@ export function ColabGate() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const configured = Boolean(summary.clientId);
+  const configured = Boolean(summary.clientId && summary.hasClientSecret);
 
   function saveResearcher(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -103,29 +105,29 @@ export function ColabGate() {
       setNotice(action === "restore" && !updated.connected
         ? "Configuração anterior consultada. Clique em Conectar conta Google para autorizar novamente."
         : successMessage);
+      return true;
     } catch (actionError) {
       setError(errorMessage(actionError));
       void loadColabSummary().then((configuration) => {
         setSummary(configuration);
         publishColabSummary(configuration);
       }).catch(() => undefined);
+      return false;
     } finally {
       setActiveAction(null);
     }
   }
 
-  function saveCredentials(event: FormEvent<HTMLFormElement>) {
+  async function saveCredentials(credentials: GoogleDesktopCredentials) {
+    return runAction("save", "save_google_oauth_config", { profileId: COLAB_PROFILE_ID, ...credentials },
+      "Credenciais salvas para este perfil local.");
+  }
+
+  async function saveFromForm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    void runAction(
-      "save",
-      "save_google_oauth_config",
-      {
-        profileId: COLAB_PROFILE_ID,
-        clientId: clientId.trim(),
-        clientSecret: null,
-      },
-      "Credenciais salvas para este perfil local.",
-    );
+    const form = event.currentTarget;
+    const clientSecret = String(new FormData(form).get("clientSecret") ?? "").trim();
+    if (await saveCredentials({ clientId: clientId.trim(), clientSecret })) form.reset();
   }
 
   async function deleteConfiguration() {
@@ -216,7 +218,7 @@ export function ColabGate() {
                   Conectar conta Google
                 </Button>
                 {!summary.managedClient && <Button
-                  disabled={!desktopRuntime || !configured || activeAction !== null}
+                  disabled={!desktopRuntime || !summary.clientId || activeAction !== null}
                   icon={<RefreshCw size={16} />}
                   loading={activeAction === "restore"}
                   onClick={() => void runAction("restore", "restore_legacy_google_session", { profileId: COLAB_PROFILE_ID }, "Conexão anterior recuperada neste dispositivo.")}
@@ -246,14 +248,19 @@ export function ColabGate() {
         </div>
       </section>
 
-      {!summary.managedClient && <details className="panel colab-advanced">
+      {(!summary.managedClient || !configured) && <details className="panel colab-advanced" open={!configured || undefined}>
         <summary>Configuração avançada do acesso Google</summary>
-        <p>Informe um Client ID OAuth 2.0 do tipo aplicativo para computador.</p>
-        <form className="colab-credentials-form" onSubmit={saveCredentials}>
-          <label><span>Client ID</span><input autoComplete="off" disabled={!desktopRuntime || activeAction !== null} onChange={(event) => { clientIdEditedRef.current = true; setClientId(event.target.value); }} placeholder="000000000000-abc.apps.googleusercontent.com" spellCheck={false} value={clientId} /></label>
+        <p>Importe o JSON do cliente OAuth do tipo Aplicativo para computador ou preencha os campos abaixo.</p>
+        <GoogleCredentialsImport disabled={!desktopRuntime || activeAction !== null}
+          managedClientId={summary.managedClient ? summary.clientId : undefined}
+          onImport={async credentials => { await saveCredentials(credentials); }}
+          onError={reason => { setError(errorMessage(reason)); setNotice(null); }} />
+        <form className="colab-credentials-form" onSubmit={event => void saveFromForm(event)}>
+          <label><span>Client ID</span><input autoComplete="off" disabled={!desktopRuntime || activeAction !== null} readOnly={summary.managedClient} required onChange={(event) => { clientIdEditedRef.current = true; setClientId(event.target.value); }} placeholder="…apps.googleusercontent.com" spellCheck={false} value={clientId} /></label>
+          <label><span>Client Secret</span><input type="password" name="clientSecret" autoComplete="new-password" required disabled={!desktopRuntime || activeAction !== null} /></label>
           <div className="credential-actions">
             <Button disabled={!desktopRuntime || !clientId.trim() || activeAction !== null} icon={<Save size={16} />} loading={activeAction === "save"} type="submit">Salvar acesso</Button>
-            {configured && <Button disabled={!desktopRuntime || activeAction !== null} icon={<Trash2 size={15} />} onClick={() => void deleteConfiguration()} type="button" variant="ghost">Remover configuração</Button>}
+            {summary.clientId && !summary.managedClient && <Button disabled={!desktopRuntime || activeAction !== null} icon={<Trash2 size={15} />} onClick={() => void deleteConfiguration()} type="button" variant="ghost">Remover configuração</Button>}
           </div>
         </form>
       </details>}

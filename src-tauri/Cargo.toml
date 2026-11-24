@@ -25,3 +25,6 @@ tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-opener = "2.7.1"
 url = "2.5"
 
+[profile.dev.package.sha2]
+opt-level = 3
+

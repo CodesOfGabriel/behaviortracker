@@ -138,6 +138,9 @@ def run(request_path):
     report.update(state="succeeded", phase="complete", framesProcessed=count,
                   totalFrames=count, elapsedSec=elapsed, processingFps=count / max(.001, elapsed),
                   confirmedPresenceFrames=confirmed)
+    if request.get("auditVideo"):
+        from local_audit_video import finalize
+        finalize(request, root, report, parent, write_json)
     write_json(root / "status.json", report)
 
 

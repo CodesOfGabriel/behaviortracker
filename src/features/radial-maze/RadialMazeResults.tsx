@@ -8,12 +8,13 @@ import { useAppStore } from "../../store/AppStore";
 import type { RadialMazeExperiment } from "../../types";
 import { RamColabPanel } from "./RamColabPanel";
 import { RamLocalPanel } from "./RamLocalPanel";
+import { AnalysisWorkspace } from "../results/AnalysisWorkspace";
 
 export function RadialMazeResults({ experimentId }: { experimentId: string }) {
   const { getExperiment, assets, navigate, updateRadialMazeExperiment } = useAppStore();
   const [calibration, setCalibration] = useState(0);
   const [selectedRevisionIndex, setSelectedRevisionIndex] = useState(-1);
-  const [view, setView] = useState<"colab" | "local" | "map" | "policy">("local");
+  const [view, setView] = useState<"analysis" | "map" | "policy">("analysis");
   const candidate = getExperiment(experimentId);
   const experiment = candidate?.testType === "radial_arm_maze" ? candidate as RadialMazeExperiment : null;
   if (!experiment) return <div className="page not-found"><h1>Experimento RAM não encontrado</h1><Button onClick={() => navigate({ name: "dashboard" })}>Voltar</Button></div>;
@@ -40,12 +41,18 @@ export function RadialMazeResults({ experimentId }: { experimentId: string }) {
       <div className="results-actions"><Button variant="secondary" onClick={() => navigate({ name: "validation", experimentId })}>Referência humana</Button><Button variant="secondary" onClick={() => navigate({ name: "edit-ram", experimentId })}>Revisar geometria</Button>
         <Button variant="secondary" icon={<Download size={16}/>} onClick={exportConfiguration}>Exportar configuração</Button></div></section>
     <EditorTabs id="ram-view" label="Áreas do labirinto radial" value={view} onChange={setView}
-      items={[{ id: "colab", label: "Colab" }, { id: "local", label: "Análise local" }, { id: "map", label: "Mapa" }, { id: "policy", label: "Critérios" }]} />
+      items={[{ id: "analysis", label: "Análise" }, { id: "map", label: "Mapa" }, { id: "policy", label: "Critérios" }]} />
     <div className="validation-box valid ram-status-note" hidden={view !== "policy"}><ShieldCheck size={17}/><span>{geometry.walkablePolygonPx
       ? "Área do labirinto, potes e recompensas salvos. O tracking no Colab está disponível em caráter experimental; visitas e recompensas exigem revisão e método validados."
       : "Geometria e política de visita salvas. Marque toda a área analisável antes de executar o tracking experimental no Colab."}</span></div>
-    <div role="tabpanel" id="ram-view-colab-panel" aria-labelledby="ram-view-colab-tab" hidden={view !== "colab"}><RamColabPanel experiment={experiment}/></div>
-    <div role="tabpanel" id="ram-view-local-panel" aria-labelledby="ram-view-local-tab" hidden={view !== "local"}><RamLocalPanel experiment={experiment}/></div>
+    <div role="tabpanel" id="ram-view-analysis-panel" aria-labelledby="ram-view-analysis-tab" hidden={view !== "analysis"}>
+      <RamLocalPanel experiment={experiment}>
+        {local => <RamColabPanel experiment={experiment}>
+          {colab => <AnalysisWorkspace experimentId={experimentId} protocol="radial_arm_maze"
+            defaultEngine={experiment.trackingSelection?.engine ?? "opencv"} local={local} colab={colab} />}
+        </RamColabPanel>}
+      </RamLocalPanel>
+    </div>
     <div className="ram-results-grid">
       <section className="panel" role="tabpanel" id="ram-view-map-panel" aria-labelledby="ram-view-map-tab" hidden={view !== "map"}><h2>Mapa da sessão</h2><p>Coordenadas no vídeo original. Os potes com recompensa aparecem em verde. Áreas dos potes fora do labirinto ficam excluídas da análise.</p>
         <svg className="ram-geometry-editor ram-geometry-preview" viewBox={`0 0 ${video.width} ${video.height}`} role="img" aria-label="Geometria do labirinto radial">
