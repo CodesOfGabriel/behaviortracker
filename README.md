@@ -4,14 +4,17 @@
 
 # Behavior Tracker
 
-Aplicativo desktop para análise de vídeos de **Campo Aberto** e **Nado Forçado** em roedores. A inferência é executada em um runtime Google Colab com GPU conectado à conta do pesquisador. Experimentos e resultados são mantidos no dispositivo.
+Aplicativo desktop para análise de vídeos de **Campo Aberto**, **Nado Forçado** e **Labirinto Radial** em roedores. Oferece processamento clássico local em CPU e inferência em um runtime Google Colab com GPU conectado à conta do pesquisador. Experimentos e resultados são mantidos no dispositivo.
 
 Desenvolvido por **Gabriel Santos** e **Thiago Vargas**, em parceria entre o **Laboratório Neurocell** e o **NeuroLab da Universidade Federal de Pelotas (UFPel)**.
 
 ## Instalação e requisitos
 
+- A [página web de downloads](docs/web-downloads.md), servida pelo `docker-compose.live.yml`, oferece os instaladores por sistema e processador, além de acesso à tela de login pelo ícone **Entrar**.
 - Use o instalador do aplicativo correspondente ao sistema: Windows x64 (`.exe`), macOS Intel ou Apple Silicon (`.dmg`), Linux x64 (`.deb` ou `.AppImage`). Quando publicada, a versão do aplicativo estará em [Releases](https://github.com/CodesOfGabriel/behaviortracker/releases). A release do bundle Wistar contém modelos, não um instalador.
-- É necessária uma conta Google autorizada no projeto OAuth do aplicativo, com acesso ao Colab e a um runtime com GPU CUDA. A disponibilidade da GPU e as cotas dependem da conta.
+- Para o processamento pelo Colab, é necessária uma conta Google autorizada no projeto OAuth do aplicativo, com acesso ao Colab e a um runtime com GPU CUDA. A disponibilidade da GPU e as cotas dependem da conta.
+- O [processamento clássico local](docs/local-classical-processing.md) usa OpenCV em CPU, fundo fixo da sessão e continuidade temporal, sem download de modelos. No Campo Aberto, selecione **Máquina local → Analisar → OpenCV rápido · CPU**. Wistar + HRNet continua disponível como alternativa local; o FST local fornece presença e características de movimento, sem classificação comportamental.
+- O [MP4 local](docs/local-video-overlays.md) inclui gráfico de deslocamento no canto superior direito e, quando a silhueta permite, um eixo corporal estimado. Em uma execução concluída, use **Atualizar MP4 → Baixar MP4**, sem repetir o rastreamento.
 - Os instaladores incluem `ffmpeg` e `ffprobe` para preparar vídeos localmente. Acima de 100 MB, o app remove o áudio e recodifica em H.264 com limite de 1080p; confere a quantidade e os tempos dos frames antes do envio. Se a cópia não for menor ou a verificação falhar, usa o original. O tamanho final depende do conteúdo do vídeo.
 - Quando há redução de resolução, as marcações são convertidas para o vídeo enviado. No Campo Aberto, as coordenadas dos resultados voltam à escala original; no Nado Forçado, os arquivos da execução registram as duas resoluções e usam coordenadas do vídeo enviado.
 - Guarde o vídeo original e uma cópia dos arquivos exportados. O aplicativo não sincroniza experimentos entre computadores.

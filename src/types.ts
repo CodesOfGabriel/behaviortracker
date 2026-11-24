@@ -182,6 +182,19 @@ export type PoseStatus = "valid" | "low_confidence" | "jump" | "missing" | "out_
 export type BehaviorLabel = "rearing" | "grooming" | "freezing";
 export type PoseSource = "detected" | "recovered" | "predicted" | "manual" | "segmented";
 
+export interface SilhouetteMotionFeatures {
+  schemaVersion: "silhouette-features-1";
+  areaPx: number;
+  aspectRatio: number;
+  extent: number;
+  axisRad: number;
+  deltaSec: number | null;
+  speedPxSec: number | null;
+  changedPixelFraction: number | null;
+  meanAbsDifference: number | null;
+  observationUsable?: boolean;
+}
+
 export interface PoseSample {
   frameIndex: number;
   normalizedFrameIndex?: number;
@@ -199,6 +212,15 @@ export interface PoseSample {
   source?: PoseSource;
   metricReference?: "silhouette_centroid" | "box_center";
   referenceApproved?: boolean;
+  trackingAccepted?: boolean;
+  kalmanUpdated?: boolean;
+  localQuality?: {
+    tracking: "observed" | "uncertain" | "missing";
+    geometry: "floor" | "boundary" | "wall_projection" | "unknown";
+    identity?: "unverified" | "consistent" | "seeded";
+    reasons: string[];
+  };
+  features?: SilhouetteMotionFeatures | null;
   bbox?: BoundingBox;
   contour?: Point[];
   reason?: string;

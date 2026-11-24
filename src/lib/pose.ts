@@ -5,9 +5,13 @@ export function metricEligible(sample: PoseSample | undefined) {
   return drawablePose(sample) && sample.status === "valid"
     && sample.spatialRegion !== "outside"
     && sample.source !== "predicted" && sample.source !== "recovered"
+    && (sample.source === "manual" || sample.trackingAccepted !== false
+      && (!sample.localQuality || sample.localQuality.tracking === "observed" && sample.localQuality.geometry === "floor"))
     && (sample.source === "manual"
       || (sample.source !== "segmented" && sample.metricReference === "box_center" && sample.bbox != null)
-      || (sample.source === "segmented" ? ["silhouette_centroid", "box_center"].includes(sample.metricReference ?? "") && sample.referenceApproved === true && sample.spatialRegion === "floor" : sample.likelihood >= .6));
+      || (sample.source === "segmented" ? ["silhouette_centroid", "box_center"].includes(sample.metricReference ?? "")
+        && sample.referenceApproved === true && sample.spatialRegion === "floor"
+        : sample.likelihood >= .6));
 }
 
 export function originalPose(sample: PoseSample): PoseSample {
@@ -43,11 +47,15 @@ export function referencePoseSamples(samples: PoseSample[], keypoint: string): P
   return [...frames.values()].map((frame) => {
     const point = points.get(frame.frameIndex);
     if (point && metricEligible(point)) return point;
-    const boxSample = frameSamples.get(frame.frameIndex)?.find((sample) => sample.bbox && sample.source !== "segmented");
+    // A caixa do detector existe independentemente da confiança na pose.
+    // Previsões e recuperações conservam sua origem e nunca viram detecção.
+    const boxSample = frameSamples.get(frame.frameIndex)?.find((sample) => sample.bbox
+      && (sample.source === "detected" || sample.source === undefined) && sample.trackingAccepted !== false
+      && (!sample.localQuality || sample.localQuality.tracking === "observed" && sample.localQuality.geometry === "floor"));
     const box = boxSample?.bbox;
     if (box) {
       return {
-        ...frame,
+        ...boxSample,
         keypoint,
         xPx: box.x + box.width / 2,
         yPx: box.y + box.height / 2,

@@ -10,7 +10,7 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAppStore } from "../../store/AppStore";
 import { Button } from "../../components/ui/Button";
 import { Badge } from "../../components/ui/Badge";
@@ -39,9 +39,18 @@ export function Dashboard() {
   const { experiments, navigate, openDemo, deleteExperiment, analysisActivity } = useAppStore();
   const [pendingDeletion, setPendingDeletion] = useState<{ id: string; title: string } | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
+  const recentPanel=useRef<HTMLElement>(null);
+  const [columns,setColumns]=useState(1);
+  const pageSize=columns*2;
+  useEffect(()=>{
+    const panel=recentPanel.current;if(!panel)return;
+    const resize=()=>{const next=Math.max(1,Math.min(3,Math.floor((panel.clientWidth-40+12)/(260+12))));setColumns(next);};
+    resize();const observer=new ResizeObserver(resize);observer.observe(panel);
+    return()=>observer.disconnect();
+  },[]);
   const available = experiments.filter((experiment) => experiment.status === "review").length;
   const completed = experiments.filter((experiment) => experiment.status === "completed").length;
-  const pageCount = Math.max(1, Math.ceil(experiments.length / 3));
+  const pageCount = Math.max(1, Math.ceil(experiments.length / pageSize));
   const visiblePage = Math.min(pageIndex, pageCount - 1);
 
   useEffect(() => {
@@ -92,7 +101,7 @@ export function Dashboard() {
       </section>
 
       <div className="dashboard-grid">
-        <section className="panel recent-panel">
+        <section ref={recentPanel} className="panel recent-panel">
           <div className="panel-header">
             <div><h2>Experimentos recentes</h2><p>Arquivos persistidos localmente neste navegador.</p></div>
             {experiments.length > 0 && <div className="experiment-header-actions"><button type="button" className="text-button" onClick={openDemo}><Sparkles size={14} /> Demonstração</button>
@@ -115,8 +124,8 @@ export function Dashboard() {
               </div>
             </div>
           ) : (
-            <div className="experiment-list">
-              {experiments.slice(visiblePage * 3, visiblePage * 3 + 3).map((experiment) => (
+            <div className="experiment-list" style={{gridTemplateColumns:`repeat(${columns}, minmax(0, 1fr))`}}>
+              {experiments.slice(visiblePage * pageSize, visiblePage * pageSize + pageSize).map((experiment) => (
                 <article
                   key={experiment.id}
                   className="experiment-row"

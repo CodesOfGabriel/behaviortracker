@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "opencv-box-6"
+VERSION = "opencv-box-10"
 
 
 def write_json(path, value):
@@ -60,10 +60,14 @@ def timestamps(video, ffprobe):
         child.wait()
 
 
-def read_frames(video, ffmpeg, width, height, autorotate=False):
+def read_frames(video, ffmpeg, width, height, autorotate=False, seek_sec=None, frame_limit=None, output_size=None):
     import numpy as np
     orientation = [] if autorotate else ["-noautorotate"]
-    child = subprocess.Popen([ffmpeg,"-v","error",*orientation,"-i",video,"-an","-sn","-fps_mode","passthrough","-f","rawvideo","-pix_fmt","bgr24","pipe:1"],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+    seek = ["-ss", str(seek_sec)] if seek_sec is not None else []
+    limit = ["-frames:v", str(frame_limit)] if frame_limit is not None else []
+    scaling = ["-vf", f"scale={output_size[0]}:{output_size[1]}"] if output_size else []
+    width, height = output_size or (width, height)
+    child = subprocess.Popen([ffmpeg,"-v","error",*orientation,*seek,"-i",video,"-an","-sn",*scaling,*limit,"-fps_mode","passthrough","-f","rawvideo","-pix_fmt","bgr24","pipe:1"],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
     size=width*height*3
     try:
         while True:
@@ -76,6 +80,72 @@ def read_frames(video, ffmpeg, width, height, autorotate=False):
         child.stdout.close()
         if child.poll() is None:child.terminate()
         child.wait()
+
+
+def reference_frames(video, ffmpeg, width, height, duration, total=0, autorotate=False,
+                     output_size=None, cancelled=lambda: False, sample_count=15):
+    """Amostras pontuais por seek; o relógio da análise continua sendo o PTS original.
+
+    Sem duração conhecida, usa um prefixo limitado, declarado no manifesto.
+    Nunca varre o vídeo inteiro apenas para construir a referência.
+    """
+    count = min(sample_count, total) if total else sample_count
+    if math.isfinite(duration) and duration > 0:
+        for index in range(count):
+            if cancelled():
+                raise InterruptedError("Referência cancelada")
+            second = duration * index / count
+            capture = read_frames(video, ffmpeg, width, height, autorotate,
+                                  seek_sec=second, frame_limit=1, output_size=output_size)
+            try:
+                frame = next(capture, None)
+                if frame is not None:
+                    yield second, frame
+            finally:
+                capture.close()
+    else:
+        capture = read_frames(video, ffmpeg, width, height, autorotate,
+                              frame_limit=count, output_size=output_size)
+        try:
+            for index, frame in enumerate(capture):
+                if cancelled():
+                    raise InterruptedError("Referência cancelada")
+                yield None, frame
+        finally:
+            capture.close()
+
+
+class SilhouetteFeatures:
+    """Descritores de imagem, sem inferência comportamental ou direção anatômica."""
+    def __init__(self):
+        self.previous = None
+
+    def extract(self, gray, mask, timestamp, scale=1.):
+        import cv2 as cv
+        import numpy as np
+        active = mask > 0
+        area = int(np.count_nonzero(active))
+        if not area:
+            self.previous = None
+            return None
+        moments = cv.moments(mask, binaryImage=True)
+        center = (moments["m10"]/area, moments["m01"]/area)
+        x, y, w, h = cv.boundingRect(mask)
+        angle = .5*math.atan2(2*moments["mu11"], moments["mu20"]-moments["mu02"])
+        value = {"schemaVersion": "silhouette-features-1", "areaPx": area/(scale*scale),
+                 "aspectRatio": w/h, "extent": area/(w*h), "axisRad": angle,
+                 "deltaSec": None, "speedPxSec": None, "changedPixelFraction": None,
+                 "meanAbsDifference": None}
+        if self.previous:
+            old_gray, old_active, old_center, old_time = self.previous
+            dt = timestamp-old_time
+            if old_gray.shape == gray.shape and 0 < dt <= .5:
+                union = active | old_active
+                value.update(deltaSec=dt, speedPxSec=math.dist(center, old_center)/(scale*dt),
+                             changedPixelFraction=float(np.count_nonzero(active ^ old_active)/np.count_nonzero(union)),
+                             meanAbsDifference=float(cv.absdiff(gray, old_gray)[union].mean()))
+        self.previous = (gray.copy(), active.copy(), center, timestamp)
+        return value
 
 
 class TemporalTracker:
@@ -172,9 +242,14 @@ class HybridSegmenter:
         age = timestamp-kalman.last_observed if kalman.last_observed is not None else float("inf")
         guide = kalman.provisional_box(predicted) if predicted and age <= kalman.max_gap else None
         result = segmenter.process(frame, timestamp, guide_box=guide)
+        if result["source"] == "recovered":
+            # Evidência estática auxiliar não realimenta a previsão de posição.
+            return result
         if result["source"] == "segmented" and result["status"] != "missing" and result.get("bbox"):
-            kalman.observe((result["xPx"], result["yPx"]), result["bbox"], timestamp, predicted is not None)
-            return {**result, "reason": "hybrid_"+result["reason"]}
+            accepted = result.get("trackingAccepted", result["status"] == "valid")
+            if accepted:
+                kalman.observe((result["xPx"], result["yPx"]), result["bbox"], timestamp, predicted is not None)
+            return {**result, "reason": "hybrid_"+result["reason"], "kalmanUpdated": bool(accepted)}
         if predicted and age <= kalman.max_gap:
             x, y, uncertainty = predicted
             if 0 <= x < kalman.width and 0 <= y < kalman.height and segmenter.cv.pointPolygonTest(segmenter.enclosure, (x, y), False) >= 0:
@@ -182,8 +257,34 @@ class HybridSegmenter:
                 if box:
                     return {"xPx": box["x"]+box["width"]/2, "yPx": box["y"]+box["height"]/2,
                             "bbox": box, "source": "predicted", "status": "low_confidence",
-                            "reason": "kalman_prediction", "uncertaintyPx": uncertainty}
-        return {"xPx": None, "yPx": None, "source": "predicted", "status": "missing", "reason": "hybrid_no_observation"}
+                            "reason": "kalman_prediction", "uncertaintyPx": uncertainty,
+                            "trackingAccepted": False, "kalmanUpdated": False}
+        return {"xPx": None, "yPx": None, "source": "predicted", "status": "missing", "reason": "hybrid_no_observation",
+                "trackingAccepted": False, "kalmanUpdated": False}
+
+
+class ReferenceSegmenter:
+    """Fundo mediano congelado; contraste independente recupera corpos imóveis.
+
+    O fallback é sempre incerto: uma referência contendo o animal não demonstra
+    ausência, e a segmentação estática sozinha não demonstra identidade.
+    """
+    def __init__(self, primary, fallback=None):
+        self.primary, self.fallback = primary, fallback
+        self.cv, self.enclosure = primary.cv, primary.enclosure
+
+    def process(self, frame, timestamp, guide_box=None):
+        result = self.primary.process(frame, timestamp, guide_box)
+        if result["source"] == "segmented" and result.get("bbox"):
+            if self.fallback and result.get("trackingAccepted", result["status"] == "valid"):
+                self.fallback.reset_to_anchor(result["bbox"], timestamp)
+            return result
+        if self.fallback:
+            recovered = self.fallback.process(frame, timestamp, guide_box)
+            if recovered["source"] == "segmented" and recovered.get("bbox"):
+                return {**recovered, "source": "recovered", "status": "low_confidence", "reason": "static_reference_overlap",
+                        "trackingAccepted": False, "kalmanUpdated": False}
+        return result
 
 
 class ManualVisualTracker:
@@ -353,7 +454,7 @@ class Segmenter:
         import numpy as np
         self.cv, self.np = cv2, np
         cv2.setNumThreads(2)
-        cv2.ocl.setUseOpenCL(bool(config.get("useOpenCL", True)) and cv2.ocl.haveOpenCL())
+        cv2.ocl.setUseOpenCL(bool(config.get("useOpenCL", False)) and cv2.ocl.haveOpenCL())
         self.opencl = bool(cv2.ocl.useOpenCL())
         self.config, self.background = config, background
         self.width, self.height = config["width"], config["height"]
@@ -367,6 +468,8 @@ class Segmenter:
         self.roi_area = cv2.countNonZero(self.roi)
         if self.roi_area < 16:
             raise ValueError("Arena inválida para segmentação")
+        self.roi_rect = cv2.boundingRect(self.roi)
+        self.features = SilhouetteFeatures() if config.get("strategy") == "classical_roi_v1" else None
         if background is not None:
             self.background = self.gray(background)
         self.kernel = np.ones((3, 3), np.uint8)
@@ -400,19 +503,38 @@ class Segmenter:
 
     def process(self, frame, timestamp, guide_box=None):
         cv, np, config = self.cv, self.np, self.config
-        gray = self.gray(frame)
+        # Conversões, limiar e morfologia ficam no retângulo da ROI. Contornos
+        # voltam às coordenadas da imagem reduzida antes de qualquer seleção.
+        resized = cv.resize(frame, self.size)
+        rx, ry, rw, rh = self.roi_rect
+        gray = cv.GaussianBlur(cv.cvtColor(resized[ry:ry+rh, rx:rx+rw], cv.COLOR_BGR2GRAY), (5, 5), 0)
+        roi = self.roi[ry:ry+rh, rx:rx+rw]
         mode, threshold = config["mode"], config["threshold"]
         if mode == "background":
             if self.background is None:
                 raise ValueError("Selecione um frame com a caixa realmente vazia para usar subtração do fundo")
-            mask = cv.threshold(cv.absdiff(gray, self.background), threshold, 255, cv.THRESH_BINARY)[1]
+            mask = cv.threshold(cv.absdiff(gray, self.background[ry:ry+rh, rx:rx+rw]), threshold, 255, cv.THRESH_BINARY)[1]
         else:
             mask = cv.threshold(gray, threshold, 255, cv.THRESH_BINARY if mode == "light" else cv.THRESH_BINARY_INV)[1]
-        mask = cv.bitwise_and(mask, self.roi)
+        mask = cv.bitwise_and(mask, roi)
         mask = cv.morphologyEx(cv.morphologyEx(mask, cv.MORPH_OPEN, self.kernel), cv.MORPH_CLOSE, self.kernel)
-        contours = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)[0]
+        mask = cv.bitwise_and(mask, roi)
+        prediction = self.tracker.predict(timestamp)
+        # A busca usa a mesma distância máxima da associação temporal. O
+        # recorte inclui a extensão anterior para não truncar o corpo no limite.
+        search = mask
+        ox, oy = rx, ry
+        if prediction and self.last_box:
+            gate = math.hypot(self.width, self.height)*.2
+            pad = max(self.last_box["width"], self.last_box["height"])
+            radius = (gate+pad)*self.scale
+            px, py = prediction[0]*self.scale-rx, prediction[1]*self.scale-ry
+            x1, y1 = max(0, int(px-radius)), max(0, int(py-radius))
+            x2, y2 = min(rw, math.ceil(px+radius)), min(rh, math.ceil(py+radius))
+            if x2 > x1 and y2 > y1:
+                search, ox, oy = mask[y1:y2, x1:x2], rx+x1, ry+y1
+        contours = cv.findContours(search, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE, offset=(ox, oy))[0]
         candidates = []
-        resized = None
         for contour in contours:
             area = float(cv.contourArea(contour))
             if not self.min_area <= area <= self.max_area:
@@ -425,8 +547,6 @@ class Segmenter:
                 intersection = max(0, min(x+width,gx+gw)-max(x,gx))*max(0,min(y+height,gy+gh)-max(y,gy))
                 if intersection/max(1, min(width*height, gw*gh)) < .25:
                     continue
-            if resized is None:
-                resized = cv.resize(frame, self.size)
             crop = cv.cvtColor(resized[y:y+height, x:x+width], cv.COLOR_BGR2LAB)
             contour_mask = np.zeros((height, width), np.uint8)
             cv.drawContours(contour_mask, [contour], -1, 255, -1, offset=(-x, -y))
@@ -441,7 +561,6 @@ class Segmenter:
                 if overlap / max(1, width*height) < .3:
                     continue
             candidates.append((contour, area, center, appearance))
-        prediction = self.tracker.predict(timestamp)
         seed = config.get("seed")
         target = (guide_box["x"]+guide_box["width"]/2, guide_box["y"]+guide_box["height"]/2) if guide_box else prediction or (self.tracker.last if self.tracker.last and timestamp-self.tracker.last[2] <= self.tracker.max_gap else None)
         if target is None and self.tracker.last is None:
@@ -458,6 +577,8 @@ class Segmenter:
             candidates.sort(key=lambda item: -item[1])
         ambiguous = len(candidates) > 1 and (not target or abs(math.hypot(candidates[0][2][0]-target[0], candidates[0][2][1]-target[1]) - math.hypot(candidates[1][2][0]-target[0], candidates[1][2][1]-target[1])) < self.width*.025)
         if not candidates or ambiguous:
+            if self.features:
+                self.features.previous = None
             if prediction:
                 x, y, gap = prediction
                 if 0 <= x < self.width and 0 <= y < self.height and cv.pointPolygonTest(self.enclosure, (float(x), float(y)), False) >= 0:
@@ -481,10 +602,289 @@ class Segmenter:
         self.last_box = {"x": x/self.scale, "y": y/self.scale, "width": width/self.scale, "height": height/self.scale}
         if self.appearance is None:
             self.appearance = appearance  # Referência fixa: não aprende a parede durante uma oclusão.
+        features = None
+        if self.features:
+            body = np.zeros(gray.shape, np.uint8)
+            cv.drawContours(body, [contour], -1, 255, -1, offset=(-rx, -ry))
+            features = self.features.extract(gray, body, timestamp, self.scale)
         return {"xPx": center[0], "yPx": center[1], "source": "segmented", "status": "low_confidence" if partial or unstable or reacquired else "valid",
                 "spatialRegion": region, "reason": "near_wall_or_partial" if partial else "area_changed" if unstable else "reacquired" if reacquired else "observed",
-                "bbox": self.last_box,
+                "bbox": self.last_box, **({"features": features} if self.features else {}),
                 "contour": [{"x": p[0], "y": p[1]} for p in original]}
+
+
+class BodyFlow:
+    """LK bidirecional orienta associação; não publica observações sozinho."""
+    def __init__(self, max_gap):
+        self.max_gap = max_gap
+        self.reference = None
+        self.points = None
+        self.box = None
+        self.time = None
+
+    def observe(self, gray, mask, box, timestamp):
+        import cv2 as cv
+        import numpy as np
+        self.reference = gray.copy()
+        x, y, w, h = (int(box[key]) for key in ("x", "y", "width", "height"))
+        crop = gray[y:y+h, x:x+w]
+        self.points = cv.goodFeaturesToTrack(crop, 60, .02, 3, mask=cv.erode(mask[y:y+h, x:x+w], None))
+        if self.points is not None:
+            self.points += np.array([x, y], np.float32)
+        self.box, self.time = dict(box), timestamp
+
+    def predict(self, gray, timestamp):
+        import cv2 as cv
+        import numpy as np
+        if self.points is None or len(self.points) < 4 or not 0 < timestamp-self.time <= self.max_gap:
+            return None
+        current, valid, _ = cv.calcOpticalFlowPyrLK(self.reference, gray, self.points, None)
+        if current is None:
+            return None
+        returned, reverse, _ = cv.calcOpticalFlowPyrLK(gray, self.reference, current, None)
+        if returned is None:
+            return None
+        good = (valid[:, 0] > 0) & (reverse[:, 0] > 0) & (np.linalg.norm(returned-self.points, axis=2)[:, 0] < 1.)
+        if np.count_nonzero(good) < 4:
+            return None
+        flow = (current-self.points)[good, 0]
+        displacement = np.median(flow, axis=0)
+        inliers = np.linalg.norm(flow-displacement, axis=1) < max(2., min(self.box["width"], self.box["height"])*.15)
+        if np.mean(inliers) < .6 or np.count_nonzero(inliers) < 4:
+            return None
+        dx, dy = np.median(flow[inliers], axis=0)
+        if math.hypot(dx, dy) > max(self.box["width"], self.box["height"])*2:
+            return None
+        return {**self.box, "x": self.box["x"]+float(dx), "y": self.box["y"]+float(dy)}
+
+
+class RobustSegmenter(Segmenter):
+    """Associação por evidência visual; geometria não equivale a identidade.
+
+    Só observações aceitas alteram posição, área e aparência de referência.
+    A geometria continua conservadora para medidas no piso.
+    """
+    def __init__(self, config, background, reference_samples=()):
+        super().__init__(config, background)
+        cv, np = self.cv, self.np
+        self.ram_body_margin = config.get("protocol") == "radial_arm_maze" and bool(config.get("walkablePolygonPx"))
+        if self.ram_body_margin:
+            # Walkability constrains the center, not the whole elevated body.
+            # Keep the calibrated polygon intact for geometry and metrics.
+            distance = cv.distanceTransform(self.roi, cv.DIST_L2, 3)
+            padding = max(3, min(16, round(float(np.percentile(distance[self.roi > 0], 75)))))
+            kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (2*padding+1, 2*padding+1))
+            self.roi = cv.dilate(self.roi, kernel)
+            self.roi_rect = cv.boundingRect(self.roi)
+            self.body_roi_distance = cv.distanceTransform(self.roi, cv.DIST_L2, 3)
+        rx, ry, rw, rh = self.roi_rect
+        self.background_crop = self.background[ry:ry+rh, rx:rx+rw]
+        background_view = cv.resize(background, self.size)[ry:ry+rh, rx:rx+rw]
+        self.background_lab = cv.cvtColor(cv.GaussianBlur(background_view, (5, 5), 0), cv.COLOR_BGR2LAB).astype(np.float32)
+        self.active_roi = self.roi[ry:ry+rh, rx:rx+rw] > 0
+        self.probe_y, self.probe_x = np.unravel_index(np.flatnonzero(self.active_roi.ravel())[::8], (rh, rw))
+        self.noise = np.zeros((rh, rw), np.float32)
+        self.chroma_noise = np.zeros((rh, rw), np.float32)
+        floor_mask = np.zeros_like(self.roi)
+        cv.fillPoly(floor_mask, [np.round(self.floor*self.scale).astype(np.int32)], 255)
+        self.floor_mask = floor_mask
+        # Abertura proporcional à resolução remove cauda e pontes finas entre
+        # corpo e reflexo antes da associação. Não aumenta a caixa corporal.
+        opening_size = max(5, min(7, int(round(math.hypot(*self.size)*.006)) | 1))
+        self.body_kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (opening_size, opening_size))
+        if reference_samples:
+            residuals = []
+            chroma_residuals = []
+            for frame in reference_samples:
+                gray = self.gray(frame)[ry:ry+rh, rx:rx+rw]
+                residual = gray.astype(np.float32)-self.background_crop.astype(np.float32)
+                residual -= float(np.median(residual[self.active_roi][::8]))
+                residuals.append(residual)
+                view = cv.resize(frame, self.size)[ry:ry+rh, rx:rx+rw]
+                lab = cv.cvtColor(cv.GaussianBlur(view, (5, 5), 0), cv.COLOR_BGR2LAB).astype(np.float32)
+                chroma = lab[:, :, 1:]-self.background_lab[:, :, 1:]
+                chroma -= np.median(chroma[self.active_roi][::8], axis=0)
+                chroma_residuals.append(chroma)
+            stack = np.stack(residuals)
+            self.noise = 1.4826*np.median(np.abs(stack-np.median(stack, axis=0)), axis=0)
+            stack = np.stack(chroma_residuals)
+            deviation = 1.4826*np.median(np.abs(stack-np.median(stack, axis=0)), axis=0)
+            self.chroma_noise = np.linalg.norm(deviation, axis=2)
+        self.pending_identity = None
+        self.identity_shape = None
+        self.area_history = []
+        self.body_flow = BodyFlow(self.tracker.max_gap)
+        self.threshold = np.maximum(float(self.config["threshold"]), 3*self.noise)
+        self.chroma_threshold = np.maximum(max(8., self.config["threshold"]*.3), 3*self.chroma_noise)
+        self.noise_threshold_median = float(np.median(self.threshold[self.probe_y, self.probe_x]))
+
+    def reset_to_anchor(self, box, timestamp):
+        super().reset_to_anchor(box, timestamp)
+        self.pending_identity = None
+        self.identity_shape = None
+        self.area_history = []
+        self.body_flow = BodyFlow(self.tracker.max_gap)
+
+    def process(self, frame, timestamp, guide_box=None):
+        cv, np = self.cv, self.np
+        rx, ry, rw, rh = self.roi_rect
+        view = cv.resize(frame, self.size)
+        gray = cv.GaussianBlur(cv.cvtColor(view[ry:ry+rh, rx:rx+rw], cv.COLOR_BGR2GRAY), (5, 5), 0)
+        residual = gray.astype(np.float32)-self.background_crop.astype(np.float32)
+        # A mediana esparsa mede a mudança global de brilho sem atualizar o fundo.
+        shift = float(np.median(residual[self.probe_y, self.probe_x]))
+        lab = cv.cvtColor(cv.GaussianBlur(view[ry:ry+rh, rx:rx+rw], (5, 5), 0), cv.COLOR_BGR2LAB)
+        chroma_probe = lab[self.probe_y, self.probe_x, 1:]-self.background_lab[self.probe_y, self.probe_x, 1:]
+        chroma_shift = np.median(chroma_probe, axis=0)
+        delta_a = lab[:, :, 1].astype(np.float32)-self.background_lab[:, :, 1]-chroma_shift[0]
+        delta_b = lab[:, :, 2].astype(np.float32)-self.background_lab[:, :, 2]-chroma_shift[1]
+        # Mudanças cromáticas recuperam corpo sobre piso de luminância próxima.
+        # O limiar continua relativo a uma referência congelada e ao ruído local.
+        foreground = (np.abs(residual-shift) > self.threshold) | (cv.magnitude(delta_a, delta_b) > self.chroma_threshold)
+        mask = np.uint8(foreground & self.active_roi)*255
+        mask = cv.morphologyEx(cv.morphologyEx(mask, cv.MORPH_OPEN, self.body_kernel), cv.MORPH_CLOSE, self.kernel)
+        mask = cv.bitwise_and(mask, self.roi[ry:ry+rh, rx:rx+rw])
+        contours = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE, offset=(rx, ry))[0]
+        prediction = self.tracker.predict(timestamp)
+        recent = self.tracker.last and 0 <= timestamp-self.tracker.last[2] <= self.tracker.max_gap
+        target = ((guide_box["x"]+guide_box["width"]/2, guide_box["y"]+guide_box["height"]/2)
+                  if guide_box else prediction or (self.tracker.last if recent else None))
+        visual_box = self.body_flow.predict(gray, timestamp)
+        if visual_box:
+            target = ((visual_box["x"]+visual_box["width"]/2+rx)/self.scale,
+                      (visual_box["y"]+visual_box["height"]/2+ry)/self.scale)
+        initial_box = self.config.get("initialBox") if self.tracker.last is None else None
+        candidates = []
+        for contour in contours:
+            area = float(cv.contourArea(contour))
+            if not self.min_area <= area <= self.max_area:
+                continue
+            x, y, w, h = cv.boundingRect(contour)
+            center = ((x+w/2)/self.scale, (y+h/2)/self.scale)
+            density = area/max(1, w*h)
+            aspect = max(w, h)/max(1, min(w, h))
+            component = np.zeros((h, w), np.uint8)
+            cv.drawContours(component, [contour], -1, 255, -1, offset=(-x, -y))
+            on_floor = (component > 0) & (self.floor_mask[y:y+h, x:x+w] > 0)
+            floor_fraction = float(np.count_nonzero(on_floor)/max(1, cv.countNonZero(component)))
+            if self.ram_body_margin and (floor_fraction < .35 or cv.pointPolygonTest(self.floor, center, False) < 0):
+                continue
+            # Mediana no núcleo reduz contaminação por cauda, sombra e reflexo.
+            core = cv.erode(component, self.kernel) > 0
+            if np.count_nonzero(core & on_floor) >= 9:
+                core &= on_floor
+            if np.count_nonzero(core) < 9:
+                core = component > 0
+            appearance = np.median(lab[y-ry:y-ry+h, x-rx:x-rx+w][core], axis=0).astype(np.float64)
+            # Luminância é comparada após compensar o brilho global, enquanto
+            # os dois canais cromáticos conservam seu peso na identidade.
+            appearance[0] -= shift
+            appearance[1:] -= chroma_shift
+            color_delta = float(np.linalg.norm((appearance-self.appearance)*np.array([.5, 1., 1.]))) if self.appearance is not None else 0.
+            reference_area = float(np.median(self.area_history)) if self.area_history else self.last_area
+            area_ratio = area/reference_area if reference_area else 1.
+            displacement = math.dist(center, target[:2]) if target else 0.
+            body_size = max(self.last_box["width"], self.last_box["height"]) if self.last_box else max(w, h)/self.scale
+            distance_cost = displacement/max(body_size*2, math.hypot(self.width, self.height)*.025)
+            # Rotação e mudança de postura alteram aspecto sem trocar identidade.
+            shape_cost = max(0., math.log(aspect/4))
+            size_support = min(3., math.log(max(1., area/self.min_area)))
+            score = (density+2*floor_fraction+.45*size_support-distance_cost
+                     -color_delta/40-.5*abs(math.log(area_ratio))-shape_cost*.5)
+            if target and displacement > math.hypot(self.width, self.height)*.2:
+                continue
+            if initial_box:
+                bx, by = initial_box["x"]*self.scale, initial_box["y"]*self.scale
+                bw, bh = initial_box["width"]*self.scale, initial_box["height"]*self.scale
+                overlap = max(0, min(x+w, bx+bw)-max(x, bx))*max(0, min(y+h, by+bh)-max(y, by))
+                if overlap/max(1, w*h) < .3 or overlap/max(1, bw*bh) < .3:
+                    continue
+            candidates.append(dict(contour=contour, area=area, center=center, appearance=appearance,
+                bbox={"x": x/self.scale, "y": y/self.scale, "width": w/self.scale, "height": h/self.scale},
+                density=density, aspect=aspect, color_delta=color_delta, area_ratio=area_ratio,
+                floor_fraction=floor_fraction, score=score))
+        candidates.sort(key=lambda value: value["score"], reverse=True)
+        diagnostics = {"candidateCount": len(candidates), "illuminationShift": shift,
+                       "visualContinuity": visual_box is not None,
+                       "noiseThresholdMedian": self.noise_threshold_median}
+        if not candidates:
+            self.pending_identity = None
+            self.features.previous = None
+            return {"xPx": None, "yPx": None, "source": "segmented", "status": "missing", "reason": "no_contour",
+                    "trackingAccepted": False, "localQuality": {"tracking": "missing", "geometry": "unknown", "reasons": ["no_contour"]}, **diagnostics}
+        chosen = candidates[0]
+        contour, area, center = chosen["contour"], chosen["area"], chosen["center"]
+        original = [(float(p[0][0]/self.scale), float(p[0][1]/self.scale)) for p in cv.approxPolyDP(contour, 2, True)]
+        margin = math.hypot(self.width, self.height)*.012
+        partial = any(cv.pointPolygonTest(self.floor, point, True) <= margin for point in original)
+        region = "floor" if cv.pointPolygonTest(self.floor, center, False) >= 0 else "wall_projection"
+        geometry = "boundary" if partial and region == "floor" else region
+        reasons = []
+        score_margin = chosen["score"]-candidates[1]["score"] if len(candidates) > 1 else None
+        if score_margin is not None and score_margin < .25:
+            reasons.append("ambiguous_candidates")
+        if chosen["density"] < .2 or chosen["aspect"] > 8:
+            reasons.append("shape_inconsistent")
+        if chosen["color_delta"] > 35:
+            reasons.append("appearance_changed")
+        if not .5 <= chosen["area_ratio"] <= 2:
+            reasons.append("area_changed")
+        if chosen["floor_fraction"] < .15:
+            reasons.append("outside_floor_candidate")
+        if self.ram_body_margin:
+            pixels = [(round(point[0]*self.scale), round(point[1]*self.scale)) for point in original]
+            clipped = any(x <= 1 or y <= 1 or x >= self.size[0]-2 or y >= self.size[1]-2
+                          or self.body_roi_distance[y, x] <= 1.5 for x, y in pixels)
+        else:
+            clipped = any(cv.pointPolygonTest(self.enclosure, point, True) <= 1.5/self.scale for point in original)
+        if clipped:
+            reasons.append("silhouette_clipped")
+        reacquiring = self.tracker.last is None or not recent
+        identity = "consistent" if self.tracker.last else "unverified"
+        if not reasons and reacquiring and not initial_box:
+            previous = self.pending_identity
+            consistent = (previous is not None and 0 < timestamp-previous["time"] <= .5
+                and math.dist(center, previous["center"]) <= max(chosen["bbox"]["width"], chosen["bbox"]["height"])*2
+                and .5 <= area/previous["area"] <= 2
+                and float(np.linalg.norm(chosen["appearance"]-previous["appearance"])) <= 35)
+            self.pending_identity = {**chosen, "time": timestamp}
+            if not consistent:
+                reasons.append("identity_pending" if self.tracker.last is None else "reacquisition_pending")
+            else:
+                identity = "consistent"
+        elif reasons:
+            self.pending_identity = None
+        elif initial_box:
+            identity = "seeded"
+        accepted = not reasons
+        if accepted:
+            self.tracker.observe(center, timestamp)
+            self.last_area, self.last_box = area, dict(chosen["bbox"])
+            if chosen["floor_fraction"] >= .5:
+                self.area_history = [*self.area_history[-30:], area]
+            if self.appearance is None:
+                self.appearance = chosen["appearance"].copy()
+                self.identity_shape = chosen["aspect"]
+            self.pending_identity = None
+        else:
+            self.features.previous = None
+        body = np.zeros(gray.shape, np.uint8)
+        cv.drawContours(body, [contour], -1, 255, -1, offset=(-rx, -ry))
+        if accepted:
+            x, y, w, h = cv.boundingRect(contour)
+            self.body_flow.observe(gray, body, {"x": x-rx, "y": y-ry, "width": w, "height": h}, timestamp)
+        feature_engine = self.features if accepted else SilhouetteFeatures()
+        features = feature_engine.extract(gray, body, timestamp, self.scale)
+        geometry_reasons = ["near_wall_or_partial"] if geometry != "floor" else []
+        reason = reasons[0] if reasons else geometry_reasons[0] if geometry_reasons else "observed"
+        return {"xPx": center[0], "yPx": center[1], "source": "segmented",
+            "status": "valid" if accepted and geometry == "floor" else "low_confidence", "reason": reason,
+            "spatialRegion": region, "bbox": chosen["bbox"], "contour": [{"x": p[0], "y": p[1]} for p in original],
+            "features": features, "trackingAccepted": accepted,
+            "localQuality": {"tracking": "observed" if accepted else "uncertain", "geometry": geometry,
+                             "identity": identity, "reasons": reasons+geometry_reasons},
+            "candidateScore": chosen["score"], "candidateMargin": score_margin,
+            "floorOverlapFraction": chosen["floor_fraction"], **diagnostics}
 
 
 def segmentation_thresholds(samples, config):
@@ -575,14 +975,15 @@ def run(request_path):
     profile = bool(config.get("benchmarkProfile", False))
     stage_seconds = {name: 0. for name in ("probe", "frame_read_wait", "tracking", "camera_guard", "serialization", "status_write")}
     frame_latencies_ms = []
-    counts = {"observed": 0, "predicted": 0, "missing": 0, "suspect": 0, "manual": 0, "visual": 0, "uncertain": 0}
-    metadata=json.loads(subprocess.check_output([request["ffprobe"],"-v","error","-select_streams","v:0","-show_streams","-of","json",video]))["streams"][0]
+    counts = {"observed": 0, "predicted": 0, "missing": 0, "suspect": 0, "manual": 0, "visual": 0, "uncertain": 0, "validObserved": 0}
+    probe=json.loads(subprocess.check_output([request["ffprobe"],"-v","error","-select_streams","v:0","-show_streams","-show_format","-of","json",video]))
+    metadata=probe["streams"][0]
     if profile: stage_seconds["probe"] += time.perf_counter()-started
     total=int(metadata.get("nb_frames","0")) if str(metadata.get("nb_frames","")).isdigit() else 0
     rotation = next((float(side["rotation"]) % 360 for side in metadata.get("side_data_list", [])
                      if "rotation" in side), 0)
     preparation = config.get("videoPreparation")
-    autorotate = bool(preparation and preparation["status"] != "optimized")
+    autorotate = bool(config.get("autorotate", False) or preparation and preparation["status"] != "optimized")
     frame_size = (metadata["width"], metadata["height"])
     if autorotate and rotation in (90, 270):
         frame_size = frame_size[::-1]
@@ -591,19 +992,57 @@ def run(request_path):
     if frame_size != expected_size or rotation not in ((0, 90, 180, 270) if autorotate else (0,)):
         raise ValueError("Resolução/rotação do vídeo não corresponde à arena. Reabra o original e confira a calibração")
 
+    is_classical = config.get("strategy") == "classical_roi_v1"
+    scale = min(1., config.get("maxWidth", 640)/config["width"])
+    processing_size = (round(config["width"]*scale), round(config["height"]*scale)) if is_classical else None
+
     def open_frames():
-        return read_frames(video, request["ffmpeg"], *frame_size, autorotate=autorotate)
+        return read_frames(video, request["ffmpeg"], *frame_size, autorotate=autorotate, output_size=processing_size)
 
     selection = None
+    reference_report = None
+    fallback = None
+    background = None
     is_ram_color = config.get("strategy") == "ram_color_geometry_v2"
-    if config["mode"] == "auto" and not is_ram_color:
+    if is_classical:
+        import cv2 as cv
+        import numpy as np
+        write_json(status_path, {"version": VERSION, "state": "running", "phase": "reference",
+                                 "framesProcessed": 0, "totalFrames": total})
+        size = processing_size
+        duration = float(metadata.get("duration") or probe.get("format", {}).get("duration") or 0)
+        samples = []
+        try:
+            for second, frame in reference_frames(video, request["ffmpeg"], *frame_size, duration, total,
+                    autorotate, size, lambda: (root/"cancel").exists() or os.getppid() != parent, sample_count=31):
+                samples.append((second, frame))
+                write_json(status_path, {"version": VERSION, "state": "running", "phase": "reference",
+                    "referenceFrames": len(samples), "framesProcessed": 0, "totalFrames": total})
+        except InterruptedError:
+            write_json(status_path, {"version": VERSION, "state": "cancelled", "phase": "reference"})
+            return
+        if len(samples) < 2:
+            raise ValueError("Vídeo sem amostras suficientes para referência local")
+        background = np.median(np.stack([frame for _, frame in samples]), axis=0).astype(np.uint8)
+        # Uma única inspeção das amostras, sem duas leituras adicionais do vídeo.
+        try:
+            selection = select_segmentation(list(enumerate(frame for _, frame in samples)), config)
+            fallback = Segmenter({**config, "mode": selection["mode"], "threshold": selection["threshold"]})
+        except ValueError:
+            selection = None
+        reference_report = {"method": "session_median_sparse_seek" if duration > 0 else "session_median_bounded_prefix",
+                            "sampleTimesSec": [second for second, _ in samples], "sampledFrames": len(samples),
+                            "frozen": True, "staticFallbackAvailable": fallback is not None}
+        cv.imwrite(str(root/"background-reference.png"), background)
+        write_json(root/"reference.json", reference_report)
+        config = {**config, "mode": "background"}
+    elif config["mode"] == "auto" and not is_ram_color:
         write_json(status_path, {"version": VERSION, "state": "running", "phase": "recognition",
                                  "framesProcessed": 0, "totalFrames": total})
         selection = inspect_video_segmentation(open_frames, config)
         config = {**config, "mode": selection["mode"], "threshold": selection["threshold"]}
     capture = open_frames()
-    background = None
-    if config["mode"] == "background":
+    if config["mode"] == "background" and not is_classical:
         reference = config.get("backgroundFrameIndex")
         if reference is None or reference < 0:
             raise ValueError("Selecione o frame de fundo vazio")
@@ -612,7 +1051,8 @@ def run(request_path):
             if background is None:raise ValueError("Frame de fundo não existe")
         capture.close()
         capture = open_frames()
-    segmenter = Segmenter(config, background)
+    segmenter = (RobustSegmenter(config, background, [frame for _, frame in samples]) if is_classical
+                 else Segmenter(config, background))
     color = None
     if is_ram_color:
         from ram_color import RamColorSegmenter, VERSION as color_version
@@ -623,7 +1063,13 @@ def run(request_path):
         write_json(root / "run_manifest.json", {"schemaVersion": "ram-local-2", "algorithmVersion": color_version,
             "config": config, "timing": "ffprobe_pts", "maskScale": segmenter.scale,
             "sourceVideoPreserved": True, "scientificallyValidated": False})
-    hybrid = HybridSegmenter(config, segmenter) if config.get("strategy") == "hybrid_kalman_v1" else None
+    hybrid = (HybridSegmenter(config, ReferenceSegmenter(segmenter, fallback) if is_classical else segmenter)
+              if is_classical or config.get("strategy") == "hybrid_kalman_v1" else None)
+    if is_classical:
+        write_json(root/"run_manifest.json", {"schemaVersion": "classical-local-1", "algorithmVersion": VERSION,
+            "config": config, "reference": reference_report, "timing": "ffprobe_pts",
+            "featureSchema": "silhouette-features-1", "scientificallyValidated": False,
+            "neuralFallback": "unavailable", "sourceVideoPreserved": True})
     guidance = config.get("guidance") or {}
     anchors = guidance.get("anchors") or []
     by_frame = {anchor["frameIndex"]: anchor for anchor in anchors}
@@ -635,6 +1081,8 @@ def run(request_path):
     anchor_cursor = 0
     clock = timestamps(video, request["ffprobe"])
     report = {"version": VERSION, "state": "running", "phase": "tracking", "framesProcessed": 0, "totalFrames": total, "counts": counts,
+              "reasonCounts": {}, "qualityReasonCounts": {}, "trackingObservedFrames": 0,
+              "geometryRejectedFrames": 0, "kalmanUpdateCount": 0,
               "reference": "box_center", "scientificallyValidated": False, "accuracyMeasured": False,
               "referenceApproved": config.get("referenceApproved", False), "timing": "ffprobe_pts", "elapsedSec": 0., "processingFps": 0.,
               "guidanceSourceJobId": guidance.get("sourceJobId"), "manualAnchorCount": len(anchors),
@@ -642,6 +1090,7 @@ def run(request_path):
               "strategy": config.get("strategy", "classic"), "neuralFallback": "unavailable" if hybrid else None,
               "computeBackend": "OpenCL parcial" if segmenter.opencl else "CPU",
               "segmentationSelection": selection,
+              "backgroundReference": reference_report,
               "cameraMotionState": "unavailable", "cameraUncertainFrames": 0, "cameraMotionPx": None}
     write_json(status_path, report)
     index = 0
@@ -658,13 +1107,28 @@ def run(request_path):
                         sample.update(status="low_confidence", spatialRegion="unknown",
                                       segmentReason=sample["reason"], reason="camera_shift",
                                       cameraMotionPx=segmenter.motion_guard.motion_px if current_drift else measured_px)
+                        if sample.get("localQuality"):
+                            sample["localQuality"] = {**sample["localQuality"], "tracking": "uncertain", "geometry": "unknown",
+                                                      "reasons": [*sample["localQuality"]["reasons"], "camera_shift"]}
+                        sample["trackingAccepted"] = False
                     if is_ram_color:
                         sample["observationState"] = "missing" if sample["status"] == "missing" else "observed" if sample["status"] == "valid" and sample["source"] != "predicted" else "uncertain"
+                    if sample.get("features"):
+                        sample["features"]["observationUsable"] = sample["status"] == "valid" and sample["source"] == "segmented"
                     output.write(json.dumps(sample, allow_nan=False) + "\n")
                     bucket = "missing" if sample["status"] == "missing" else "manual" if sample["source"] == "manual" else "visual" if sample["source"] == "recovered" else "predicted" if sample["source"] == "predicted" else "observed"
                     if is_ram_color and sample["status"] == "low_confidence": bucket = "uncertain"
                     counts[bucket] += 1
+                    counts["validObserved"] += sample["status"] == "valid" and sample["source"] == "segmented"
                     counts["suspect"] += sample["status"] == "low_confidence"
+                    report["reasonCounts"][sample["reason"]] = report["reasonCounts"].get(sample["reason"], 0)+1
+                    quality = sample.get("localQuality") or {}
+                    for reason in quality.get("reasons", []):
+                        report["qualityReasonCounts"][reason] = report["qualityReasonCounts"].get(reason, 0)+1
+                    tracked = sample.get("trackingAccepted", False) and sample["source"] == "segmented"
+                    report["trackingObservedFrames"] += bool(tracked)
+                    report["geometryRejectedFrames"] += bool(tracked and quality.get("geometry") != "floor")
+                    report["kalmanUpdateCount"] += bool(sample.get("kalmanUpdated", False))
                     report["cameraUncertainFrames"] += flagged
                 pending.clear()
                 if profile: stage_seconds["serialization"] += time.perf_counter()-write_started
@@ -759,7 +1223,10 @@ def run(request_path):
             if report["state"] == "succeeded" and next(clock, None) is not None:
                 raise ValueError("O decoder encerrou antes do fim dos timestamps")
             elapsed = time.perf_counter()-started
-            report.update(framesProcessed=index, elapsedSec=elapsed, processingFps=index/max(.001, elapsed), observationCoveragePct=100*counts["observed"]/max(1,index))
+            report.update(framesProcessed=index, elapsedSec=elapsed, processingFps=index/max(.001, elapsed), observationCoveragePct=100*counts["observed"]/max(1,index),
+                          validObservationCoveragePct=100*counts["validObserved"]/max(1,index),
+                          trackingObservedCoveragePct=100*report["trackingObservedFrames"]/max(1,index),
+                          reviewRequiredFrames=counts["suspect"]+counts["missing"])
             if profile and frame_latencies_ms:
                 ordered = sorted(frame_latencies_ms)
                 report["benchmarkProfile"] = {"stageSeconds": stage_seconds,

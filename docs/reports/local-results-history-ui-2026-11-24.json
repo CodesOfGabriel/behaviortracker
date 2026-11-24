@@ -1,0 +1,202 @@
+{
+  "date": "2026-11-24",
+  "scope": [
+    "Single analysis workflow card; settings and history collapsed inside it",
+    "Remove Human reference action from protocol result headers",
+    "Per-run experiment name, video duration, engine processing time, processed frame count, resolution, FPS, start time",
+    "All available local and Colab rendered videos for the experiment",
+    "Recent experiment pages contain two responsive grid rows"
+  ],
+  "designReference": "Existing Open Field result tabs, AnalysisWorkflow card, EditorTabs and dashboard cards; no external design reference",
+  "browser": {
+    "checks": [
+      {
+        "check": "dashboard",
+        "width": 1440,
+        "rows": 2,
+        "count": 6,
+        "columns": 3,
+        "titles": [
+          "UI open_field",
+          "UI forced_swim",
+          "UI radial_arm_maze",
+          "Experimento anterior 0",
+          "Experimento anterior 1",
+          "Experimento anterior 2"
+        ],
+        "overflow": false
+      },
+      {
+        "check": "dashboard",
+        "width": 1000,
+        "rows": 2,
+        "count": 6,
+        "columns": 3,
+        "titles": [
+          "UI open_field",
+          "UI forced_swim",
+          "UI radial_arm_maze",
+          "Experimento anterior 0",
+          "Experimento anterior 1",
+          "Experimento anterior 2"
+        ],
+        "overflow": false
+      },
+      {
+        "check": "dashboard",
+        "width": 740,
+        "rows": 2,
+        "count": 4,
+        "columns": 2,
+        "titles": [
+          "UI open_field",
+          "UI forced_swim",
+          "UI radial_arm_maze",
+          "Experimento anterior 0"
+        ],
+        "overflow": false
+      },
+      {
+        "check": "dashboard",
+        "width": 390,
+        "rows": 2,
+        "count": 2,
+        "columns": 1,
+        "titles": [
+          "UI open_field",
+          "UI forced_swim"
+        ],
+        "overflow": false
+      },
+      {
+        "check": "older-local-summary",
+        "protocol": "forced_swim",
+        "previousMetadata": "Informações da análise\n\nDados do experimento e da execução selecionada.\n\nExecução\nMáquina local · 24/11/2026, 09:00:00 · local-fo\nMáquina local · 24/11/2026, 08:00:00 · local-fo\nGoogle Colab · 24/11/2026, 07:00:00 · colab-fo\nNome do experimento\nUI forced_swim\nProtocolo\nNado Forçado\nArquivo de vídeo\nvideo.mp4\nTempo do vídeo\n6:08\nTempo do processamento\n00:00:09\nQuadros processados\n80\nResolução do vídeo\n2560 × 1440\nTaxa do vídeo\nNão registrada\nExecução iniciada em\n24/11/2026, 08:00:00\n\nTempo informado pelo motor local. Atualizações posteriores do MP4 são separadas."
+      },
+      {
+        "protocol": "forced_swim",
+        "metadata": "Informações da análise\n\nDados do experimento e da execução selecionada.\n\nExecução\nMáquina local · 24/11/2026, 09:00:00 · local-fo\nMáquina local · 24/11/2026, 08:00:00 · local-fo\nGoogle Colab · 24/11/2026, 07:00:00 · colab-fo\nNome do experimento\nUI forced_swim\nProtocolo\nNado Forçado\nArquivo de vídeo\nvideo.mp4\nTempo do vídeo\n6:08\nTempo do processamento\n00:00:05\nQuadros processados\n40\nResolução do vídeo\n2560 × 1440\nTaxa do vídeo\nNão registrada\nExecução iniciada em\n24/11/2026, 09:00:00\n\nTempo informado pelo motor local. Atualizações posteriores do MP4 são separadas.",
+        "analysis": {
+          "cards": 1,
+          "extraPanels": 0,
+          "text": "Concluída\nResultado pronto\n\nOs resultados estão disponíveis para revisão.\n\nGoogle Colab\nMáquina local\nAnalisar\nConfiguração e histórico de execuções\nProgresso da análise\n100%\nETAPA 1\nPreparando vídeo\n\nLeitura do arquivo e preparação da cópia local\n\nConcluído\nETAPA 2\nPreparando OpenCV\n\nInicialização do processamento no computador\n\nConcluído\nETAPA 3\nPreparando detecção\n\nMontagem da referência visual dos cilindros\n\nConcluído\nETAPA 4\nDetectando presença\n\nProcessamento dos frames no computador\n\nConcluído\nETAPA 5\nRenderizando vídeo\n\nMP4 com as observações da execução para auditoria\n\nConcluído\nResultados locais prontos para revisão.",
+          "referenceButtons": 0
+        },
+        "videos": {
+          "count": 3,
+          "labels": [
+            "Máquina local · 24/11/2026, 09:00:00 · local-fo",
+            "Máquina local · 24/11/2026, 08:00:00 · local-fo",
+            "Google Colab · 24/11/2026, 07:00:00 · colab-fo"
+          ],
+          "preload": [
+            "none",
+            "none",
+            "none"
+          ]
+        }
+      },
+      {
+        "check": "older-local-summary",
+        "protocol": "radial_arm_maze",
+        "previousMetadata": "Informações da análise\n\nDados do experimento e da execução selecionada.\n\nExecução\nMáquina local · 24/11/2026, 09:00:00 · local-ra\nMáquina local · 24/11/2026, 08:00:00 · local-ra\nGoogle Colab · 24/11/2026, 07:00:00 · colab-ra\nNome do experimento\nUI radial_arm_maze\nProtocolo\nLabirinto Radial\nArquivo de vídeo\nvideo.mp4\nTempo do vídeo\n10:05\nTempo do processamento\n00:00:09\nQuadros processados\n80\nResolução do vídeo\n1920 × 1080\nTaxa do vídeo\nNão registrada\nExecução iniciada em\n24/11/2026, 08:00:00\n\nTempo informado pelo motor local. Atualizações posteriores do MP4 são separadas."
+      },
+      {
+        "protocol": "radial_arm_maze",
+        "metadata": "Informações da análise\n\nDados do experimento e da execução selecionada.\n\nExecução\nMáquina local · 24/11/2026, 09:00:00 · local-ra\nMáquina local · 24/11/2026, 08:00:00 · local-ra\nGoogle Colab · 24/11/2026, 07:00:00 · colab-ra\nNome do experimento\nUI radial_arm_maze\nProtocolo\nLabirinto Radial\nArquivo de vídeo\nvideo.mp4\nTempo do vídeo\n10:05\nTempo do processamento\n00:00:05\nQuadros processados\n40\nResolução do vídeo\n1920 × 1080\nTaxa do vídeo\nNão registrada\nExecução iniciada em\n24/11/2026, 09:00:00\n\nTempo informado pelo motor local. Atualizações posteriores do MP4 são separadas.",
+        "analysis": {
+          "cards": 1,
+          "extraPanels": 0,
+          "text": "Concluída\nResultado pronto\n\nOs resultados estão disponíveis para revisão.\n\nGoogle Colab\nMáquina local\nAnalisar\nConfiguração e histórico de execuções\nProgresso da análise\n100%\nETAPA 1\nPreparando vídeo\n\nLeitura do arquivo e preparação da cópia local\n\nConcluído\nETAPA 2\nPreparando OpenCV\n\nInicialização do processamento no computador\n\nConcluído\nETAPA 3\nPreparando detecção\n\nReconhecimento do animal na área analisável\n\nConcluído\nETAPA 4\nDetectando animal\n\nProcessamento dos frames no computador\n\nConcluído\nETAPA 5\nRenderizando vídeo\n\nMP4 com as observações da execução para auditoria\n\nConcluído\nResultados locais prontos para revisão.",
+          "referenceButtons": 0
+        },
+        "videos": {
+          "count": 3,
+          "labels": [
+            "Máquina local · 24/11/2026, 09:00:00 · local-ra",
+            "Máquina local · 24/11/2026, 08:00:00 · local-ra",
+            "Google Colab · 24/11/2026, 07:00:00 · colab-ra"
+          ],
+          "preload": [
+            "none",
+            "none",
+            "none"
+          ]
+        }
+      },
+      {
+        "check": "older-local-summary",
+        "protocol": "open_field",
+        "previousMetadata": "Informações da análise\n\nDados do experimento e da execução selecionada.\n\nExecução\nMáquina local · 24/11/2026, 09:00:00 · local-op\nMáquina local · 24/11/2026, 08:00:00 · local-op\nGoogle Colab · 24/11/2026, 07:00:00 · colab-op\nNome do experimento\nUI open_field\nProtocolo\nCampo Aberto\nArquivo de vídeo\nvideo.mp4\nTempo do vídeo\n5:07\nTempo do processamento\n00:00:09\nQuadros processados\n80\nResolução do vídeo\n1000 × 600\nTaxa do vídeo\nNão registrada\nExecução iniciada em\n24/11/2026, 08:00:00\n\nTempo informado pelo motor local. Atualizações posteriores do MP4 são separadas."
+      },
+      {
+        "protocol": "open_field",
+        "metadata": "Informações da análise\n\nDados do experimento e da execução selecionada.\n\nExecução\nMáquina local · 24/11/2026, 09:00:00 · local-op\nMáquina local · 24/11/2026, 08:00:00 · local-op\nGoogle Colab · 24/11/2026, 07:00:00 · colab-op\nNome do experimento\nUI open_field\nProtocolo\nCampo Aberto\nArquivo de vídeo\nvideo.mp4\nTempo do vídeo\n5:07\nTempo do processamento\n00:00:05\nQuadros processados\n40\nResolução do vídeo\n1000 × 600\nTaxa do vídeo\nNão registrada\nExecução iniciada em\n24/11/2026, 09:00:00\n\nTempo informado pelo motor local. Atualizações posteriores do MP4 são separadas.",
+        "analysis": {
+          "cards": 1,
+          "extraPanels": 0,
+          "text": "Concluída\nResultado pronto\n\nOs resultados estão disponíveis para revisão.\n\nGoogle Colab\nMáquina local\nAnalisar\nConfiguração e histórico de execuções\nProgresso da análise\n100%\nETAPA 1\nPreparando vídeo\n\nLeitura do arquivo e preparação da cópia local\n\nConcluído\nETAPA 2\nPreparando OpenCV\n\nInicialização do processamento no computador\n\nConcluído\nETAPA 3\nPreparando detecção\n\nReconhecimento do animal na área analisável\n\nConcluído\nETAPA 4\nDetectando animal\n\nProcessamento dos frames no computador\n\nConcluído\nETAPA 5\nRenderizando vídeo\n\nMP4 com as observações da execução para auditoria\n\nConcluído\nResultados locais prontos para revisão.",
+          "referenceButtons": 0
+        },
+        "videos": {
+          "count": 3,
+          "labels": [
+            "Máquina local · 24/11/2026, 09:00:00 · local-op",
+            "Máquina local · 24/11/2026, 08:00:00 · local-op",
+            "Google Colab · 24/11/2026, 07:00:00 · colab-op"
+          ],
+          "preload": [
+            "none",
+            "none",
+            "none"
+          ]
+        }
+      },
+      {
+        "check": "summary-select-colab",
+        "text": "Informações da análise\n\nDados do experimento e da execução selecionada.\n\nExecução\nMáquina local · 24/11/2026, 09:00:00 · local-op\nMáquina local · 24/11/2026, 08:00:00 · local-op\nGoogle Colab · 24/11/2026, 07:00:00 · colab-op\nNome do experimento\nUI open_field\nProtocolo\nCampo Aberto\nArquivo de vídeo\nvideo.mp4\nTempo do vídeo\n5:07\nTempo do processamento\n01:00:00\nQuadros processados\n40\nResolução do vídeo\n1000 × 600\nTaxa do vídeo\nNão registrada\nExecução iniciada em\n24/11/2026, 07:00:00\n\nO tempo do Colab inclui a execução completa registrada, com fila, preparação e transferência."
+      }
+    ],
+    "errors": [],
+    "limits": "Chrome with mocked native commands and generic fixtures; no installed-app or Colab execution"
+  },
+  "checks": {
+    "typescriptViteBuild": "passed; existing bundle-size warning",
+    "vitest": {
+      "tests": 148,
+      "files": 25,
+      "result": "passed"
+    },
+    "gitDiffCheck": "passed"
+  },
+  "sourceSha256": {
+    "src/features/results/ExperimentRunSummary.tsx": "e7a8ba7a85cdb0fe6f8b03ad6472d0c5d919877cb2b5ac1e7af4879e022ae193",
+    "src/features/results/ExperimentVideos.tsx": "4257ebd8e5b94d15b9848f0e1b44f00ceb11cf72343148e3291675aeeb14d888",
+    "src/features/results/experiment-runs.ts": "75b2df20f217469b67700846ac884c1561086db628f1f344911527c225501c00",
+    "src/features/results/experiment-runs.test.ts": "c9c11224ef715dae0910b71d7e2b0e248bab8ff2d1aaadcfd4268f3ad7d9be03",
+    "src/features/results/Results.tsx": "c334ed2959b1400f44e8fc057cb0219538d5fb738decf2bd4958a5be3302f7f8",
+    "src/features/results/ForcedSwimResults.tsx": "695126c4bb24a48f0ade97d29a38748979348606d38b409c7ad0d00f1be5aefc",
+    "src/features/results/ForcedSwimLocalPanel.tsx": "e3bf345ec7b595ca755e6892320854d38821eb8264302ac4907b69c6abd825f6",
+    "src/features/results/AnalysisWorkspace.tsx": "277421c515db7f07d622bd534f87bcf85ea90909688d564246727b17882ba99a",
+    "src/features/radial-maze/RadialMazeResults.tsx": "930dfd815c93f8883f3dc2ce0e2fa897582ea8f4786146473f7f46eea012fd9e",
+    "src/features/radial-maze/RamLocalPanel.tsx": "22c627d24ebda981500565065a9e9756137196de89e9bbf01707bad194482b42",
+    "src/features/dashboard/Dashboard.tsx": "00033e48c1808ddecf89f793c404d2a802f11c732dd25f3243e1880a9d0bd208",
+    "src/features/local/LocalAuditVideo.tsx": "c0858aef60998c9c776f319de823b4583cbe894761b0097f4a6a6c82c09b690e",
+    "src/features/local/api.ts": "a375bbf6767c25d3478c326599315dc7ba03a3ed8d2a82d8b2cb82e42664faaa",
+    "src/styles.css": "5ab63314f145e111b63715ffec3a51282827aa2bd84c21d520e5de198b9a9c6e"
+  },
+  "screenshots": {
+    "summary": "local-results-summary-2026-11-24.png",
+    "analysis": "local-results-analysis-2026-11-24.png",
+    "dashboard": "local-results-dashboard-2026-11-24.png",
+    "videos": "local-results-videos-2026-11-24.png"
+  },
+  "limits": [
+    "Browser used generic fixtures, a placeholder video and mocked Tauri commands; no installed-app interaction or remote Colab/GPU execution.",
+    "Missing historical processing time or source FPS is displayed as not recorded; no duration is fabricated from creation time for local jobs.",
+    "Local processing duration comes from report.elapsedSec; Colab uses recorded job creation-to-update duration including queue and transfers.",
+    "Colab frame counts come from distinct canonical CSV frame indexes or JSON frameCount; per-animal observations are not summed as video frames.",
+    "Jobs without an MP4 show an explicit empty state; local MP4s can be generated from the card.",
+    "No saved analysis jobs or metric eligibility were modified; no commits or deployment."
+  ]
+}

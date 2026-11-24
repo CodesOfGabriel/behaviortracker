@@ -27,6 +27,41 @@ describe("timeline de qualidade usa o tempo real da seleção", () => {
 });
 
 describe("poses com visibilidade parcial", () => {
+  it("não promove caixas previstas ou recuperadas ao construir a referência", () => {
+    for (const source of ["predicted", "recovered"] as const) {
+      for (const status of ["valid", "low_confidence"] as const) {
+        const sample = point(0, { source, status, keypoint: "box_center", metricReference: "box_center",
+          bbox: { x: 10, y: 20, width: 20, height: 10 } });
+        const [reference] = referencePoseSamples([sample], "box_center");
+        expect(reference.xPx).toBeNull();
+        expect(metricEligible(reference)).toBe(false);
+      }
+    }
+  });
+  it("mantém a caixa do detector independente da pose, respeitando rejeição explícita do tracking", () => {
+    const bbox = { x: 10, y: 20, width: 20, height: 10 };
+    const uncertain = point(0, { source: "detected", status: "low_confidence", bbox });
+    expect(referencePoseSamples([uncertain], "nose")[0].xPx).toBe(20);
+    expect(referencePoseSamples([{ ...uncertain, trackingAccepted: false }], "nose")[0].xPx).toBeNull();
+    const valid = referencePoseSamples([{ ...uncertain, status: "valid" }], "nose")[0];
+    expect(valid.xPx).toBe(20);
+    expect(metricEligible(valid)).toBe(true);
+  });
+  it("separa localização observada na borda da aprovação para métricas", () => {
+    const sample = point(0, { source: "segmented", keypoint: "box_center", metricReference: "box_center",
+      referenceApproved: true, spatialRegion: "floor", trackingAccepted: true,
+      localQuality: { tracking: "observed", geometry: "boundary", reasons: ["near_wall_or_partial"] } });
+    expect(metricEligible(sample)).toBe(false);
+    const exported = parseCanonicalPoseCsv(poseToCsv([sample]))[0];
+    expect(exported.localQuality).toEqual(sample.localQuality);
+    expect(exported.trackingAccepted).toBe(true);
+    expect(metricEligible(exported)).toBe(false);
+    expect(metricEligible({ ...sample, localQuality: { tracking: "observed", geometry: "floor", reasons: [] } })).toBe(true);
+    expect(metricEligible({ ...sample, trackingAccepted: false })).toBe(false);
+    const [confirmed] = applyCorrections([sample], [{ id: "confirm-boundary", type: "CONFIRM_POINT", frameIndex: 0,
+      keypoint: "box_center", source: "manual", createdAt: "now" }]);
+    expect(metricEligible(confirmed)).toBe(true);
+  });
   it("não transforma uma segmentação 2D não aprovada em detecção válida", () => {
     const segmented = point(0, { keypoint: "box_center", source: "segmented", metricReference: "box_center",
       referenceApproved: false, spatialRegion: "floor", likelihood: 0,

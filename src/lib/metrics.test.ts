@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateOftMetrics } from "./metrics";
+import { calculateOftMetrics, calculateObservedFloorBoxMetrics } from "./metrics";
 import { referencePoseSamples } from "./pose";
 import type { ArenaConfig, PoseSample, PoseStatus } from "../types";
 
@@ -128,5 +128,57 @@ describe("métricas OFT", () => {
     ], arena, { maxPairGapSec: 2, minCenterDwellSec: 0.5 });
     expect(result.centerEntries).toBe(2);
     expect(result.centerLatencySec).toBeCloseTo(1, 8);
+  });
+});
+
+
+describe("estimativas locais pelo centro da caixa no piso",()=>{
+  const box=(frame:number,time:number,x:number,y=30):PoseSample=>({frameIndex:frame,timestampSec:time,keypoint:"box_center",xPx:0,yPx:0,
+    bbox:{x:x-1,y:y-1,width:2,height:2},likelihood:0,source:"segmented",status:"valid",metricReference:"box_center",referenceApproved:false,
+    spatialRegion:"floor",trackingAccepted:true,localQuality:{tracking:"observed",geometry:"floor",reasons:[]}});
+  it("calcula a distância pelo centro da caixa sem conceder aprovação à referência",()=>{
+    const input=[box(0,0,10,10),box(1,.1,13,14)],before=JSON.stringify(input);
+    const result=calculateObservedFloorBoxMetrics(input,arena,60,60);
+    expect(result.metrics.distanceCm).toBeCloseTo(5);
+    expect(result.metrics.meanSpeedCmS).toBeCloseTo(50);
+    expect(result.pendingReferenceFrames).toBe(2);
+    expect(result.policy.referenceApproval).toBe("not_granted");
+    expect(JSON.stringify(input)).toBe(before);
+    expect(calculateOftMetrics(referencePoseSamples(input,"box_center"),arena).distanceCm).toBeNull();
+  });
+  it("mede centro e entradas somente nos intervalos classificáveis com permanência mínima",()=>{
+    const rows=[box(0,0,5),box(1,.1,30),box(2,.2,30),box(3,.3,30),box(4,.4,5)];
+    const metrics=calculateObservedFloorBoxMetrics(rows,arena,60,60).metrics;
+    expect(metrics.centerTimeSec).toBeCloseTo(.3);expect(metrics.centerEntries).toBe(1);
+    expect(metrics.centerPctClassifiable).toBeCloseTo(75);
+    expect(metrics.centerLatencySec).toBeCloseTo(.1);
+  });
+  it("mantém previsões, recuperações, câmera deslocada e rastreamento incerto fora das estimativas",()=>{
+    for(const override of [{source:"predicted" as const},{source:"recovered" as const},{reason:"camera_shift"},{trackingAccepted:false},
+      {localQuality:{tracking:"uncertain" as const,geometry:"floor" as const,reasons:[]}}]){
+      const result=calculateObservedFloorBoxMetrics([box(0,0,10),{...box(1,.1,20),...override},box(2,.2,30)],arena,60,60);
+      expect(result.metrics.distanceCm).toBeNull();expect(result.metrics.unknownTimeSec).toBeCloseTo(.2);
+    }
+  });
+  it("rejeita a geometria insuficiente mesmo que a caixa esteja acompanhando o corpo",()=>{
+    for(const override of [{spatialRegion:"wall_projection" as const},
+      {localQuality:{tracking:"observed" as const,geometry:"boundary" as const,reasons:[]}},
+      {spatialRegion:"unknown" as const}]){
+      const result=calculateObservedFloorBoxMetrics([box(0,0,10),{...box(1,.1,20),...override}],arena,60,60);
+      expect(result.metrics.distanceCm).toBeNull();expect(result.eligibleFloorFrames).toBe(1);
+    }
+    const outside=calculateObservedFloorBoxMetrics([box(0,0,80),box(1,.1,81)],arena,100,100);
+    expect(outside.metrics.distanceCm).toBeNull();expect(outside.eligibleFloorFrames).toBe(0);
+    expect(outside.exclusions.outside_calibrated_floor).toBe(2);
+  });
+  it("preserva saltos de frame e tempo e distingue ausência de medida de zero observado",()=>{
+    expect(calculateObservedFloorBoxMetrics([box(0,0,20),box(2,.1,20)],arena,60,60).metrics.distanceCm).toBeNull();
+    expect(calculateObservedFloorBoxMetrics([box(0,0,20),box(1,1,20)],arena,60,60).metrics.distanceCm).toBeNull();
+    expect(calculateObservedFloorBoxMetrics([box(0,0,20),box(1,.1,20)],arena,60,60).metrics.distanceCm).toBe(0);
+  });
+  it("conta cada frame uma vez em resultados com vários pontos anatômicos",()=>{
+    const rows=[box(0,0,10),box(1,.1,20)];
+    const result=calculateObservedFloorBoxMetrics(rows.flatMap(row=>[row,{...row,keypoint:"nose"},{...row,keypoint:"tail"}]),arena,60,60);
+    expect(result.frameCount).toBe(2);expect(result.metrics.analysisDurationSec).toBe(.1);expect(result.metrics.distanceCm).toBe(10);
   });
 });

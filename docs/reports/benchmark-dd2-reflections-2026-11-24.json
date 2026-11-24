@@ -1,0 +1,354 @@
+{
+  "schemaVersion": "local-reflection-comparison-1",
+  "date": "2026-11-24",
+  "protocol": "open_field",
+  "dataset": "DD2",
+  "videoSha256": "53f45629b5c6545ad29b03c5b6e9383e7bf2fd53ac657ea7f0af8a4d2afa9ef0",
+  "frameCount": 7356,
+  "durationSec": 306.5,
+  "width": 1280,
+  "height": 720,
+  "processingWidth": 640,
+  "timing": "ffprobe_pts",
+  "sameFrameClock": true,
+  "sameRequest": true,
+  "humanGroundTruthAvailable": false,
+  "independentValidation": false,
+  "accuracyMeasured": false,
+  "hardware": {
+    "system": "Darwin",
+    "machine": "x86_64"
+  },
+  "renderExcluded": true,
+  "config": {
+    "arena": {
+      "boundaryPolicy": "center_inclusive",
+      "centerAreaFraction": 0.25,
+      "cornersPx": [
+        {
+          "x": 320.41720990873534,
+          "y": 21.694915254237287
+        },
+        {
+          "x": 916.19295958279,
+          "y": 16.688396349413324
+        },
+        {
+          "x": 897.8357235984356,
+          "y": 552.3859191655802
+        },
+        {
+          "x": 367.14471968709256,
+          "y": 560.7301173402868
+        }
+      ],
+      "heightCm": 60,
+      "revision": 1,
+      "rimCornersPx": [
+        {
+          "x": 229.74358974358984,
+          "y": 35.34516765286003
+        },
+        {
+          "x": 976.271186440678,
+          "y": 28.37027379400257
+        },
+        {
+          "x": 942.8943937418514,
+          "y": 692.568448500652
+        },
+        {
+          "x": 300.3911342894394,
+          "y": 712.5945241199479
+        }
+      ],
+      "widthCm": 60
+    },
+    "autorotate": true,
+    "height": 720,
+    "maxAreaFraction": 0.12,
+    "maxPredictionSec": 0.25,
+    "maxWidth": 640,
+    "minAreaFraction": 0.001,
+    "mode": "auto",
+    "protocol": "open_field",
+    "referenceApproved": false,
+    "strategy": "classical_roi_v1",
+    "threshold": 25,
+    "useOpenCL": false,
+    "width": 1280,
+    "videoSha256": "53f45629b5c6545ad29b03c5b6e9383e7bf2fd53ac657ea7f0af8a4d2afa9ef0",
+    "benchmarkProfile": true
+  },
+  "baseline": {
+    "engineSha256": "c01c8a6d79b69e9dacd5923d64255ebef5adf09f7fcddfa10aa9621fd83c5f4f",
+    "report": {
+      "version": "opencv-box-8",
+      "state": "succeeded",
+      "phase": "tracking",
+      "framesProcessed": 7356,
+      "totalFrames": 7356,
+      "counts": {
+        "observed": 7287,
+        "predicted": 7,
+        "missing": 62,
+        "suspect": 7065,
+        "manual": 0,
+        "visual": 0,
+        "uncertain": 0,
+        "validObserved": 229
+      },
+      "reasonCounts": {
+        "hybrid_identity_pending": 2,
+        "hybrid_near_wall_or_partial": 1580,
+        "hybrid_area_changed": 1780,
+        "hybrid_reacquisition_pending": 193,
+        "hybrid_appearance_changed": 3103,
+        "hybrid_no_observation": 62,
+        "hybrid_observed": 229,
+        "hybrid_ambiguous_candidates": 187,
+        "hybrid_silhouette_clipped": 130,
+        "hybrid_shape_inconsistent": 83,
+        "kalman_prediction": 7
+      },
+      "qualityReasonCounts": {
+        "identity_pending": 2,
+        "near_wall_or_partial": 6347,
+        "area_changed": 3977,
+        "reacquisition_pending": 193,
+        "appearance_changed": 3194,
+        "silhouette_clipped": 766,
+        "ambiguous_candidates": 187,
+        "shape_inconsistent": 85
+      },
+      "trackingObservedFrames": 1809,
+      "geometryRejectedFrames": 1580,
+      "kalmanUpdateCount": 1809,
+      "reference": "box_center",
+      "scientificallyValidated": false,
+      "accuracyMeasured": false,
+      "referenceApproved": false,
+      "timing": "ffprobe_pts",
+      "elapsedSec": 45.25108028900104,
+      "processingFps": 162.55965499652365,
+      "guidanceSourceJobId": null,
+      "manualAnchorCount": 0,
+      "assistedMethod": null,
+      "strategy": "classical_roi_v1",
+      "neuralFallback": "unavailable",
+      "computeBackend": "CPU",
+      "segmentationSelection": null,
+      "backgroundReference": {
+        "method": "session_median_sparse_seek",
+        "sampleTimesSec": [
+          0.0,
+          9.887096774193548,
+          19.774193548387096,
+          29.661290322580644,
+          39.54838709677419,
+          49.435483870967744,
+          59.32258064516129,
+          69.20967741935483,
+          79.09677419354838,
+          88.98387096774194,
+          98.87096774193549,
+          108.75806451612904,
+          118.64516129032258,
+          128.53225806451613,
+          138.41935483870967,
+          148.30645161290323,
+          158.19354838709677,
+          168.08064516129033,
+          177.96774193548387,
+          187.8548387096774,
+          197.74193548387098,
+          207.6290322580645,
+          217.51612903225808,
+          227.40322580645162,
+          237.29032258064515,
+          247.17741935483872,
+          257.06451612903226,
+          266.9516129032258,
+          276.83870967741933,
+          286.7258064516129,
+          296.61290322580646
+        ],
+        "sampledFrames": 31,
+        "frozen": true,
+        "staticFallbackAvailable": false
+      },
+      "cameraMotionState": "stable",
+      "cameraUncertainFrames": 0,
+      "cameraMotionPx": 2.4315826892852783,
+      "observationCoveragePct": 99.06199021207178,
+      "validObservationCoveragePct": 3.11310494834149,
+      "trackingObservedCoveragePct": 24.592169657422513,
+      "reviewRequiredFrames": 7127,
+      "benchmarkProfile": {
+        "stageSeconds": {
+          "probe": 0.23143001400057983,
+          "frame_read_wait": 3.8671020241199585,
+          "tracking": 23.304895070967177,
+          "camera_guard": 4.66393610610794,
+          "serialization": 0.6815839930095535,
+          "status_write": 0.40444085200942936
+        },
+        "frameLatencyMeanMs": 4.5559433363313815,
+        "frameLatencyP95Ms": 8.30440599929716,
+        "frameLatencyMaxMs": 523.3062709994556,
+        "frameLatencyDefinition": "read_frame_return_to_sample_and_periodic_status; ffmpeg decode and PTS run concurrently"
+      }
+    }
+  },
+  "improved": {
+    "engineSha256": "3c6e8548d5f19418f06c41935611b54ba49f0022a1d5556f059ce4bfa45080a3",
+    "report": {
+      "version": "opencv-box-9",
+      "state": "succeeded",
+      "phase": "tracking",
+      "framesProcessed": 7356,
+      "totalFrames": 7356,
+      "counts": {
+        "observed": 7354,
+        "predicted": 2,
+        "missing": 0,
+        "suspect": 6701,
+        "manual": 0,
+        "visual": 0,
+        "uncertain": 0,
+        "validObserved": 655
+      },
+      "reasonCounts": {
+        "hybrid_identity_pending": 1,
+        "hybrid_near_wall_or_partial": 5371,
+        "hybrid_silhouette_clipped": 801,
+        "hybrid_reacquisition_pending": 61,
+        "hybrid_area_changed": 332,
+        "hybrid_observed": 655,
+        "hybrid_shape_inconsistent": 2,
+        "hybrid_appearance_changed": 113,
+        "kalman_prediction": 2,
+        "hybrid_ambiguous_candidates": 18
+      },
+      "qualityReasonCounts": {
+        "identity_pending": 1,
+        "near_wall_or_partial": 6631,
+        "silhouette_clipped": 883,
+        "reacquisition_pending": 61,
+        "area_changed": 372,
+        "shape_inconsistent": 2,
+        "appearance_changed": 131,
+        "ambiguous_candidates": 18
+      },
+      "trackingObservedFrames": 6026,
+      "geometryRejectedFrames": 5371,
+      "kalmanUpdateCount": 6026,
+      "reference": "box_center",
+      "scientificallyValidated": false,
+      "accuracyMeasured": false,
+      "referenceApproved": false,
+      "timing": "ffprobe_pts",
+      "elapsedSec": 91.35492244000125,
+      "processingFps": 80.52111263989268,
+      "guidanceSourceJobId": null,
+      "manualAnchorCount": 0,
+      "assistedMethod": null,
+      "strategy": "classical_roi_v1",
+      "neuralFallback": "unavailable",
+      "computeBackend": "CPU",
+      "segmentationSelection": null,
+      "backgroundReference": {
+        "method": "session_median_sparse_seek",
+        "sampleTimesSec": [
+          0.0,
+          9.887096774193548,
+          19.774193548387096,
+          29.661290322580644,
+          39.54838709677419,
+          49.435483870967744,
+          59.32258064516129,
+          69.20967741935483,
+          79.09677419354838,
+          88.98387096774194,
+          98.87096774193549,
+          108.75806451612904,
+          118.64516129032258,
+          128.53225806451613,
+          138.41935483870967,
+          148.30645161290323,
+          158.19354838709677,
+          168.08064516129033,
+          177.96774193548387,
+          187.8548387096774,
+          197.74193548387098,
+          207.6290322580645,
+          217.51612903225808,
+          227.40322580645162,
+          237.29032258064515,
+          247.17741935483872,
+          257.06451612903226,
+          266.9516129032258,
+          276.83870967741933,
+          286.7258064516129,
+          296.61290322580646
+        ],
+        "sampledFrames": 31,
+        "frozen": true,
+        "staticFallbackAvailable": false
+      },
+      "cameraMotionState": "stable",
+      "cameraUncertainFrames": 0,
+      "cameraMotionPx": 2.3265371322631836,
+      "observationCoveragePct": 99.97281131049483,
+      "validObservationCoveragePct": 8.904295812941816,
+      "trackingObservedCoveragePct": 81.91952147906471,
+      "reviewRequiredFrames": 6701,
+      "benchmarkProfile": {
+        "stageSeconds": {
+          "probe": 0.2413090120007837,
+          "frame_read_wait": 4.263587814008133,
+          "tracking": 62.49583093608635,
+          "camera_guard": 5.516230776969678,
+          "serialization": 0.7454374390345038,
+          "status_write": 0.4210087970332097
+        },
+        "frameLatencyMeanMs": 10.090840035067984,
+        "frameLatencyP95Ms": 16.31958600046346,
+        "frameLatencyMaxMs": 972.9709089988319,
+        "frameLatencyDefinition": "read_frame_return_to_sample_and_periodic_status; ffmpeg decode and PTS run concurrently"
+      }
+    }
+  },
+  "vittrackProbe": {
+    "model": "object_tracking_vittrack_2023sep.onnx",
+    "modelSha256": "2990f0b7cd44d92afa48cd97db6de7be113fc1d9594fddb74e2725c10478e91d",
+    "sizeBytes": 714726,
+    "frames": 2400,
+    "elapsedSec": 38.869242579,
+    "cpuThreads": 2,
+    "initialBoxScaledPx": {
+      "x": 420,
+      "y": 163,
+      "width": 30,
+      "height": 80
+    },
+    "seedSource": "AI_visual_diagnostic_not_independent_human_annotation",
+    "result": "box_expanded_to_arena_in_inspected_frames_not_integrated",
+    "ranConcurrentlyWithOtherProbe": true
+  },
+  "limitations": [
+    "Single recording used during development; no spatial accuracy claim.",
+    "Acceptance and review counts are heuristic, not accuracy.",
+    "One run per engine, external load and temperature not controlled; final v9 run overlapped unit tests for part of execution.",
+    "Merged reflections, low contrast, camera/arena clipping and rearing can remain uncertain.",
+    "No packaged-app interaction, Colab or GPU validation."
+  ],
+  "verification": {
+    "vitestPassed": 129,
+    "rustLocalTrackingPassed": 11,
+    "pythonLocalPassed": 49,
+    "pythonPlatformSpecificSkipped": 1,
+    "reviewQueueTestsPassed": 3,
+    "typescriptViteBuild": "passed"
+  }
+}

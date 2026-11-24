@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { WebEntry } from "./features/web/WebEntry";
 import { WindowChrome } from "./components/WindowChrome";
 import { AppStoreProvider } from "./store/AppStore";
 import { isTauriRuntime } from "./features/colab/connection";
@@ -77,7 +78,7 @@ createRoot(rootElement).render(
   <StrictMode>
     {desktop && <WindowChrome />}
     <AppStoreProvider>
-      <App onInitialSessionResolved={revealApp} />
+      {desktop ? <App onInitialSessionResolved={revealApp} /> : <WebEntry onInitialSessionResolved={revealApp} />}
     </AppStoreProvider>
   </StrictMode>,
 );

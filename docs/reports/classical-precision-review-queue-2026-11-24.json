@@ -1,0 +1,2907 @@
+{
+  "schemaVersion": "local-human-review-queue-1",
+  "status": "PENDING_HUMAN_REVIEW",
+  "source": "automated_selection_not_human_reference",
+  "independentHoldout": false,
+  "videoSha256": "53f45629b5c6545ad29b03c5b6e9383e7bf2fd53ac657ea7f0af8a4d2afa9ef0",
+  "algorithmVersion": "opencv-box-8",
+  "frameCount": 7356,
+  "selectedFrames": [
+    {
+      "frameIndex": 0,
+      "timestampSec": 0.0,
+      "selectionReason": "hybrid_identity_pending",
+      "suggestedBox": {
+        "x": 786.0,
+        "y": 336.0,
+        "width": 168.0,
+        "height": 196.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "unverified",
+        "reasons": [
+          "identity_pending",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 1,
+      "timestampSec": 0.041667,
+      "selectionReason": "hybrid_identity_pending",
+      "suggestedBox": {
+        "x": 910.0,
+        "y": 348.0,
+        "width": 46.0,
+        "height": 78.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "wall_projection",
+        "identity": "unverified",
+        "reasons": [
+          "identity_pending",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 2,
+      "timestampSec": 0.083333,
+      "selectionReason": "hybrid_near_wall_or_partial",
+      "suggestedBox": {
+        "x": 910.0,
+        "y": 338.0,
+        "width": 46.0,
+        "height": 88.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 6,
+      "timestampSec": 0.25,
+      "selectionReason": "hybrid_area_changed",
+      "suggestedBox": {
+        "x": 848.0,
+        "y": 272.0,
+        "width": 108.0,
+        "height": 158.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 14,
+      "timestampSec": 0.583333,
+      "selectionReason": "hybrid_reacquisition_pending",
+      "suggestedBox": {
+        "x": 912.0,
+        "y": 298.0,
+        "width": 44.0,
+        "height": 92.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "reacquisition_pending",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 19,
+      "timestampSec": 0.791667,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 852.0,
+        "y": 194.0,
+        "width": 100.0,
+        "height": 252.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 49,
+      "timestampSec": 2.041667,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 856.0,
+        "y": 30.0,
+        "width": 64.0,
+        "height": 130.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "area_changed",
+          "silhouette_clipped",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 74,
+      "timestampSec": 3.083333,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 776.0,
+        "y": 32.0,
+        "width": 116.0,
+        "height": 74.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "area_changed",
+          "silhouette_clipped"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 88,
+      "timestampSec": 3.666667,
+      "selectionReason": "hybrid_no_observation",
+      "suggestedBox": null,
+      "algorithmQuality": null,
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 89,
+      "timestampSec": 3.708333,
+      "selectionReason": "hybrid_no_observation",
+      "suggestedBox": null,
+      "algorithmQuality": null,
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 90,
+      "timestampSec": 3.75,
+      "selectionReason": "hybrid_no_observation",
+      "suggestedBox": null,
+      "algorithmQuality": null,
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 91,
+      "timestampSec": 3.791667,
+      "selectionReason": "hybrid_reacquisition_pending",
+      "suggestedBox": {
+        "x": 716.0,
+        "y": 34.0,
+        "width": 54.0,
+        "height": 26.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": [
+          "reacquisition_pending"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 92,
+      "timestampSec": 3.833333,
+      "selectionReason": "hybrid_no_observation",
+      "suggestedBox": null,
+      "algorithmQuality": null,
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 94,
+      "timestampSec": 3.916667,
+      "selectionReason": "hybrid_observed",
+      "suggestedBox": {
+        "x": 668.0,
+        "y": 48.0,
+        "width": 58.0,
+        "height": 24.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": []
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 96,
+      "timestampSec": 4.0,
+      "selectionReason": "hybrid_observed",
+      "suggestedBox": {
+        "x": 640.0,
+        "y": 36.0,
+        "width": 76.0,
+        "height": 42.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": []
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 97,
+      "timestampSec": 4.041667,
+      "selectionReason": "hybrid_observed",
+      "suggestedBox": {
+        "x": 634.0,
+        "y": 38.0,
+        "width": 74.0,
+        "height": 28.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": []
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 98,
+      "timestampSec": 4.083333,
+      "selectionReason": "hybrid_ambiguous_candidates",
+      "suggestedBox": {
+        "x": 742.0,
+        "y": 34.0,
+        "width": 64.0,
+        "height": 24.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": [
+          "ambiguous_candidates"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 102,
+      "timestampSec": 4.25,
+      "selectionReason": "hybrid_ambiguous_candidates",
+      "suggestedBox": {
+        "x": 564.0,
+        "y": 36.0,
+        "width": 186.0,
+        "height": 42.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": [
+          "ambiguous_candidates",
+          "area_changed"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 105,
+      "timestampSec": 4.375,
+      "selectionReason": "hybrid_observed",
+      "suggestedBox": {
+        "x": 610.0,
+        "y": 34.0,
+        "width": 104.0,
+        "height": 22.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": []
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 107,
+      "timestampSec": 4.458333,
+      "selectionReason": "hybrid_observed",
+      "suggestedBox": {
+        "x": 608.0,
+        "y": 34.0,
+        "width": 88.0,
+        "height": 22.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": []
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 108,
+      "timestampSec": 4.5,
+      "selectionReason": "hybrid_silhouette_clipped",
+      "suggestedBox": {
+        "x": 592.0,
+        "y": 36.0,
+        "width": 88.0,
+        "height": 26.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": [
+          "silhouette_clipped"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 110,
+      "timestampSec": 4.583333,
+      "selectionReason": "hybrid_observed",
+      "suggestedBox": {
+        "x": 522.0,
+        "y": 38.0,
+        "width": 134.0,
+        "height": 24.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": []
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 113,
+      "timestampSec": 4.708333,
+      "selectionReason": "hybrid_silhouette_clipped",
+      "suggestedBox": {
+        "x": 518.0,
+        "y": 38.0,
+        "width": 100.0,
+        "height": 24.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": [
+          "silhouette_clipped"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 116,
+      "timestampSec": 4.833333,
+      "selectionReason": "hybrid_silhouette_clipped",
+      "suggestedBox": {
+        "x": 516.0,
+        "y": 38.0,
+        "width": 96.0,
+        "height": 24.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": [
+          "silhouette_clipped"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 125,
+      "timestampSec": 5.208333,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 308.0,
+        "y": 40.0,
+        "width": 150.0,
+        "height": 36.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "silhouette_clipped",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 129,
+      "timestampSec": 5.375,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 332.0,
+        "y": 40.0,
+        "width": 136.0,
+        "height": 34.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "silhouette_clipped",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 155,
+      "timestampSec": 6.458333,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 308.0,
+        "y": 80.0,
+        "width": 86.0,
+        "height": 170.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 168,
+      "timestampSec": 7.0,
+      "selectionReason": "hybrid_reacquisition_pending",
+      "suggestedBox": {
+        "x": 308.0,
+        "y": 312.0,
+        "width": 22.0,
+        "height": 58.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "reacquisition_pending",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 169,
+      "timestampSec": 7.041667,
+      "selectionReason": "hybrid_near_wall_or_partial",
+      "suggestedBox": {
+        "x": 306.0,
+        "y": 312.0,
+        "width": 26.0,
+        "height": 70.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 177,
+      "timestampSec": 7.375,
+      "selectionReason": "hybrid_area_changed",
+      "suggestedBox": {
+        "x": 312.0,
+        "y": 268.0,
+        "width": 84.0,
+        "height": 174.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 184,
+      "timestampSec": 7.666667,
+      "selectionReason": "hybrid_near_wall_or_partial",
+      "suggestedBox": {
+        "x": 314.0,
+        "y": 446.0,
+        "width": 30.0,
+        "height": 60.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 197,
+      "timestampSec": 8.208333,
+      "selectionReason": "hybrid_near_wall_or_partial",
+      "suggestedBox": {
+        "x": 308.0,
+        "y": 486.0,
+        "width": 42.0,
+        "height": 64.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 211,
+      "timestampSec": 8.791667,
+      "selectionReason": "hybrid_area_changed",
+      "suggestedBox": {
+        "x": 340.0,
+        "y": 436.0,
+        "width": 70.0,
+        "height": 204.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 212,
+      "timestampSec": 8.833333,
+      "selectionReason": "hybrid_reacquisition_pending",
+      "suggestedBox": {
+        "x": 320.0,
+        "y": 510.0,
+        "width": 24.0,
+        "height": 42.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "reacquisition_pending",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 229,
+      "timestampSec": 9.541667,
+      "selectionReason": "hybrid_near_wall_or_partial",
+      "suggestedBox": {
+        "x": 296.0,
+        "y": 484.0,
+        "width": 48.0,
+        "height": 50.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 247,
+      "timestampSec": 10.291667,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 432.0,
+        "y": 494.0,
+        "width": 212.0,
+        "height": 84.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 249,
+      "timestampSec": 10.375,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 440.0,
+        "y": 494.0,
+        "width": 214.0,
+        "height": 76.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 257,
+      "timestampSec": 10.708333,
+      "selectionReason": "hybrid_area_changed",
+      "suggestedBox": {
+        "x": 514.0,
+        "y": 500.0,
+        "width": 242.0,
+        "height": 64.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 270,
+      "timestampSec": 11.25,
+      "selectionReason": "hybrid_reacquisition_pending",
+      "suggestedBox": {
+        "x": 672.0,
+        "y": 526.0,
+        "width": 88.0,
+        "height": 18.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "reacquisition_pending",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 273,
+      "timestampSec": 11.375,
+      "selectionReason": "hybrid_silhouette_clipped",
+      "suggestedBox": {
+        "x": 914.0,
+        "y": 528.0,
+        "width": 36.0,
+        "height": 34.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "silhouette_clipped",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 283,
+      "timestampSec": 11.791667,
+      "selectionReason": "hybrid_area_changed",
+      "suggestedBox": {
+        "x": 700.0,
+        "y": 514.0,
+        "width": 246.0,
+        "height": 88.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "area_changed",
+          "silhouette_clipped",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 291,
+      "timestampSec": 12.125,
+      "selectionReason": "hybrid_silhouette_clipped",
+      "suggestedBox": {
+        "x": 920.0,
+        "y": 520.0,
+        "width": 30.0,
+        "height": 38.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "silhouette_clipped",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 293,
+      "timestampSec": 12.208333,
+      "selectionReason": "hybrid_reacquisition_pending",
+      "suggestedBox": {
+        "x": 918.0,
+        "y": 500.0,
+        "width": 32.0,
+        "height": 44.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "reacquisition_pending",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 305,
+      "timestampSec": 12.708333,
+      "selectionReason": "hybrid_ambiguous_candidates",
+      "suggestedBox": {
+        "x": 922.0,
+        "y": 384.0,
+        "width": 32.0,
+        "height": 40.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "ambiguous_candidates",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 306,
+      "timestampSec": 12.75,
+      "selectionReason": "hybrid_silhouette_clipped",
+      "suggestedBox": {
+        "x": 918.0,
+        "y": 438.0,
+        "width": 34.0,
+        "height": 26.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "silhouette_clipped",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 307,
+      "timestampSec": 12.791667,
+      "selectionReason": "hybrid_area_changed",
+      "suggestedBox": {
+        "x": 922.0,
+        "y": 366.0,
+        "width": 34.0,
+        "height": 58.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 345,
+      "timestampSec": 14.375,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 856.0,
+        "y": 30.0,
+        "width": 70.0,
+        "height": 128.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "area_changed",
+          "silhouette_clipped",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 362,
+      "timestampSec": 15.083333,
+      "selectionReason": "hybrid_shape_inconsistent",
+      "suggestedBox": {
+        "x": 784.0,
+        "y": 32.0,
+        "width": 62.0,
+        "height": 46.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": [
+          "shape_inconsistent",
+          "silhouette_clipped"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 364,
+      "timestampSec": 15.166667,
+      "selectionReason": "hybrid_shape_inconsistent",
+      "suggestedBox": {
+        "x": 760.0,
+        "y": 32.0,
+        "width": 78.0,
+        "height": 60.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": [
+          "shape_inconsistent"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 365,
+      "timestampSec": 15.208333,
+      "selectionReason": "hybrid_shape_inconsistent",
+      "suggestedBox": {
+        "x": 748.0,
+        "y": 34.0,
+        "width": 80.0,
+        "height": 54.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": [
+          "shape_inconsistent"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 367,
+      "timestampSec": 15.291667,
+      "selectionReason": "hybrid_shape_inconsistent",
+      "suggestedBox": {
+        "x": 708.0,
+        "y": 34.0,
+        "width": 112.0,
+        "height": 66.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": [
+          "shape_inconsistent",
+          "area_changed",
+          "silhouette_clipped"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 374,
+      "timestampSec": 15.583333,
+      "selectionReason": "hybrid_observed",
+      "suggestedBox": {
+        "x": 590.0,
+        "y": 38.0,
+        "width": 56.0,
+        "height": 28.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": []
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 376,
+      "timestampSec": 15.666667,
+      "selectionReason": "hybrid_ambiguous_candidates",
+      "suggestedBox": {
+        "x": 484.0,
+        "y": 40.0,
+        "width": 74.0,
+        "height": 20.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": [
+          "ambiguous_candidates",
+          "appearance_changed",
+          "silhouette_clipped"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 435,
+      "timestampSec": 18.125,
+      "selectionReason": "hybrid_near_wall_or_partial",
+      "suggestedBox": {
+        "x": 308.0,
+        "y": 354.0,
+        "width": 32.0,
+        "height": 76.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 446,
+      "timestampSec": 18.583333,
+      "selectionReason": "hybrid_near_wall_or_partial",
+      "suggestedBox": {
+        "x": 304.0,
+        "y": 450.0,
+        "width": 42.0,
+        "height": 94.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 470,
+      "timestampSec": 19.583333,
+      "selectionReason": "hybrid_area_changed",
+      "suggestedBox": {
+        "x": 448.0,
+        "y": 498.0,
+        "width": 204.0,
+        "height": 70.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 499,
+      "timestampSec": 20.791667,
+      "selectionReason": "hybrid_area_changed",
+      "suggestedBox": {
+        "x": 680.0,
+        "y": 508.0,
+        "width": 214.0,
+        "height": 88.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 582,
+      "timestampSec": 24.25,
+      "selectionReason": "hybrid_no_observation",
+      "suggestedBox": null,
+      "algorithmQuality": null,
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 587,
+      "timestampSec": 24.458333,
+      "selectionReason": "hybrid_shape_inconsistent",
+      "suggestedBox": {
+        "x": 740.0,
+        "y": 36.0,
+        "width": 66.0,
+        "height": 48.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": [
+          "shape_inconsistent"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 588,
+      "timestampSec": 24.5,
+      "selectionReason": "hybrid_shape_inconsistent",
+      "suggestedBox": {
+        "x": 738.0,
+        "y": 36.0,
+        "width": 60.0,
+        "height": 46.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": [
+          "shape_inconsistent"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 623,
+      "timestampSec": 25.958333,
+      "selectionReason": "hybrid_silhouette_clipped",
+      "suggestedBox": {
+        "x": 940.0,
+        "y": 24.0,
+        "width": 42.0,
+        "height": 36.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "silhouette_clipped",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 748,
+      "timestampSec": 31.166667,
+      "selectionReason": "hybrid_near_wall_or_partial",
+      "suggestedBox": {
+        "x": 302.0,
+        "y": 472.0,
+        "width": 44.0,
+        "height": 52.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 873,
+      "timestampSec": 36.375,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 852.0,
+        "y": 30.0,
+        "width": 54.0,
+        "height": 128.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "area_changed",
+          "silhouette_clipped",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 899,
+      "timestampSec": 37.458333,
+      "selectionReason": "hybrid_no_observation",
+      "suggestedBox": null,
+      "algorithmQuality": null,
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 904,
+      "timestampSec": 37.666667,
+      "selectionReason": "hybrid_ambiguous_candidates",
+      "suggestedBox": {
+        "x": 560.0,
+        "y": 38.0,
+        "width": 42.0,
+        "height": 30.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": [
+          "ambiguous_candidates",
+          "silhouette_clipped"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 913,
+      "timestampSec": 38.041667,
+      "selectionReason": "hybrid_ambiguous_candidates",
+      "suggestedBox": {
+        "x": 538.0,
+        "y": 38.0,
+        "width": 130.0,
+        "height": 42.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": [
+          "ambiguous_candidates",
+          "silhouette_clipped"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 982,
+      "timestampSec": 40.916667,
+      "selectionReason": "hybrid_ambiguous_candidates",
+      "suggestedBox": {
+        "x": 334.0,
+        "y": 156.0,
+        "width": 46.0,
+        "height": 48.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "ambiguous_candidates",
+          "appearance_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 997,
+      "timestampSec": 41.541667,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 342.0,
+        "y": 68.0,
+        "width": 68.0,
+        "height": 160.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 1122,
+      "timestampSec": 46.75,
+      "selectionReason": "hybrid_area_changed",
+      "suggestedBox": {
+        "x": 918.0,
+        "y": 300.0,
+        "width": 38.0,
+        "height": 60.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 1247,
+      "timestampSec": 51.958333,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 372.0,
+        "y": 40.0,
+        "width": 112.0,
+        "height": 64.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "area_changed",
+          "silhouette_clipped"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 1371,
+      "timestampSec": 57.125,
+      "selectionReason": "hybrid_area_changed",
+      "suggestedBox": {
+        "x": 370.0,
+        "y": 442.0,
+        "width": 134.0,
+        "height": 132.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 1496,
+      "timestampSec": 62.333333,
+      "selectionReason": "hybrid_area_changed",
+      "suggestedBox": {
+        "x": 294.0,
+        "y": 66.0,
+        "width": 98.0,
+        "height": 114.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 1621,
+      "timestampSec": 67.541667,
+      "selectionReason": "hybrid_area_changed",
+      "suggestedBox": {
+        "x": 912.0,
+        "y": 450.0,
+        "width": 38.0,
+        "height": 96.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 1745,
+      "timestampSec": 72.708333,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 364.0,
+        "y": 432.0,
+        "width": 210.0,
+        "height": 120.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 1870,
+      "timestampSec": 77.916667,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 604.0,
+        "y": 32.0,
+        "width": 240.0,
+        "height": 46.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "area_changed"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 1995,
+      "timestampSec": 83.125,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 824.0,
+        "y": 96.0,
+        "width": 74.0,
+        "height": 138.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 2119,
+      "timestampSec": 88.291667,
+      "selectionReason": "hybrid_near_wall_or_partial",
+      "suggestedBox": {
+        "x": 294.0,
+        "y": 520.0,
+        "width": 42.0,
+        "height": 32.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 2244,
+      "timestampSec": 93.5,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 352.0,
+        "y": 324.0,
+        "width": 64.0,
+        "height": 212.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 2369,
+      "timestampSec": 98.708333,
+      "selectionReason": "hybrid_ambiguous_candidates",
+      "suggestedBox": {
+        "x": 554.0,
+        "y": 36.0,
+        "width": 112.0,
+        "height": 30.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": [
+          "ambiguous_candidates",
+          "silhouette_clipped"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 2493,
+      "timestampSec": 103.875,
+      "selectionReason": "hybrid_shape_inconsistent",
+      "suggestedBox": {
+        "x": 518.0,
+        "y": 40.0,
+        "width": 68.0,
+        "height": 44.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": [
+          "shape_inconsistent",
+          "silhouette_clipped"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 2618,
+      "timestampSec": 109.083333,
+      "selectionReason": "hybrid_near_wall_or_partial",
+      "suggestedBox": {
+        "x": 308.0,
+        "y": 490.0,
+        "width": 34.0,
+        "height": 44.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 2743,
+      "timestampSec": 114.291667,
+      "selectionReason": "hybrid_near_wall_or_partial",
+      "suggestedBox": {
+        "x": 916.0,
+        "y": 390.0,
+        "width": 38.0,
+        "height": 38.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 2867,
+      "timestampSec": 119.458333,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 780.0,
+        "y": 290.0,
+        "width": 86.0,
+        "height": 138.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "area_changed"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 2992,
+      "timestampSec": 124.666667,
+      "selectionReason": "hybrid_observed",
+      "suggestedBox": {
+        "x": 680.0,
+        "y": 36.0,
+        "width": 46.0,
+        "height": 32.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": []
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 3117,
+      "timestampSec": 129.875,
+      "selectionReason": "hybrid_near_wall_or_partial",
+      "suggestedBox": {
+        "x": 916.0,
+        "y": 302.0,
+        "width": 34.0,
+        "height": 84.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 3241,
+      "timestampSec": 135.041667,
+      "selectionReason": "hybrid_area_changed",
+      "suggestedBox": {
+        "x": 824.0,
+        "y": 340.0,
+        "width": 128.0,
+        "height": 208.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "area_changed",
+          "silhouette_clipped",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 3366,
+      "timestampSec": 140.25,
+      "selectionReason": "hybrid_near_wall_or_partial",
+      "suggestedBox": {
+        "x": 308.0,
+        "y": 334.0,
+        "width": 24.0,
+        "height": 66.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 3491,
+      "timestampSec": 145.458333,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 334.0,
+        "y": 42.0,
+        "width": 106.0,
+        "height": 90.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 3615,
+      "timestampSec": 150.625,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 818.0,
+        "y": 38.0,
+        "width": 80.0,
+        "height": 120.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 3740,
+      "timestampSec": 155.833333,
+      "selectionReason": "hybrid_area_changed",
+      "suggestedBox": {
+        "x": 848.0,
+        "y": 30.0,
+        "width": 88.0,
+        "height": 156.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "area_changed",
+          "silhouette_clipped",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 3864,
+      "timestampSec": 161.0,
+      "selectionReason": "hybrid_reacquisition_pending",
+      "suggestedBox": {
+        "x": 306.0,
+        "y": 380.0,
+        "width": 32.0,
+        "height": 52.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "reacquisition_pending",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 3989,
+      "timestampSec": 166.208333,
+      "selectionReason": "hybrid_area_changed",
+      "suggestedBox": {
+        "x": 502.0,
+        "y": 504.0,
+        "width": 226.0,
+        "height": 64.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 4114,
+      "timestampSec": 171.416667,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 768.0,
+        "y": 420.0,
+        "width": 92.0,
+        "height": 132.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 4238,
+      "timestampSec": 176.583333,
+      "selectionReason": "hybrid_silhouette_clipped",
+      "suggestedBox": {
+        "x": 598.0,
+        "y": 36.0,
+        "width": 170.0,
+        "height": 46.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": [
+          "silhouette_clipped"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 4363,
+      "timestampSec": 181.791667,
+      "selectionReason": "hybrid_near_wall_or_partial",
+      "suggestedBox": {
+        "x": 296.0,
+        "y": 486.0,
+        "width": 52.0,
+        "height": 58.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 4488,
+      "timestampSec": 187.0,
+      "selectionReason": "hybrid_area_changed",
+      "suggestedBox": {
+        "x": 692.0,
+        "y": 486.0,
+        "width": 160.0,
+        "height": 90.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 4612,
+      "timestampSec": 192.166667,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 432.0,
+        "y": 508.0,
+        "width": 202.0,
+        "height": 62.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 4737,
+      "timestampSec": 197.375,
+      "selectionReason": "hybrid_area_changed",
+      "suggestedBox": {
+        "x": 310.0,
+        "y": 434.0,
+        "width": 184.0,
+        "height": 124.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 4862,
+      "timestampSec": 202.583333,
+      "selectionReason": "hybrid_area_changed",
+      "suggestedBox": {
+        "x": 302.0,
+        "y": 462.0,
+        "width": 194.0,
+        "height": 102.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 4986,
+      "timestampSec": 207.75,
+      "selectionReason": "hybrid_area_changed",
+      "suggestedBox": {
+        "x": 372.0,
+        "y": 508.0,
+        "width": 158.0,
+        "height": 96.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 5111,
+      "timestampSec": 212.958333,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 840.0,
+        "y": 30.0,
+        "width": 80.0,
+        "height": 110.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "silhouette_clipped",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 5236,
+      "timestampSec": 218.166667,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 306.0,
+        "y": 112.0,
+        "width": 90.0,
+        "height": 160.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 5360,
+      "timestampSec": 223.333333,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 416.0,
+        "y": 40.0,
+        "width": 96.0,
+        "height": 66.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "silhouette_clipped"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 5402,
+      "timestampSec": 225.083333,
+      "selectionReason": "kalman_prediction",
+      "suggestedBox": {
+        "x": 567.1748657226562,
+        "y": 40.950592041015625,
+        "width": 70.0,
+        "height": 50.0
+      },
+      "algorithmQuality": null,
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 5485,
+      "timestampSec": 228.541667,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 798.0,
+        "y": 32.0,
+        "width": 108.0,
+        "height": 74.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 5610,
+      "timestampSec": 233.75,
+      "selectionReason": "hybrid_area_changed",
+      "suggestedBox": {
+        "x": 912.0,
+        "y": 460.0,
+        "width": 40.0,
+        "height": 76.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "area_changed",
+          "silhouette_clipped",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 5734,
+      "timestampSec": 238.916667,
+      "selectionReason": "hybrid_near_wall_or_partial",
+      "suggestedBox": {
+        "x": 410.0,
+        "y": 520.0,
+        "width": 86.0,
+        "height": 88.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 5859,
+      "timestampSec": 244.125,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 502.0,
+        "y": 512.0,
+        "width": 142.0,
+        "height": 60.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 5984,
+      "timestampSec": 249.333333,
+      "selectionReason": "hybrid_near_wall_or_partial",
+      "suggestedBox": {
+        "x": 634.0,
+        "y": 472.0,
+        "width": 94.0,
+        "height": 104.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 6108,
+      "timestampSec": 254.5,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 322.0,
+        "y": 42.0,
+        "width": 72.0,
+        "height": 124.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "silhouette_clipped",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 6233,
+      "timestampSec": 259.708333,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 860.0,
+        "y": 30.0,
+        "width": 80.0,
+        "height": 128.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "silhouette_clipped",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 6358,
+      "timestampSec": 264.916667,
+      "selectionReason": "hybrid_near_wall_or_partial",
+      "suggestedBox": {
+        "x": 846.0,
+        "y": 128.0,
+        "width": 120.0,
+        "height": 94.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 6482,
+      "timestampSec": 270.083333,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 358.0,
+        "y": 514.0,
+        "width": 138.0,
+        "height": 64.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 6607,
+      "timestampSec": 275.291667,
+      "selectionReason": "hybrid_near_wall_or_partial",
+      "suggestedBox": {
+        "x": 368.0,
+        "y": 516.0,
+        "width": 128.0,
+        "height": 106.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 6732,
+      "timestampSec": 280.5,
+      "selectionReason": "hybrid_near_wall_or_partial",
+      "suggestedBox": {
+        "x": 298.0,
+        "y": 510.0,
+        "width": 50.0,
+        "height": 40.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 6856,
+      "timestampSec": 285.666667,
+      "selectionReason": "hybrid_near_wall_or_partial",
+      "suggestedBox": {
+        "x": 300.0,
+        "y": 510.0,
+        "width": 52.0,
+        "height": 46.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 6981,
+      "timestampSec": 290.875,
+      "selectionReason": "hybrid_near_wall_or_partial",
+      "suggestedBox": {
+        "x": 300.0,
+        "y": 502.0,
+        "width": 34.0,
+        "height": 32.0
+      },
+      "algorithmQuality": {
+        "tracking": "observed",
+        "geometry": "wall_projection",
+        "identity": "consistent",
+        "reasons": [
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 7106,
+      "timestampSec": 296.083333,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 368.0,
+        "y": 40.0,
+        "width": 94.0,
+        "height": 34.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "silhouette_clipped"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 7230,
+      "timestampSec": 301.25,
+      "selectionReason": "hybrid_appearance_changed",
+      "suggestedBox": {
+        "x": 344.0,
+        "y": 40.0,
+        "width": 128.0,
+        "height": 46.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "floor",
+        "identity": "consistent",
+        "reasons": [
+          "appearance_changed",
+          "area_changed",
+          "silhouette_clipped"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    },
+    {
+      "frameIndex": 7355,
+      "timestampSec": 306.458333,
+      "selectionReason": "hybrid_ambiguous_candidates",
+      "suggestedBox": {
+        "x": 870.0,
+        "y": 88.0,
+        "width": 40.0,
+        "height": 58.0
+      },
+      "algorithmQuality": {
+        "tracking": "uncertain",
+        "geometry": "boundary",
+        "identity": "consistent",
+        "reasons": [
+          "ambiguous_candidates",
+          "area_changed",
+          "near_wall_or_partial"
+        ]
+      },
+      "humanBox": null,
+      "visibility": null,
+      "annotatorId": null,
+      "reviewerId": null,
+      "approved": false
+    }
+  ],
+  "limits": "Suggested boxes are algorithm outputs, never ground truth. Human annotation and independent review are pending. Additional recordings are required for independent validation."
+}

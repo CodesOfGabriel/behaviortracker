@@ -1,6 +1,7 @@
 import type { ArenaConfig, OftMetrics, Point, PoseSample } from "../types";
 import { isCenterPoint, pixelToFloorMatrix, transformPoint } from "./geometry";
 import { metricEligible } from "./pose";
+import { boxCenterTrajectory } from "./boxes";
 
 export const METRIC_POLICY = { version: "oft-0.2", maxPairGapSec: .5, minScore: .6,
   immobilityThresholdCmS: 2, minImmobilityDurationSec: .5, minCenterDwellSec: .2,
@@ -16,9 +17,9 @@ export interface MetricOptions {
 
 type Zone = "center" | "periphery" | "unknown";
 
-function usablePoint(sample: PoseSample): Point | null {
+function usablePoint(sample: PoseSample, eligible: (sample: PoseSample) => boolean): Point | null {
   if (
-    !metricEligible(sample) || sample.xPx == null ||
+    !eligible(sample) || sample.xPx == null ||
     sample.yPx == null ||
     sample.status === "missing" ||
     sample.status === "out_of_arena"
@@ -28,10 +29,11 @@ function usablePoint(sample: PoseSample): Point | null {
   return { x: sample.xPx, y: sample.yPx };
 }
 
-export function calculateOftMetrics(
+function calculateMetrics(
   input: PoseSample[],
   arena: ArenaConfig,
-  options: MetricOptions = {},
+  options: MetricOptions,
+  eligible: (sample: PoseSample) => boolean,
 ): OftMetrics {
   const samples = [...input].sort((a, b) => a.timestampSec - b.timestampSec);
   const maxPairGapSec = options.maxPairGapSec ?? METRIC_POLICY.maxPairGapSec;
@@ -59,7 +61,7 @@ export function calculateOftMetrics(
   }
 
   const floorPoints = samples.map((sample) => {
-    const point = usablePoint(sample);
+    const point = usablePoint(sample, eligible);
     if (!point) return null;
     try {
       const floor = transformPoint(point, matrix);
@@ -150,3 +152,50 @@ export function calculateOftMetrics(
   };
 }
 
+
+
+/** Reviewed/scientific path; the existing eligibility policy is unchanged. */
+export function calculateOftMetrics(input:PoseSample[],arena:ArenaConfig,options:MetricOptions={}):OftMetrics {
+  return calculateMetrics(input,arena,options,metricEligible);
+}
+
+export const BOX_ESTIMATE_POLICY = {version:"oft-floor-box-estimate-1",reference:"box_center",units:{distance:"cm",speed:"cm/s",time:"s"},
+  referenceApproval:"not_granted",requireConsecutiveFrames:true,maxPairGapSec:.5,minCenterDwellSec:.2,
+  eligibility:"observed_floor_boxes_only",scientificValidation:"not_established"} as const;
+
+function floorBoxExclusion(sample:PoseSample):string|null {
+  if(!sample.bbox)return "no_box";
+  if(sample.source==="predicted"||sample.source==="recovered")return "predicted_or_recovered";
+  if(sample.reason==="camera_shift")return "camera_shift";
+  if(sample.spatialRegion==="outside"||sample.spatialRegion==="wall_projection")return "not_floor";
+  if(sample.source==="manual")return sample.status==="valid"?null:"uncertain_observation";
+  if(sample.localQuality&&sample.localQuality.geometry!=="floor")return "not_floor";
+  if(sample.source==="segmented"&&sample.spatialRegion!=="floor")return "not_floor";
+  if(sample.trackingAccepted===false||sample.localQuality&&sample.localQuality.tracking!=="observed")return "uncertain_tracking";
+  return sample.status==="valid"?null:"uncertain_observation";
+}
+
+/** Separate geometric estimates; never mutates samples, approvals or scientific eligibility. */
+export function calculateObservedFloorBoxMetrics(input:PoseSample[],arena:ArenaConfig,width:number,height:number) {
+  const boxes=new Map(boxCenterTrajectory(input,width,height).centers.map(sample=>[sample.frameIndex,sample]));
+  const clock=new Map<number,PoseSample>();
+  for(const sample of input)if(!clock.has(sample.frameIndex))clock.set(sample.frameIndex,sample);
+  const reference=[...clock.values()].map(sample=>boxes.get(sample.frameIndex)??{
+    ...sample,xPx:null,yPx:null,bbox:undefined,status:"missing" as const,
+  });
+  const exclusions:Record<string,number>={};
+  const matrix=pixelToFloorMatrix(arena);
+  let pendingReferenceFrames=0,eligibleFloorFrames=0;
+  for(const sample of reference){
+    let reason=floorBoxExclusion(sample);
+    if(!reason){
+      try {const point=transformPoint({x:sample.xPx!,y:sample.yPx!},matrix);
+        if(!Number.isFinite(point.x)||!Number.isFinite(point.y)||point.x<0||point.y<0||point.x>arena.widthCm||point.y>arena.heightCm)reason="outside_calibrated_floor";
+      }catch{reason="outside_calibrated_floor";}
+    }
+    if(reason)exclusions[reason]=(exclusions[reason]??0)+1;
+    else {eligibleFloorFrames++;if(sample.source==="segmented"&&sample.referenceApproved!==true)pendingReferenceFrames++;}
+  }
+  return {policy:BOX_ESTIMATE_POLICY,metrics:calculateMetrics(reference,arena,{revision:"raw"},sample=>floorBoxExclusion(sample)===null),
+    frameCount:clock.size,boxFrames:boxes.size,eligibleFloorFrames,pendingReferenceFrames,exclusions};
+}

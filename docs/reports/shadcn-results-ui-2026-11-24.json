@@ -1,0 +1,237 @@
+{
+  "date": "2026-11-24",
+  "scope": "Official shadcn/ui Tabs, Select, Card and Badge; consistent result metadata; video left and result charts right in Details",
+  "references": {
+    "tabs": {
+      "documentation": "https://ui.shadcn.com/docs/components/radix/tabs",
+      "registry": "https://ui.shadcn.com/r/styles/new-york-v4/tabs.json",
+      "registrySha256": "49320e6dcf56570753bb14ed3f5d66acf07d12e183c0e9024466995b25be5b1d"
+    },
+    "select": {
+      "documentation": "https://ui.shadcn.com/docs/components/radix/select",
+      "registry": "https://ui.shadcn.com/r/styles/new-york-v4/select.json",
+      "registrySha256": "ca3189ea8101a04f144b6d0f0e7330841639bfa5f4d57e7cca0894d39b30817b"
+    },
+    "card": {
+      "documentation": "https://ui.shadcn.com/docs/components/radix/card",
+      "registry": "https://ui.shadcn.com/r/styles/new-york-v4/card.json",
+      "registrySha256": "c7ebaa49ba2a0613838558f3892c5007523c2dc26d6b36a244145d454a796106"
+    },
+    "badge": {
+      "documentation": "https://ui.shadcn.com/docs/components/radix/badge",
+      "registry": "https://ui.shadcn.com/r/styles/new-york-v4/badge.json",
+      "registrySha256": "0f988b37cf1c56e7ecc83b1dcf24c9af4e73ce4341da5caf2c9d9b07a551319b"
+    }
+  },
+  "license": "../licenses/shadcn-ui-MIT.txt",
+  "design": {
+    "tabs": "Compact segmented navigation with focus ring and keyboard navigation",
+    "summary": "Header run selector, four primary measurements, metadata grid and provenance footer",
+    "details": "Two columns above 780px; video left, charts right; stacked below 780px",
+    "selectors": "Radix portal with typeahead, arrow keys, Escape and restored focus"
+  },
+  "browser": {
+    "checks": [
+      {
+        "check": "tabs-and-select-keyboard",
+        "arrowNavigation": true,
+        "escapeCloses": true,
+        "focusReturned": true
+      },
+      {
+        "check": "details-desktop",
+        "protocol": "forced_swim",
+        "engine": "opencv",
+        "video": {
+          "x": 177,
+          "y": 289.96875,
+          "width": 624,
+          "height": 496.15625
+        },
+        "charts": {
+          "x": 821,
+          "y": 289.96875,
+          "width": 520,
+          "height": 678.6875
+        },
+        "chartCount": 1,
+        "overflow": false,
+        "chartSeeksVideo": true
+      },
+      {
+        "check": "details-responsive",
+        "width": 980,
+        "videoBottom": 664.609375,
+        "chartsTop": 279.65625,
+        "videoRight": 542.3125,
+        "chartsLeft": 558.3125,
+        "overflow": false
+      },
+      {
+        "check": "details-responsive",
+        "width": 390,
+        "videoBottom": 610.796875,
+        "chartsTop": 626.796875,
+        "videoRight": 373,
+        "chartsLeft": 79,
+        "overflow": false
+      },
+      {
+        "check": "details-desktop",
+        "protocol": "forced_swim",
+        "engine": "colab",
+        "video": {
+          "x": 177,
+          "y": 289.96875,
+          "width": 624,
+          "height": 602.65625
+        },
+        "charts": {
+          "x": 821,
+          "y": 289.96875,
+          "width": 520,
+          "height": 1127.78125
+        },
+        "chartCount": 1,
+        "overflow": false,
+        "chartSeeksVideo": true
+      },
+      {
+        "check": "details-desktop",
+        "protocol": "radial_arm_maze",
+        "engine": "opencv",
+        "video": {
+          "x": 116,
+          "y": 397.96875,
+          "width": 690.53125,
+          "height": 737.578125
+        },
+        "charts": {
+          "x": 826.53125,
+          "y": 397.96875,
+          "width": 575.46875,
+          "height": 825.90625
+        },
+        "chartCount": 1,
+        "overflow": false,
+        "chartSeeksVideo": true
+      },
+      {
+        "check": "details-desktop",
+        "protocol": "radial_arm_maze",
+        "engine": "colab",
+        "video": {
+          "x": 116,
+          "y": 361.96875,
+          "width": 690.53125,
+          "height": 500.953125
+        },
+        "charts": {
+          "x": 826.53125,
+          "y": 361.96875,
+          "width": 575.46875,
+          "height": 858.953125
+        },
+        "chartCount": 1,
+        "overflow": false,
+        "chartSeeksVideo": true
+      },
+      {
+        "check": "details-desktop",
+        "protocol": "open_field",
+        "engine": "opencv",
+        "video": {
+          "x": 116,
+          "y": 289.96875,
+          "width": 690.53125,
+          "height": 500.953125
+        },
+        "charts": {
+          "x": 826.53125,
+          "y": 289.96875,
+          "width": 575.46875,
+          "height": 1260.578125
+        },
+        "chartCount": 1,
+        "overflow": false,
+        "chartSeeksVideo": true
+      },
+      {
+        "check": "details-desktop",
+        "protocol": "open_field",
+        "engine": "colab",
+        "video": {
+          "x": 116,
+          "y": 289.96875,
+          "width": 690.53125,
+          "height": 500.953125
+        },
+        "charts": {
+          "x": 826.53125,
+          "y": 289.96875,
+          "width": 575.46875,
+          "height": 1260.578125
+        },
+        "chartCount": 1,
+        "overflow": false,
+        "chartSeeksVideo": true
+      }
+    ],
+    "errors": [],
+    "limits": "Chrome with mocked Tauri commands, generic fixtures and placeholder MP4. No installed-app or remote Colab execution."
+  },
+  "checks": {
+    "typescriptViteBuild": "passed; existing chunk-size warning",
+    "vitest": {
+      "passed": 150,
+      "files": 25
+    },
+    "gitDiffCheck": "passed",
+    "npmInstallAudit": {
+      "vulnerabilities": 0
+    }
+  },
+  "sourceSha256": {
+    "package.json": "911dbbef42e6a048fbe3a27c60332c2c60d5376d168418c2074ed28a8a896c8a",
+    "package-lock.json": "d1b5d87323269a33d5af06472ddea6accea55bfbdc6196d4fb668ddcf946a9cc",
+    "src/components/ui/tabs.tsx": "4e611e3de11816953aa370052fb508a67cb5e6427476ae877cbeedd5f09dd1c1",
+    "src/components/ui/card.tsx": "cb3bb9bac64608214f60b4892c3bbc2295ae08ba3eb425a04c27565892128f57",
+    "src/components/ui/select.tsx": "19535fd31946561c626c0e80638712d7f08a7e49ef7e4cf7bbdfcb38613ff605",
+    "src/components/ui/shadcn-badge.tsx": "8ef13af89442ad7814b3dd25651f9f9ce9c8346249921abb27eea6cf1dc4f23c",
+    "src/components/ui/EditorTabs.tsx": "c57869490a5f39418aa6e783b75a48accabfc5ca0e9230b48472891d18617547",
+    "src/components/ui/SelectMenu.tsx": "f75222e29dcad0e683d6c528bd10158026c2cb86cf3966ab4cbf4d97c9151810",
+    "src/lib/utils.ts": "d1f1e0d62cb8d8d1e04c26e14de842d8a151f75812d81b046c65b5d1fe8e4b27",
+    "src/features/results/ExperimentRunSummary.tsx": "a66f6be319b190227fc35ca48dcec7169da57eb2cb0485d322f85cae9bbbcbef",
+    "src/features/results/AnalysisDetailsLayout.tsx": "d24ca10faf65c09e5c3bb75f6c6604ebf9a08b71f37356ad517e42f5c748a329",
+    "src/features/results/ResultMotionChart.tsx": "56677d00bfcab716664aadff15f998952f00882a7db2b6bd3e7570d49e8e21b6",
+    "src/features/results/PresenceResultChart.tsx": "b2b194c4b11df34a6055f810310b41878f3f205d696c5ffe915bb9720c8b9ad6",
+    "src/features/results/TrackingDetails.tsx": "0235f1a4df9f83ead6a0488603e13c69c031ca21a9d39aa570c5fd1079bb803f",
+    "src/features/results/ForcedSwimLocalPanel.tsx": "359e8bb17b4b4108fea7fb4902447c84ffb4b5eebe063f16d57186070d07e9f2",
+    "src/features/results/ForcedSwimResults.tsx": "30c40c5672a5f5bee9e08f341122eb490755d8d439eb8537e8c8be03b33c1506",
+    "src/features/results/Results.tsx": "f22e2618f2b1e69e1a65f52858d1adda54ade1b6b9a27fa9931c9fcb443b2725",
+    "src/features/results/RunZoneOccupancy.tsx": "fe5f235a6b7259e1b2f252ec6866ee4b82fdcf17b22bcab5249f4ae4a5113cee",
+    "src/features/radial-maze/RamLocalPanel.tsx": "073c300c33447c80683cfd894adaa65fc9cd4bc0e5e92732240b33b61d516882",
+    "src/features/radial-maze/RamColabPanel.tsx": "b470d413f6607a0d36dc144f3c31ba7b744ce2f2ec50242d82238730bb0bbcbd",
+    "src/features/radial-maze/RamReviewPanel.tsx": "9add90db9646ffa3f8e45bcdc30df24021059500bfaf68e012fbd4455db4f5a5",
+    "src/features/radial-maze/RadialMazeResults.tsx": "eceb4e1b9e6b7185ff2f1cd58dfba9e1a8caf96f88ce9b839ab8266115f54403",
+    "src/lib/local-motion.ts": "de0a3225adf1efac1379f5312b57dd3b4c79b3777fd1de779180d2712fae349e",
+    "src/lib/local-motion.test.ts": "e8c592db5e550a5c146bc1c5fcf6e38747b4fa801741c9c0da0c001edcb092d8",
+    "src/styles.css": "b56261c3bd780f45fae395d4d0a90c49921dab8d31d759302663c23c95178dea"
+  },
+  "previews": {
+    "summary": "shadcn-summary-2026-11-24.png",
+    "selector": "shadcn-selector-2026-11-24.png",
+    "forced_swim_details": "shadcn-forced-swim-details-2026-11-24.png",
+    "radial_arm_maze_details": "shadcn-radial-arm-maze-details-2026-11-24.png",
+    "open_field_details": "shadcn-open-field-details-2026-11-24.png",
+    "narrow_details": "shadcn-narrow-details-2026-11-24.png"
+  },
+  "limits": [
+    "Browser proof uses generic fixtures, mocked Tauri commands and a placeholder MP4; this is not installed-app or remote Colab/GPU validation.",
+    "The graphs visualize observed box/image centers in px/s and preserve missing data. They do not approve scientific metrics or classify behavior.",
+    "No tracking jobs, annotations, metric eligibility or original videos were modified by validation.",
+    "RAM metrics remain unavailable when geometry or identity evidence is incomplete.",
+    "Existing scientific metrics and exported-video overlay rules were preserved.",
+    "No commit, push or deployment."
+  ]
+}

@@ -101,11 +101,17 @@ def main():
     parser.add_argument("--video", type=Path, help="Vídeo alternativo com mesma resolução e calibração")
     parser.add_argument("--python", default=sys.executable, help="Python com OpenCV instalado")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--baseline-engine", type=Path, help="Snapshot Python anterior para comparação com configuração idêntica")
+    parser.add_argument("--classical-widths", nargs="+", type=int, choices=[480, 640, 960],
+                        help="Compara o baseline com fundo mediano/ROI nas larguras selecionadas")
     args = parser.parse_args()
     request = json.loads(args.request.read_text())
+    # Benchmarks never replace audit videos belonging to application jobs.
+    request.pop("auditVideo", None)
     if request["config"].get("protocol") not in (None, "open_field"):
         raise ValueError("Este benchmark compara apenas Campo Aberto")
-    if request["config"].get("strategy", "classic") != "classic":
+    if request["config"].get("strategy", "classic") != "classic" and not (
+            args.baseline_engine and request["config"].get("strategy") == "classical_roi_v1" and not args.classical_widths):
         raise ValueError("Use uma execução OpenCV clássica")
     request["config"]["useOpenCL"] = False
     if args.video:
@@ -113,14 +119,38 @@ def main():
     video = Path(request["video"])
     if not video.is_file():
         raise ValueError("Vídeo indisponível")
-    baseline_source = subprocess.check_output(["git", "show", "HEAD:src-tauri/python/opencv_engine.py"], cwd=ROOT)
+    baseline_source = (args.baseline_engine.read_bytes() if args.baseline_engine else
+                       subprocess.check_output(["git", "show", "HEAD:src-tauri/python/opencv_engine.py"], cwd=ROOT))
     current_source = ENGINE.read_bytes()
     with tempfile.TemporaryDirectory(prefix="behavetracker-benchmark-") as temporary:
         root = Path(temporary)
         baseline = run_version("baseline", baseline_source, request, args.python, root)
+        if args.classical_widths:
+            variants = {}
+            for width in dict.fromkeys(args.classical_widths):
+                variant_request = {**request, "config": {**request["config"], "protocol": "open_field",
+                    "strategy": "classical_roi_v1", "mode": "auto", "threshold": 25,
+                    "maxWidth": width, "referenceApproved": False, "useOpenCL": False}}
+                variant_request["config"].pop("guidance", None)
+                variant_request["config"].pop("initialBox", None)
+                variant_request["config"].pop("seed", None)
+                value = run_version(f"classical-{width}", current_source, variant_request, args.python, root)
+                variants[str(width)] = {"resources": value["resources"], "status": value["status"],
+                    "config": variant_request["config"], "engineSha256": value["engineSha256"],
+                    "comparison": compare(baseline, value)}
+            result = {"status": "TECHNICAL_BENCHMARK_NOT_ACCURACY_VALIDATION",
+                "comparisonMethod": "Git HEAD classic CPU versus workspace median background/ROI CPU; includes reference construction, decoding and feature extraction; excludes audit rendering.",
+                "videoSha256": sha256_file(video), "baselineConfig": request["config"],
+                "baseline": {"resources": baseline["resources"], "status": baseline["status"],
+                             "engineSha256": baseline["engineSha256"]}, "classicalWidths": variants,
+                "limits": "Single run per width on one machine; valid coverage is a heuristic, not spatial accuracy. Human annotation, neural classification and Colab were not evaluated."}
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False)+"\n", encoding="utf-8")
+            print(json.dumps({"output": str(args.output), "widths": list(variants)}))
+            return
         current = run_version("current", current_source, request, args.python, root)
         result = {"status": "TECHNICAL_BENCHMARK_NOT_ACCURACY_VALIDATION",
-                  "comparisonMethod": "Motor salvo em Git HEAD versus motor atual do workspace; inclui todas as diferenças entre essas versões.",
+                  "comparisonMethod": ("Snapshot Python anterior" if args.baseline_engine else "Motor salvo em Git HEAD")+" versus motor atual do workspace; configuração idêntica, inclui todas as diferenças entre essas versões; exclui renderização de auditoria.",
                   "resourceScope": "CPU inclui Python e subprocessos; RSS do Python e maior subprocesso são picos separados, não soma simultânea.",
                   "videoSha256": sha256_file(video),
                   "configSha256": sha256_bytes(json.dumps(request["config"], sort_keys=True).encode()),
@@ -131,7 +161,9 @@ def main():
                                        "resources": value["resources"],
                                        "report": {key: value["status"].get(key) for key in
                                                   ("framesProcessed", "processingFps", "observationCoveragePct",
-                                                   "cameraUncertainFrames", "cameraMotionState", "counts")}}
+                                                   "cameraUncertainFrames", "cameraMotionState", "counts", "backgroundReference",
+                                                   "validObservationCoveragePct", "trackingObservedCoveragePct", "trackingObservedFrames",
+                                                   "geometryRejectedFrames", "kalmanUpdateCount", "reasonCounts", "qualityReasonCounts")}}
                                for label, value in (("baseline", baseline), ("current", current))},
                   "limits": "Sem anotações humanas, diferenças não medem erro espacial ou falsos alertas; distância usa apenas pares consecutivos observados válidos."}
     args.output.parent.mkdir(parents=True, exist_ok=True)

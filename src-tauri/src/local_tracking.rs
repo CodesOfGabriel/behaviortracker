@@ -125,8 +125,16 @@ fn validate_config(config: &Value) -> CommandResult<()> {
         None => "classic",
         Some(value) => value.as_str().ok_or("Estratégia local inválida")?,
     };
-    if !["classic", "hybrid_kalman_v1", "ram_color_geometry_v2"].contains(&strategy) {
+    if !["classic", "classical_roi_v1", "hybrid_kalman_v1", "ram_color_geometry_v2"].contains(&strategy) {
         return Err("Estratégia local inválida".into());
+    }
+    if strategy == "classical_roi_v1" && (config["mode"] != "auto" || config["referenceApproved"] != false
+        || !["open_field", "radial_arm_maze"].contains(&config["protocol"].as_str().unwrap_or(""))
+        || config.get("guidance").is_some_and(|value| !value.is_null())) {
+        return Err("OpenCV rápido exige Campo Aberto ou RAM, referência automática e revisão independente".into());
+    }
+    if config.get("autorotate").is_some_and(|value| !value.is_boolean()) {
+        return Err("Orientação local inválida".into());
     }
     if strategy == "ram_color_geometry_v2" {
         if config["protocol"] != "radial_arm_maze" || config["referenceApproved"] != false
@@ -709,7 +717,7 @@ pub async fn get_local_audit_video(app: AppHandle, job_id: String, render: bool)
         if report["state"] != "succeeded" || !["running", "succeeded"].contains(&state.as_str()) {
             return Err("O vídeo fica disponível após a conclusão da análise local.".into());
         }
-        if destination.is_file() {
+        if destination.is_file() && !render {
             return Ok(json!({"videoPath": destination, "videoError": null}));
         }
         if !render {
@@ -1032,6 +1040,26 @@ mod tests {
         assert!(validate_config(&config).is_err());
         config["initialBox"]=json!({"x":80,"y":80,"width":40,"height":40});
         config["strategy"]=json!("unknown");
+        assert!(validate_config(&config).is_err());
+    }
+    #[test]
+    fn classical_reference_requires_review_and_an_explicit_supported_protocol() {
+        let mut config = valid_config();
+        config["strategy"] = json!("classical_roi_v1");
+        config["mode"] = json!("auto");
+        assert!(validate_config(&config).is_err());
+        for protocol in ["open_field", "radial_arm_maze"] {
+            config["protocol"] = json!(protocol);
+            assert!(validate_config(&config).is_ok());
+        }
+        config["protocol"] = json!("forced_swim");
+        assert!(validate_config(&config).is_err());
+        config["protocol"] = json!("open_field");
+        config["referenceApproved"] = json!(true);
+        assert!(validate_config(&config).is_err());
+        config["referenceApproved"] = json!(false);
+        config["mode"] = json!("background");
+        config["backgroundFrameIndex"] = json!(0);
         assert!(validate_config(&config).is_err());
     }
     #[test]

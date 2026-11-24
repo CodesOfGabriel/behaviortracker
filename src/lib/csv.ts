@@ -103,6 +103,25 @@ export function parseCanonicalPoseCsv(text: string): PoseSample[] {
     if (recoveryState && ["ready", "unavailable", "limited", "not_needed"].includes(recoveryState)) sample.recoveryState = recoveryState as PoseSample["recoveryState"];
     if (indexOf("tracking_reason") >= 0 && values[indexOf("tracking_reason")]) sample.reason = values[indexOf("tracking_reason")];
     if (indexOf("processing_version") >= 0 && values[indexOf("processing_version")]) sample.processingVersion = values[indexOf("processing_version")];
+    for (const [column, field] of [["tracking_accepted", "trackingAccepted"], ["kalman_updated", "kalmanUpdated"]] as const) {
+      const value = values[indexOf(column)];
+      if (!value) continue;
+      if (value !== "true" && value !== "false") throw new Error(`Qualidade local inválida na linha ${rowIndex + 2}.`);
+      sample[field] = value === "true";
+    }
+    const tracking = values[indexOf("tracking_state")];
+    const geometry = values[indexOf("geometry_state")];
+    const identity = values[indexOf("identity_state")];
+    const qualityReasons = values[indexOf("quality_reasons")];
+    if (tracking || geometry || identity || qualityReasons) {
+      if (!["observed", "uncertain", "missing"].includes(tracking)
+        || !["floor", "boundary", "wall_projection", "unknown"].includes(geometry)
+        || identity && !["unverified", "consistent", "seeded"].includes(identity)) throw new Error(`Qualidade local inválida na linha ${rowIndex + 2}.`);
+      sample.localQuality = { tracking: tracking as NonNullable<PoseSample["localQuality"]>["tracking"],
+        geometry: geometry as NonNullable<PoseSample["localQuality"]>["geometry"],
+        ...(identity ? { identity: identity as NonNullable<PoseSample["localQuality"]>["identity"] } : {}),
+        reasons: qualityReasons ? qualityReasons.split("|").map(value => decodeURIComponent(value)) : [] };
+    }
     if (sample.source === "recovered" && !sample.original) throw new Error(`Recuperação sem observação original na linha ${rowIndex + 2}.`);
     return sample;
   });
@@ -117,7 +136,7 @@ function csvCell(value: unknown) {
 }
 
 export function poseToCsv(samples: PoseSample[]) {
-  const header = "frame_index,timestamp_sec,animal_id,keypoint,x_px,y_px,likelihood,status,spatial_region,support_count,support_total,source,raw_x_px,raw_y_px,raw_likelihood,raw_status,raw_spatial_region,raw_support_count,raw_support_total,recovery_state,metric_reference,reference_approved,bbox_x,bbox_y,bbox_width,bbox_height,raw_source,raw_bbox_x,raw_bbox_y,raw_bbox_width,raw_bbox_height,raw_metric_reference,raw_reference_approved,tracking_reason,processing_version";
+  const header = "frame_index,timestamp_sec,animal_id,keypoint,x_px,y_px,likelihood,status,spatial_region,support_count,support_total,source,raw_x_px,raw_y_px,raw_likelihood,raw_status,raw_spatial_region,raw_support_count,raw_support_total,recovery_state,metric_reference,reference_approved,bbox_x,bbox_y,bbox_width,bbox_height,raw_source,raw_bbox_x,raw_bbox_y,raw_bbox_width,raw_bbox_height,raw_metric_reference,raw_reference_approved,tracking_reason,processing_version,tracking_accepted,tracking_state,geometry_state,identity_state,quality_reasons,kalman_updated";
   const rows = samples.map((sample) =>
     [
       sample.frameIndex,
@@ -147,6 +166,8 @@ export function poseToCsv(samples: PoseSample[]) {
       (sample.original ?? sample).bbox?.x, (sample.original ?? sample).bbox?.y,
       (sample.original ?? sample).bbox?.width, (sample.original ?? sample).bbox?.height,
       (sample.original ?? sample).metricReference ?? "", (sample.original ?? sample).referenceApproved ?? "", sample.reason ?? "", sample.processingVersion ?? "",
+      sample.trackingAccepted ?? "", sample.localQuality?.tracking ?? "", sample.localQuality?.geometry ?? "",
+      sample.localQuality?.identity ?? "", sample.localQuality?.reasons.map(value => encodeURIComponent(value)).join("|") ?? "", sample.kalmanUpdated ?? "",
     ]
       .map(csvCell)
       .join(","),

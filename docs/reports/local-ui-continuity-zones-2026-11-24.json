@@ -1,0 +1,164 @@
+{
+  "date": "2026-11-24",
+  "scope": "Shared protocol result tabs; current-mask silhouette visibility; per-run visual Open Field occupancy",
+  "uiReference": "Existing Open Field result tabs and EditorTabs component; same six tabs reused by FST and RAM",
+  "ui": {
+    "checks": [
+      {
+        "protocol": "forced_swim",
+        "tabs": [
+          "Resumo",
+          "Vídeo",
+          "Trajetória",
+          "Detalhes",
+          "Análise",
+          "Arquivos"
+        ],
+        "analysisVideos": 0,
+        "visibleVideoCount": 1
+      },
+      {
+        "protocol": "radial_arm_maze",
+        "tabs": [
+          "Resumo",
+          "Vídeo",
+          "Trajetória",
+          "Detalhes",
+          "Análise",
+          "Arquivos"
+        ],
+        "analysisVideos": 0,
+        "visibleVideoCount": 1
+      },
+      {
+        "protocol": "open_field",
+        "localText": "Ocupação por zona\n\nDistribuição visual das posições observadas, na execução escolhida.\n\nAnálise para ocupação por zona\nSelecione uma análise\nMáquina local · 24/11/2026, 09:00:00 · local-op\nGoogle Colab · 24/11/2026, 07:00:00 · colab-op\n100.0%\nno centro\nCentro\n0:02\nPeriferia\n0:00\nDesconhecido\n0:00\n\n100.0% do tempo com posições observadas. O percentual central usa esse tempo; perdas e previsões ficam desconhecidas.\n\nEstimativa visual pelo centro da caixa ou referência disponível. Não aprova métricas científicas de piso ou comportamento.",
+        "colabText": "Ocupação por zona\n\nDistribuição visual das posições observadas, na execução escolhida.\n\nAnálise para ocupação por zona\nSelecione uma análise\nMáquina local · 24/11/2026, 09:00:00 · local-op\nGoogle Colab · 24/11/2026, 07:00:00 · colab-op\n0.0%\nno centro\nCentro\n0:00\nPeriferia\n0:02\nDesconhecido\n0:00\n\n100.0% do tempo com posições observadas. O percentual central usa esse tempo; perdas e previsões ficam desconhecidas.\n\nEstimativa visual pelo centro da caixa ou referência disponível. Não aprova métricas científicas de piso ou comportamento."
+      }
+    ],
+    "errors": [],
+    "limits": "Chrome UI with mocked Tauri commands; not installed-app or remote validation"
+  },
+  "dd2SilhouetteAvailability": {
+    "frames": 7356,
+    "boxes": 7356,
+    "beforeSkeletonObservations": 5654,
+    "afterSkeletonObservations": 7354,
+    "uncertainSkeletonObservations": 1328,
+    "elapsedSec": 31.165657129000465,
+    "limits": "Saved DD2 contours; availability, not anatomical accuracy. No tracking or metric records modified."
+  },
+  "realClipRendering": {
+    "open_field": {
+      "version": "local-audit-4",
+      "skeletonMethod": "silhouette_cross_sections_1",
+      "anatomicalPose": false,
+      "skeletonFrames": 96,
+      "uncertainSkeletonObservations": 30,
+      "skeletonVisibility": "current_mask_independent_of_metric_eligibility",
+      "displacementChart": {
+        "position": "top_right",
+        "units": "px/s",
+        "reference": "box_center",
+        "coordinateSpace": "source_image",
+        "windowSec": 10,
+        "maxPairGapSec": 0.5,
+        "validPairs": 64,
+        "scientificMetric": false
+      },
+      "renderSec": 1.7180616950063268,
+      "frameCount": 96,
+      "maxNormalizedPtsDifferenceSec": 0.0
+    },
+    "radial_arm_maze": {
+      "version": "local-audit-4",
+      "skeletonMethod": "silhouette_cross_sections_1",
+      "anatomicalPose": false,
+      "skeletonFrames": 96,
+      "uncertainSkeletonObservations": 0,
+      "skeletonVisibility": "current_mask_independent_of_metric_eligibility",
+      "displacementChart": {
+        "position": "top_right",
+        "units": "px/s",
+        "reference": "box_center",
+        "coordinateSpace": "source_image",
+        "windowSec": 10,
+        "maxPairGapSec": 0.5,
+        "validPairs": 95,
+        "scientificMetric": false
+      },
+      "renderSec": 4.2001142500012065,
+      "frameCount": 96,
+      "maxNormalizedPtsDifferenceSec": 1.1102230246251565e-16
+    },
+    "forced_swim": {
+      "version": "local-audit-4",
+      "skeletonMethod": "silhouette_cross_sections_1",
+      "anatomicalPose": false,
+      "skeletonFrames": 360,
+      "uncertainSkeletonObservations": 0,
+      "skeletonVisibility": "current_mask_independent_of_metric_eligibility",
+      "displacementChart": {
+        "position": "top_right",
+        "units": "px/s",
+        "reference": "box_center",
+        "coordinateSpace": "source_image",
+        "windowSec": 10,
+        "maxPairGapSec": 0.5,
+        "validPairs": 358,
+        "scientificMetric": false
+      },
+      "renderSec": 12.242911331006326,
+      "frameCount": 180,
+      "maxNormalizedPtsDifferenceSec": 0.0
+    }
+  },
+  "checks": {
+    "typescriptViteBuild": "passed; existing chunk size warning",
+    "vitest": {
+      "passed": 144,
+      "files": 24
+    },
+    "python": {
+      "ran": 60,
+      "passed": 59,
+      "skipped": 1,
+      "skipReason": "Windows-only test on macOS"
+    },
+    "rustLocalTracking": {
+      "passed": 11
+    },
+    "gitDiffCheck": "passed"
+  },
+  "artifacts": {
+    "fstVideoTab": "local-tabs-fst-2026-11-24.png",
+    "occupancySelection": "local-zone-source-selection-2026-11-24.png",
+    "realOpenFieldOverlay": "local-skeleton-continuity-2026-11-24.jpg"
+  },
+  "sourceSha256": {
+    "src/features/results/ResultTabs.tsx": "a037a1b0d018a430203b26936d95d03e9ebcd932624d36ca230d736c6beb54ef",
+    "src/features/results/RunZoneOccupancy.tsx": "84a7a22466c880574585e2f20322f7afed66ce787597ad37b2d00c68d7d43a9b",
+    "src/features/results/BoxTrajectoryView.tsx": "c18123031a004c288a8948b08a6f4b9f48faf5361f65c4d466f14df46d1467fe",
+    "src/features/results/Results.tsx": "0cbcb481c335adb762d0aeeebed180c28826dc708d26bc89705d7091a052798c",
+    "src/features/results/ForcedSwimResults.tsx": "3de7c33be8d99f3810ac266c1c0b6bd84c52ee470bed2d348400c4174b6b9edd",
+    "src/features/results/ForcedSwimLocalPanel.tsx": "91a4a56befdf1873c9cb7a519df24980b358088cb88534a11cda750b5571cc74",
+    "src/features/results/AnalysisWorkspace.tsx": "36f203bc941754eaf2d2504223c82aec7fb8d2d050f7a35c21ca8cbe2759ab95",
+    "src/features/radial-maze/RadialMazeResults.tsx": "738d4f2c19d34f8b83f9d6331598dd5aee4cbd5a2a0d234c258826d7f73d5b41",
+    "src/features/radial-maze/RamLocalPanel.tsx": "a78b3ab3abe9493ff14990f9dc58db32c4b473c7659d6ade0686596154425c76",
+    "src/features/radial-maze/RamColabPanel.tsx": "25894bbfd9bdbe9ccc8ad77f214d12f411faa8b2162550bc0de70660eefc5a3e",
+    "src/features/local/LocalBodyOverlay.tsx": "ce279b863b32b4e3ceff0d213a73d84f1348418eb61f10222a4d5ba3b09452ea",
+    "src/lib/body-axis.ts": "99c8ffe62f59787a49210b0279e830464a818de739aefd2e2969766318ef35ca",
+    "src/lib/zone-occupancy.ts": "0b6f4516349fb05f902b9a3fe04502b09ab40ccb788146a75ac2c656cfe3f6d6",
+    "src-tauri/python/local_audit_video.py": "d63a11697796d1280da5458a7bbbed2417d887f2682763ed5d422d6cc038be74",
+    "src/styles.css": "03dd0f626a3082a1b4ff63473b0403ba2aef712096e8b49d03c859996551d9c3"
+  },
+  "limits": [
+    "Silhouette coverage is visual availability, not ground-truth anatomical or tracking accuracy.",
+    "Uncertain actual contours remain labeled; predicted boxes without current contours do not get an invented skeleton.",
+    "Visual zone occupancy does not change metric eligibility, approvals or scientific metrics.",
+    "Browser verification used Chrome with mocked Tauri commands and generic fixtures; no installed Tauri interaction or remote Colab/GPU execution.",
+    "Screenshots of UI use a synthetic placeholder video; MP4 checks use real diagnostic clips.",
+    "No saved tracking jobs were modified; derived MP4s were generated in a temporary directory.",
+    "RAM Colab without an MP4 artifact shows an explicit empty state; no new Colab video generation was added."
+  ]
+}

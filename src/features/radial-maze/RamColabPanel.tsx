@@ -1,4 +1,7 @@
-import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import { TrackingDetails } from "../results/TrackingDetails";
+import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/card";
+import type { PoseSample } from "../../types";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { Download, Info } from "lucide-react";
 import type { ColabAnalysisControls } from "../results/AnalysisWorkspace";
 import { loadColabJobs, loadColabResult, loadRamArtifacts,
@@ -42,6 +45,8 @@ export function RamColabPanel({ experiment, children }: {
   const [error, setError] = useState<string | null>(null);
   const active = history.find(job => job.status === "queued" || job.status === "running");
   const selected = history.find(job => job.jobId === selectedId) ?? history[0];
+
+  useEffect(() => { if (experiment.trackingSelection?.engine === "colab") setSelectedId(experiment.trackingSelection.jobId); }, [experiment.trackingSelection?.engine, experiment.trackingSelection?.jobId]);
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
@@ -132,6 +137,9 @@ export function RamColabPanel({ experiment, children }: {
   };
   const sampled = result?.frames.filter(row => row.mouseCenter).filter((_, index) => index % Math.max(1, Math.floor(result.frameCount / 800))) ?? [];
 
+  const detailSamples=useMemo<PoseSample[]>(()=>result?.frames.map(row=>({frameIndex:row.frame,timestampSec:row.timestampSec,keypoint:"mouse_center",
+    xPx:row.mouseCenter?.x??null,yPx:row.mouseCenter?.y??null,likelihood:row.likelihood??0,source:"detected",status:row.mouseCenter?"valid":"missing"}))??[],[result]);
+
   const panel = <section className="panel ram-colab-panel">
     <input ref={fileRef} className="sr-only" type="file" accept="video/*" onChange={attach}/>
     <h2>Tracking no Colab</h2>
@@ -141,6 +149,8 @@ export function RamColabPanel({ experiment, children }: {
         if (history.find(job => job.jobId === jobId)?.resultsReady) updateRadialMazeExperiment(experiment.id, { status: "review", trackingSelection: { engine: "colab", jobId } }); }}>
         {history.map(job => <option key={job.jobId} value={job.jobId}>{new Date(job.createdAt).toLocaleString("pt-BR")} · {job.status}</option>)}
       </select></label></div>}
+  </section>;
+  const trajectoryPanel = <>
     {result && <>
       <div className="validation-box"><Info size={17}/><span>Tracking experimental: {result.observedFrames} de {result.frameCount} frames com centro confiável dentro da área analisável. Nenhuma visita, erro de memória ou recompensa foi calculada.</span></div>
       {result.geometry.revision !== experiment.geometry.revision && <p>Esta execução usa a revisão {result.geometry.revision} da geometria. A geometria atual é a revisão {experiment.geometry.revision}.</p>}
@@ -149,8 +159,18 @@ export function RamColabPanel({ experiment, children }: {
         <polygon points={result.geometry.walkablePolygonPx.map(point => `${point.x},${point.y}`).join(" ")} className="ram-center-polygon"/>
         {sampled.map(row => <circle key={row.frame} cx={row.mouseCenter!.x} cy={row.mouseCenter!.y} r={Math.max(2, result.video.width / 350)} fill="#51ddce" opacity="0.65"/>)}
       </svg>
-      <div className="fst-exports"><h3>Arquivos da execução</h3><div>{artifacts.map(file => <a key={file.name} href={file.url} download={file.name}><Download size={15}/>{file.name}</a>)}</div></div>
+
     </>}
-  </section>;
-  return children({ run: () => void run(), connected, job: active ?? selected ?? null, error, panel });
+  </>;
+  const empty = <section className="panel protocol-result-panel"><h2>Resultado Colab</h2><p>Selecione uma execução Colab concluída na aba Análise.</p></section>;
+  const files = <section className="panel protocol-result-panel fst-exports"><h2>Arquivos da execução Colab</h2><div>{artifacts.map(file => <a key={file.name} href={file.url} download={file.name}><Download size={15}/>{file.name}</a>)}</div></section>;
+  const video = artifacts.find(file => /\.mp4$/i.test(file.name));
+  return children({ run: () => void run(), connected, job: active ?? selected ?? null, error, panel,
+    resultPanels: {
+      summary: result ? <Card><CardHeader><CardTitle>Qualidade das observações</CardTitle></CardHeader><CardContent><p>{result.observedFrames.toLocaleString("pt-BR")} de {result.frameCount.toLocaleString("pt-BR")} quadros com centro confiável.</p><p className="details-chart-note">Visitas e erros de memória exigem revisão.</p></CardContent></Card> : empty,
+      video: result ? <section className="panel protocol-result-panel results-video-section"><h2>Vídeo · Google Colab</h2>{video ? <><div className="results-video-player"><video controls playsInline src={video.url}/></div><a href={video.url} download={video.name}>Baixar MP4</a></> : <p>Esta execução não contém MP4 anotado. Os dados por frame estão na aba Arquivos.</p>}</section> : empty,
+      trajectory: result ? trajectoryPanel : empty,
+      details: result ? <TrackingDetails experiment={experiment} samples={detailSamples} reference="point"><Card><CardHeader><CardTitle>Trajetória observada</CardTitle></CardHeader><CardContent>{trajectoryPanel}</CardContent></Card></TrackingDetails> : empty,
+      exports: result ? files : empty,
+    } });
 }

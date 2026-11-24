@@ -1,0 +1,913 @@
+{
+  "date": "2026-11-24",
+  "status": "TECHNICAL_AND_DIRECTED_VISUAL_REVIEW_NOT_ACCURACY_VALIDATION",
+  "appResultsModified": false,
+  "openField": {
+    "frameCount": 7356,
+    "previousDisplayedFrames": 655,
+    "displayedBoxCenters": 7356,
+    "uncertainFrames": 6699,
+    "predictedOrRecoveredFrames": 2,
+    "continuousEdges": 7355,
+    "firstFrame": 0,
+    "lastFrame": 7355
+  },
+  "forcedSwim": {
+    "videoFilename": "nado01.mp4",
+    "videoSha256": "95b6a883b23e961d39d2a70a1f5c46f26856fcae17db58a2190b80a138de39b0",
+    "frames": 11052,
+    "rows": 22104,
+    "clockMatches": true,
+    "before": {
+      "engineSha256": "58bddd259c5b115f07d40e21816497cb54ed9bfbbc599bd94bf5a701533319d3",
+      "request": {
+        "jobId": "diagnostic-forced_swim",
+        "videoSha256": "95b6a883b23e961d39d2a70a1f5c46f26856fcae17db58a2190b80a138de39b0",
+        "protocol": "forced_swim",
+        "width": 2560,
+        "height": 1440,
+        "subjects": [
+          {
+            "animalId": "animal_1",
+            "subjectId": "C5BL7"
+          },
+          {
+            "animalId": "animal_2",
+            "subjectId": "C6BL9"
+          }
+        ],
+        "tanks": [
+          {
+            "tankId": "tank_1",
+            "animalId": "animal_1",
+            "subjectId": "C5BL7",
+            "roiPx": {
+              "x": 709,
+              "y": 210,
+              "width": 443,
+              "height": 972
+            },
+            "revision": 2
+          },
+          {
+            "tankId": "tank_2",
+            "animalId": "animal_2",
+            "subjectId": "C6BL9",
+            "roiPx": {
+              "x": 1245,
+              "y": 208,
+              "width": 398,
+              "height": 966
+            },
+            "revision": 2
+          }
+        ]
+      },
+      "report": {
+        "version": "opencv-fst-presence-2",
+        "state": "succeeded",
+        "phase": "complete",
+        "framesProcessed": 11052,
+        "totalFrames": 11052,
+        "computeBackend": "CPU",
+        "scientificallyValidated": false,
+        "referenceFrames": 15,
+        "backgroundReference": {
+          "method": "dark_percentile_8_sparse_seek",
+          "sampleTimesSec": [
+            0.0,
+            24.56,
+            49.12,
+            73.67999999999999,
+            98.24,
+            122.8,
+            147.35999999999999,
+            171.92,
+            196.48,
+            221.04,
+            245.6,
+            270.15999999999997,
+            294.71999999999997,
+            319.28,
+            343.84
+          ],
+          "sampledFrames": 15,
+          "frozen": true
+        },
+        "elapsedSec": 795.9293437489996,
+        "processingFps": 13.885654658669432,
+        "confirmedPresenceFrames": 21781
+      }
+    },
+    "after": {
+      "engineSha256": "7553283ae986635ca94264d5a9f6de1b03cb02c16491d25da720bef949de4701",
+      "request": {
+        "jobId": "diagnostic-forced_swim",
+        "videoSha256": "95b6a883b23e961d39d2a70a1f5c46f26856fcae17db58a2190b80a138de39b0",
+        "protocol": "forced_swim",
+        "width": 2560,
+        "height": 1440,
+        "subjects": [
+          {
+            "animalId": "animal_1",
+            "subjectId": "C5BL7"
+          },
+          {
+            "animalId": "animal_2",
+            "subjectId": "C6BL9"
+          }
+        ],
+        "tanks": [
+          {
+            "tankId": "tank_1",
+            "animalId": "animal_1",
+            "subjectId": "C5BL7",
+            "roiPx": {
+              "x": 709,
+              "y": 210,
+              "width": 443,
+              "height": 972
+            },
+            "revision": 2
+          },
+          {
+            "tankId": "tank_2",
+            "animalId": "animal_2",
+            "subjectId": "C6BL9",
+            "roiPx": {
+              "x": 1245,
+              "y": 208,
+              "width": 398,
+              "height": 966
+            },
+            "revision": 2
+          }
+        ]
+      },
+      "report": {
+        "version": "opencv-fst-presence-3",
+        "state": "succeeded",
+        "phase": "complete",
+        "framesProcessed": 11052,
+        "totalFrames": 11052,
+        "computeBackend": "CPU",
+        "scientificallyValidated": false,
+        "processingGeometry": {
+          "width": 1280,
+          "height": 720,
+          "coordinateSpace": "original_video",
+          "scale": 0.5,
+          "association": "per_tank_temporal_appearance"
+        },
+        "referenceFrames": 15,
+        "backgroundReference": {
+          "method": "dark_percentile_8_sparse_seek",
+          "sampleTimesSec": [
+            0.0,
+            24.56,
+            49.12,
+            73.67999999999999,
+            98.24,
+            122.8,
+            147.35999999999999,
+            171.92,
+            196.48,
+            221.04,
+            245.6,
+            270.15999999999997,
+            294.71999999999997,
+            319.28,
+            343.84
+          ],
+          "sampledFrames": 15,
+          "frozen": true
+        },
+        "elapsedSec": 567.2820473889988,
+        "processingFps": 19.482372218314502,
+        "confirmedPresenceFrames": 21890
+      }
+    },
+    "subjectsBefore": {
+      "animal_1": {
+        "presenceCounts": {
+          "NOT_IN_TANK": 104,
+          "IN_TANK": 10948
+        },
+        "boxFrames": 10915,
+        "boxAt40Sec": {
+          "x": 725,
+          "y": 284,
+          "width": 367,
+          "height": 594
+        }
+      },
+      "animal_2": {
+        "presenceCounts": {
+          "NOT_IN_TANK": 110,
+          "IN_TANK": 10833,
+          "UNCERTAIN": 109
+        },
+        "boxFrames": 10768,
+        "boxAt40Sec": {
+          "x": 1332,
+          "y": 865,
+          "width": 213,
+          "height": 309
+        }
+      }
+    },
+    "subjectsAfter": {
+      "animal_1": {
+        "presenceCounts": {
+          "NOT_IN_TANK": 104,
+          "IN_TANK": 10948
+        },
+        "boxFrames": 10946,
+        "boxAt40Sec": {
+          "x": 726.9594594594595,
+          "y": 284.0,
+          "width": 363.1801801801802,
+          "height": 492.0
+        }
+      },
+      "animal_2": {
+        "presenceCounts": {
+          "NOT_IN_TANK": 110,
+          "IN_TANK": 10942
+        },
+        "boxFrames": 10942,
+        "boxAt40Sec": {
+          "x": 1252.96,
+          "y": 340.0,
+          "width": 382.08,
+          "height": 512.0
+        }
+      }
+    },
+    "directedReview": "At 40.000 s, cylinder B baseline box covers the lower reflection; new box covers the animal. Partial-body boxes remain possible."
+  },
+  "radialMaze": {
+    "videoFilename": "Caf 3 - dia 2.MOV",
+    "videoSha256": "8f1fbed025c972c5ad7e194502a0f1ac1b0dffe8a52bf1a8d577e3ff20ae69b3",
+    "frames": 14514,
+    "clockMatches": true,
+    "boxFrames": 14514,
+    "before": {
+      "engineSha256": "3c6e8548d5f19418f06c41935611b54ba49f0022a1d5556f059ce4bfa45080a3",
+      "request": {
+        "jobId": "diagnostic-radial_arm_maze",
+        "videoSha256": "diagnostic-original",
+        "protocol": "radial_arm_maze",
+        "width": 1920,
+        "height": 1080,
+        "strategy": "classical_roi_v1",
+        "arena": {
+          "cornersPx": [
+            {
+              "x": 537,
+              "y": 202
+            },
+            {
+              "x": 1387,
+              "y": 202
+            },
+            {
+              "x": 1387,
+              "y": 1054
+            },
+            {
+              "x": 537,
+              "y": 1054
+            }
+          ]
+        },
+        "walkablePolygonPx": [
+          {
+            "x": 910,
+            "y": 202
+          },
+          {
+            "x": 930,
+            "y": 533
+          },
+          {
+            "x": 918,
+            "y": 541
+          },
+          {
+            "x": 667,
+            "y": 321
+          },
+          {
+            "x": 625,
+            "y": 367
+          },
+          {
+            "x": 878,
+            "y": 587
+          },
+          {
+            "x": 868,
+            "y": 601
+          },
+          {
+            "x": 539,
+            "y": 619
+          },
+          {
+            "x": 537,
+            "y": 687
+          },
+          {
+            "x": 884,
+            "y": 657
+          },
+          {
+            "x": 888,
+            "y": 679
+          },
+          {
+            "x": 653,
+            "y": 926
+          },
+          {
+            "x": 703,
+            "y": 968
+          },
+          {
+            "x": 924,
+            "y": 707
+          },
+          {
+            "x": 934,
+            "y": 707
+          },
+          {
+            "x": 950,
+            "y": 1054
+          },
+          {
+            "x": 1018,
+            "y": 1054
+          },
+          {
+            "x": 1000,
+            "y": 726
+          },
+          {
+            "x": 1006,
+            "y": 709
+          },
+          {
+            "x": 1259,
+            "y": 932
+          },
+          {
+            "x": 1291,
+            "y": 886
+          },
+          {
+            "x": 1056,
+            "y": 683
+          },
+          {
+            "x": 1056,
+            "y": 665
+          },
+          {
+            "x": 1387,
+            "y": 643
+          },
+          {
+            "x": 1383,
+            "y": 577
+          },
+          {
+            "x": 1060,
+            "y": 595
+          },
+          {
+            "x": 1048,
+            "y": 583
+          },
+          {
+            "x": 1273,
+            "y": 339
+          },
+          {
+            "x": 1223,
+            "y": 297
+          },
+          {
+            "x": 1008,
+            "y": 533
+          },
+          {
+            "x": 994,
+            "y": 533
+          },
+          {
+            "x": 980,
+            "y": 202
+          }
+        ],
+        "geometryRevision": 1,
+        "walkableMaskVersion": "ram-walkable-polygon-1:37da9edf28321e3b226243519946f87c8cd66e7a74876fa307cd29e988b0d4ca",
+        "mode": "auto",
+        "threshold": 25,
+        "minAreaFraction": 0.0001,
+        "maxAreaFraction": 0.2,
+        "maxWidth": 640,
+        "maxPredictionSec": 0.25,
+        "referenceApproved": false,
+        "useOpenCL": false
+      },
+      "report": {
+        "version": "opencv-box-9",
+        "state": "succeeded",
+        "phase": "tracking",
+        "framesProcessed": 14514,
+        "totalFrames": 14514,
+        "counts": {
+          "observed": 14514,
+          "predicted": 0,
+          "missing": 0,
+          "suspect": 14427,
+          "manual": 0,
+          "visual": 0,
+          "uncertain": 0,
+          "validObserved": 87
+        },
+        "reasonCounts": {
+          "hybrid_ambiguous_candidates": 20,
+          "hybrid_identity_pending": 1,
+          "hybrid_near_wall_or_partial": 781,
+          "hybrid_silhouette_clipped": 13366,
+          "hybrid_reacquisition_pending": 186,
+          "hybrid_observed": 87,
+          "hybrid_area_changed": 73
+        },
+        "qualityReasonCounts": {
+          "ambiguous_candidates": 20,
+          "near_wall_or_partial": 14426,
+          "silhouette_clipped": 13441,
+          "identity_pending": 1,
+          "reacquisition_pending": 186,
+          "area_changed": 73
+        },
+        "trackingObservedFrames": 868,
+        "geometryRejectedFrames": 781,
+        "kalmanUpdateCount": 868,
+        "reference": "box_center",
+        "scientificallyValidated": false,
+        "accuracyMeasured": false,
+        "referenceApproved": false,
+        "timing": "ffprobe_pts",
+        "elapsedSec": 612.9039314010006,
+        "processingFps": 23.680709580085924,
+        "guidanceSourceJobId": null,
+        "manualAnchorCount": 0,
+        "assistedMethod": null,
+        "strategy": "classical_roi_v1",
+        "neuralFallback": "unavailable",
+        "computeBackend": "CPU",
+        "segmentationSelection": null,
+        "backgroundReference": {
+          "method": "session_median_sparse_seek",
+          "sampleTimesSec": [
+            0.0,
+            19.50712364516129,
+            39.01424729032258,
+            58.52137093548387,
+            78.02849458064516,
+            97.53561822580645,
+            117.04274187096775,
+            136.54986551612902,
+            156.05698916129032,
+            175.56411280645162,
+            195.0712364516129,
+            214.5783600967742,
+            234.0854837419355,
+            253.59260738709676,
+            273.09973103225803,
+            292.60685467741934,
+            312.11397832258064,
+            331.6211019677419,
+            351.12822561290324,
+            370.6353492580645,
+            390.1424729032258,
+            409.6495965483871,
+            429.1567201935484,
+            448.6638438387096,
+            468.170967483871,
+            487.6780911290322,
+            507.1852147741935,
+            526.6923384193548,
+            546.1994620645161,
+            565.7065857096775,
+            585.2137093548387
+          ],
+          "sampledFrames": 31,
+          "frozen": true,
+          "staticFallbackAvailable": false
+        },
+        "cameraMotionState": "stable",
+        "cameraUncertainFrames": 0,
+        "cameraMotionPx": 0.8852750658988953,
+        "observationCoveragePct": 100.0,
+        "validObservationCoveragePct": 0.5994212484497726,
+        "trackingObservedCoveragePct": 5.980432685682789,
+        "reviewRequiredFrames": 14427
+      }
+    },
+    "after": {
+      "engineSha256": "b5d5fc8e7b943207dfdea7cfcb32b209504c58cc7b25355e8d3cd9b8ac78c926",
+      "request": {
+        "jobId": "diagnostic-radial_arm_maze",
+        "videoSha256": "diagnostic-original",
+        "protocol": "radial_arm_maze",
+        "width": 1920,
+        "height": 1080,
+        "strategy": "classical_roi_v1",
+        "arena": {
+          "cornersPx": [
+            {
+              "x": 537,
+              "y": 202
+            },
+            {
+              "x": 1387,
+              "y": 202
+            },
+            {
+              "x": 1387,
+              "y": 1054
+            },
+            {
+              "x": 537,
+              "y": 1054
+            }
+          ]
+        },
+        "walkablePolygonPx": [
+          {
+            "x": 910,
+            "y": 202
+          },
+          {
+            "x": 930,
+            "y": 533
+          },
+          {
+            "x": 918,
+            "y": 541
+          },
+          {
+            "x": 667,
+            "y": 321
+          },
+          {
+            "x": 625,
+            "y": 367
+          },
+          {
+            "x": 878,
+            "y": 587
+          },
+          {
+            "x": 868,
+            "y": 601
+          },
+          {
+            "x": 539,
+            "y": 619
+          },
+          {
+            "x": 537,
+            "y": 687
+          },
+          {
+            "x": 884,
+            "y": 657
+          },
+          {
+            "x": 888,
+            "y": 679
+          },
+          {
+            "x": 653,
+            "y": 926
+          },
+          {
+            "x": 703,
+            "y": 968
+          },
+          {
+            "x": 924,
+            "y": 707
+          },
+          {
+            "x": 934,
+            "y": 707
+          },
+          {
+            "x": 950,
+            "y": 1054
+          },
+          {
+            "x": 1018,
+            "y": 1054
+          },
+          {
+            "x": 1000,
+            "y": 726
+          },
+          {
+            "x": 1006,
+            "y": 709
+          },
+          {
+            "x": 1259,
+            "y": 932
+          },
+          {
+            "x": 1291,
+            "y": 886
+          },
+          {
+            "x": 1056,
+            "y": 683
+          },
+          {
+            "x": 1056,
+            "y": 665
+          },
+          {
+            "x": 1387,
+            "y": 643
+          },
+          {
+            "x": 1383,
+            "y": 577
+          },
+          {
+            "x": 1060,
+            "y": 595
+          },
+          {
+            "x": 1048,
+            "y": 583
+          },
+          {
+            "x": 1273,
+            "y": 339
+          },
+          {
+            "x": 1223,
+            "y": 297
+          },
+          {
+            "x": 1008,
+            "y": 533
+          },
+          {
+            "x": 994,
+            "y": 533
+          },
+          {
+            "x": 980,
+            "y": 202
+          }
+        ],
+        "geometryRevision": 1,
+        "walkableMaskVersion": "ram-walkable-polygon-1:37da9edf28321e3b226243519946f87c8cd66e7a74876fa307cd29e988b0d4ca",
+        "mode": "auto",
+        "threshold": 25,
+        "minAreaFraction": 0.0001,
+        "maxAreaFraction": 0.2,
+        "maxWidth": 640,
+        "maxPredictionSec": 0.25,
+        "referenceApproved": false,
+        "useOpenCL": false
+      },
+      "report": {
+        "version": "opencv-box-10",
+        "state": "succeeded",
+        "phase": "tracking",
+        "framesProcessed": 14514,
+        "totalFrames": 14514,
+        "counts": {
+          "observed": 14514,
+          "predicted": 0,
+          "missing": 0,
+          "suspect": 14426,
+          "manual": 0,
+          "visual": 0,
+          "uncertain": 0,
+          "validObserved": 88
+        },
+        "reasonCounts": {
+          "hybrid_ambiguous_candidates": 18,
+          "hybrid_identity_pending": 1,
+          "hybrid_near_wall_or_partial": 14405,
+          "hybrid_observed": 88,
+          "hybrid_area_changed": 2
+        },
+        "qualityReasonCounts": {
+          "ambiguous_candidates": 18,
+          "near_wall_or_partial": 14425,
+          "identity_pending": 1,
+          "area_changed": 2
+        },
+        "trackingObservedFrames": 14493,
+        "geometryRejectedFrames": 14405,
+        "kalmanUpdateCount": 14493,
+        "reference": "box_center",
+        "scientificallyValidated": false,
+        "accuracyMeasured": false,
+        "referenceApproved": false,
+        "timing": "ffprobe_pts",
+        "elapsedSec": 374.8527679959989,
+        "processingFps": 38.719201881830365,
+        "guidanceSourceJobId": null,
+        "manualAnchorCount": 0,
+        "assistedMethod": null,
+        "strategy": "classical_roi_v1",
+        "neuralFallback": "unavailable",
+        "computeBackend": "CPU",
+        "segmentationSelection": null,
+        "backgroundReference": {
+          "method": "session_median_sparse_seek",
+          "sampleTimesSec": [
+            0.0,
+            19.50712364516129,
+            39.01424729032258,
+            58.52137093548387,
+            78.02849458064516,
+            97.53561822580645,
+            117.04274187096775,
+            136.54986551612902,
+            156.05698916129032,
+            175.56411280645162,
+            195.0712364516129,
+            214.5783600967742,
+            234.0854837419355,
+            253.59260738709676,
+            273.09973103225803,
+            292.60685467741934,
+            312.11397832258064,
+            331.6211019677419,
+            351.12822561290324,
+            370.6353492580645,
+            390.1424729032258,
+            409.6495965483871,
+            429.1567201935484,
+            448.6638438387096,
+            468.170967483871,
+            487.6780911290322,
+            507.1852147741935,
+            526.6923384193548,
+            546.1994620645161,
+            565.7065857096775,
+            585.2137093548387
+          ],
+          "sampledFrames": 31,
+          "frozen": true,
+          "staticFallbackAvailable": false
+        },
+        "cameraMotionState": "stable",
+        "cameraUncertainFrames": 0,
+        "cameraMotionPx": 0.8852750658988953,
+        "observationCoveragePct": 100.0,
+        "validObservationCoveragePct": 0.6063111478572413,
+        "trackingObservedCoveragePct": 99.85531211244316,
+        "reviewRequiredFrames": 14426
+      }
+    },
+    "directedReviewSeconds": [
+      15,
+      40,
+      60,
+      80,
+      120,
+      250,
+      400,
+      550
+    ]
+  },
+  "overlayProofs": {
+    "open_field": {
+      "version": "local-audit-3",
+      "skeletonMethod": "silhouette_cross_sections_1",
+      "anatomicalPose": false,
+      "skeletonFrames": 65,
+      "displacementChart": {
+        "position": "top_right",
+        "units": "px/s",
+        "reference": "box_center",
+        "coordinateSpace": "source_image",
+        "windowSec": 10,
+        "maxPairGapSec": 0.5,
+        "validPairs": 64,
+        "scientificMetric": false
+      },
+      "protocol": "open_field",
+      "sourceWindowSec": [
+        20,
+        24.0
+      ],
+      "renderSec": 3.1935101349954493,
+      "sourceVideoSha256": "5e27d53a89b14e044b48945b2fe023b0887f1a41d4438a34bf6766287477adaa",
+      "frameCount": 96,
+      "sourceClipPtsOriginSec": 0.0,
+      "maxNormalizedPtsDifferenceSec": 0.0,
+      "normalizedPtsMatchWithin2Microseconds": true,
+      "preview": "local-open_field-skeleton-motion-2026-11-24.jpg"
+    },
+    "radial_arm_maze": {
+      "version": "local-audit-3",
+      "skeletonMethod": "silhouette_cross_sections_1",
+      "anatomicalPose": false,
+      "skeletonFrames": 96,
+      "displacementChart": {
+        "position": "top_right",
+        "units": "px/s",
+        "reference": "box_center",
+        "coordinateSpace": "source_image",
+        "windowSec": 10,
+        "maxPairGapSec": 0.5,
+        "validPairs": 95,
+        "scientificMetric": false
+      },
+      "protocol": "radial_arm_maze",
+      "sourceWindowSec": [
+        80,
+        84.0
+      ],
+      "renderSec": 4.927794955998252,
+      "sourceVideoSha256": "8bded4950a50d52de80ef3f5c110967f8aaf8fa881170098ae008fab7b8db56d",
+      "frameCount": 96,
+      "sourceClipPtsOriginSec": 0.041016,
+      "maxNormalizedPtsDifferenceSec": 1.1102230246251565e-16,
+      "normalizedPtsMatchWithin2Microseconds": true,
+      "preview": "local-radial_arm_maze-skeleton-motion-2026-11-24.jpg"
+    },
+    "forced_swim": {
+      "version": "local-audit-3",
+      "skeletonMethod": "silhouette_cross_sections_1",
+      "anatomicalPose": false,
+      "skeletonFrames": 282,
+      "displacementChart": {
+        "position": "top_right",
+        "units": "px/s",
+        "reference": "box_center",
+        "coordinateSpace": "source_image",
+        "windowSec": 10,
+        "maxPairGapSec": 0.5,
+        "validPairs": 358,
+        "scientificMetric": false
+      },
+      "protocol": "forced_swim",
+      "sourceWindowSec": [
+        37,
+        43.0
+      ],
+      "renderSec": 11.000632231000054,
+      "sourceVideoSha256": "29576db4bdf14d918dacf98a02eb9dfe880fff248cde4aa0049d214a568c4026",
+      "frameCount": 180,
+      "sourceClipPtsOriginSec": 0.0,
+      "maxNormalizedPtsDifferenceSec": 0.0,
+      "normalizedPtsMatchWithin2Microseconds": true,
+      "preview": "local-forced_swim-skeleton-motion-2026-11-24.jpg"
+    }
+  },
+  "checks": {
+    "vitest": "138 tests passed in 22 files",
+    "python": "59 tests: 58 passed, one Windows-only skip on macOS",
+    "rust": "11 local_tracking tests passed",
+    "build": "TypeScript/Vite passed"
+  },
+  "limits": [
+    "No human ground-truth annotations or biological accuracy measurement. Tracking acceptance and coverage are heuristic outputs, not precision.",
+    "Runs overlapped on one computer; durations are diagnostics, not controlled speed comparisons.",
+    "RAM calibration has walkable polygon but no complete event geometry for arm choices.",
+    "FST full comparison used the preserved snapshot before optional contour serialization was added. That addition does not change candidate selection; contour coordinates and rendering are covered by integration tests and real-video clips.",
+    "Skeleton is a geometric silhouette centerline, not named anatomical pose. No HRNet, Colab/GPU, or packaged application interaction was validated.",
+    "Overlay proofs use re-encoded short clips with normalized PTS; requested seek windows are not original frame identity guarantees. Full tracking comparisons use unchanged original frame indices and PTS."
+  ],
+  "uiAxisBenchmark": {
+    "sampledContours": 402,
+    "drawn": 369,
+    "medianMs": 0.6535120000000916,
+    "p95Ms": 1.4690350000000194,
+    "scope": "Node calculation only; excludes browser layout, chart and video decode"
+  },
+  "finalSourceHashes": {
+    "src-tauri/python/local_fst_engine.py": "a0641e269bc044fed553e726752c3094d7f69d8e2e762d3c9700abba3f21d1e6",
+    "src-tauri/python/opencv_engine.py": "b5d5fc8e7b943207dfdea7cfcb32b209504c58cc7b25355e8d3cd9b8ac78c926",
+    "src-tauri/python/local_audit_video.py": "dc7389bf277edf2c23d2b95cdd86d0adf3a2376e4ed6d359aeb98efd97150e63",
+    "src/lib/body-axis.ts": "f616e5be916911ffc5257888efecf0070ffbe5b3bd8afff4aa9bdb0e309b70b1",
+    "src/lib/local-motion.ts": "6ef1e8af63a588b53c2d881c4ae4a95483f715118bdf7cfffedd6a235145769f",
+    "src/lib/boxes.ts": "e00947634d810e933d70c27db8f386d218e837f73fc24185d8b2a345cdc8883c"
+  }
+}

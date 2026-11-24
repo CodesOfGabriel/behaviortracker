@@ -1,7 +1,16 @@
+import { SelectMenu } from "../../components/ui/SelectMenu";
+import { AnalysisDetailsLayout, DetailsVideoCard } from "./AnalysisDetailsLayout";
+import { ResultMotionChart } from "./ResultMotionChart";
+import { PresenceResultChart } from "./PresenceResultChart";
+import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/card";
+import { ExperimentRunSummary } from "./ExperimentRunSummary";
+import { ExperimentVideos } from "./ExperimentVideos";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { ArrowLeft, ArrowRight, Download, Info, Pause, Play, SkipBack, SkipForward } from "lucide-react";
 import { Button } from "../../components/ui/Button";
-import { EditorTabs } from "../../components/ui/EditorTabs";
+import { ResultTabs, ResultPanel, type ResultView } from "./ResultTabs";
+import { BoxTrajectoryView } from "./BoxTrajectoryView";
+import type { PoseSample } from "../../types";
 import { downloadText } from "../../lib/csv";
 import { formatDuration } from "../../lib/format";
 import { displayableFstPose, FST_ENGINE, FST_VERSION, validateForcedSwim, type FstResult } from "../../lib/fst";
@@ -49,7 +58,7 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
   const [summary,setSummary]=useState<OAuthProfileSummary>(emptyColabSummary);
   const [history,setHistory]=useState<ColabJob[]>([]);
   const [selectedJobId,setSelectedJobId]=useState<string|null>(null);
-  const [view,setView]=useState<"video"|"animals"|"review"|"exports"|"runs">(busy?"runs":"video");
+  const [view,setView]=useState<ResultView>(busy?"runs":"summary");
   const [result,setResult]=useState<FstResult|null>(null);
   const [loadingResult,setLoadingResult]=useState(false);
   const [error,setError]=useState<string|null>(null);
@@ -68,13 +77,22 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
   const colabSelected=experiment?.trackingSelection?.engine!=="opencv";
   const active=history.find(j=>j.status==="running"||j.status==="queued");
   const workflowJob=active??(busy?null:selectedJob);
-  const visibleView=colabSelected&&selectedJob?.resultsReady?view:"runs";
+  const visibleView=view;
+  useEffect(()=>{if(visibleView!=="details")playerRef.current?.pause()},[visibleView]);
   const frame=result?Math.max(0,Math.min(result.video.frameCount-1,Math.round(time*result.video.fps))):0;
   const frameData=useMemo(()=>result?.frames.filter(f=>f.frame===frame)??[],[result,frame]);
   const framePoses=useMemo(()=>result?.subjects.flatMap(s=>(result.poseArrays[s.animalId]?.[frame]??[]).map(([xPx,yPx,likelihood],i)=>({animalId:s.animalId,keypoint:result.keypointNames[i],xPx,yPx,likelihood})))??[],[result,frame]);
   const annotations=(experiment?.annotations??[]).filter(a=>!result||a.runId===result.runId);
 
   useEffect(()=>{if(active)setView("runs")},[active?.jobId]);
+  useEffect(()=>{if(experiment?.trackingSelection?.engine==="colab")setSelectedJobId(experiment.trackingSelection.jobId)},[experiment?.trackingSelection?.engine,experiment?.trackingSelection?.jobId]);
+  const colabTracks=useMemo(()=>{
+    const tracks=new Map<string,PoseSample[]>();
+    for(const row of result?.frames??[]){const rows=tracks.get(row.animalId)??[];rows.push({frameIndex:row.frame,timestampSec:row.timestampSec,
+      keypoint:"box_center",xPx:null,yPx:null,likelihood:0,source:"detected",status:row.presence==="IN_TANK"&&row.bbox?"valid":"missing",
+      bbox:row.presence==="IN_TANK"?row.bbox??undefined:undefined});tracks.set(row.animalId,rows);}
+    return tracks;
+  },[result]);
 
   useEffect(()=>{
     if(!isTauriRuntime())return;
@@ -170,17 +188,18 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
   const useOriginal=Boolean(originalUrl);
   const displayedWidth=videoSize?.src===videoSource?videoSize.width:result?.video.width??1;
   const displayedHeight=videoSize?.src===videoSource?videoSize.height:result?.video.height??1;
-  return <div className="page results-page fst-results">
+  return <ForcedSwimLocalPanel experiment={experiment}>{local => <div className="page results-page fst-results">
     <input ref={fileRef} type="file" accept="video/*" className="sr-only" onChange={attach}/>
     <button className="back-link" onClick={()=>navigate({name:"dashboard"})}><ArrowLeft size={16}/> Experimentos</button>
     <section className="page-heading results-heading"><div><div className="eyebrow">Análise Completa · Forced Swim Test</div><h1>{experiment.title}</h1><p>{experiment.subjects.map(s=>`${s.animalId}: ${s.subjectId}`).join(" · ")} · {experiment.video.filename}</p></div>
-    <div className="results-actions"><Button variant="secondary" onClick={()=>navigate({name:"validation",experimentId})}>Referência humana</Button></div></section>
+</section>
     {error&&visibleView!=="runs"&&<div role="alert" className="validation-box invalid"><Info size={16}/>{error}</div>}
-    <EditorTabs id="fst-view" label="Áreas da análise FST" value={visibleView} onChange={setView}
-      items={colabSelected&&selectedJob?.resultsReady?[{id:"video",label:"Vídeo"},{id:"animals",label:"Animais"},{id:"review",label:"Revisão"},{id:"exports",label:"Arquivos"},{id:"runs",label:"Análise"}]:[{id:"runs",label:"Análise"}]}/>
+    <ResultTabs id="fst-view" label="Áreas da análise FST" value={visibleView} onChange={setView}/>
+    {!colabSelected && (["summary","trajectory","details","exports"] as const).map(tab =>
+      <ResultPanel key={tab} id="fst-view" view={tab} active={visibleView}>{tab==="summary"&&visibleView==="summary"&&<ExperimentRunSummary experiment={experiment}/>} {local.resultPanels?.[tab]}</ResultPanel>)}
+    <ResultPanel id="fst-view" view="video" active={visibleView}>{visibleView==="video"&&<ExperimentVideos experiment={experiment}/>}</ResultPanel>
     <div className="fst-runs-content" role="tabpanel" id="fst-view-runs-panel" aria-labelledby="fst-view-runs-tab" hidden={visibleView!=="runs"}>
-      <ForcedSwimLocalPanel experiment={experiment}>
-        {local => <AnalysisWorkspace experimentId={experimentId} protocol="forced_swim"
+      <AnalysisWorkspace experimentId={experimentId} protocol="forced_swim"
           defaultEngine={experiment.trackingSelection?.engine ?? "colab"} local={local}
           colab={{ run: () => void run(), connected: summary.connected, job: workflowJob, error,
             panel: <section className="panel results-runs-panel">
@@ -197,13 +216,16 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
           </button>
         )) : <p>Nenhuma execução registrada.</p>}
       </div>
-      </section> }} />}
-      </ForcedSwimLocalPanel>
+      </section> }} />
     </div>
     <div className="fst-result-content">
-    {loadingResult&&<p role="status">Carregando dados FST da execução…</p>}
-    {result&&<>
-      <section className="fst-player-panel" role="tabpanel" id="fst-view-video-panel" aria-labelledby="fst-view-video-tab" hidden={visibleView!=="video"}><div className="panel-header"><div><h2>Vídeo e observações</h2><p>{useOriginal?"Vídeo original com overlays sincronizados":"MP4 anotado da execução"} · {result.video.width} × {result.video.height} · {result.video.fps.toFixed(3)} FPS</p><p>{result.pipelineRevision==="visual-body-prepose-1"?"Pose guiada por caixa visual do corpo · método experimental":"Pose guiada pela ROI do cilindro · execução anterior"}</p></div></div>
+    {colabSelected&&!result&&!loadingResult&&visibleView!=="runs"&&visibleView!=="video"&&visibleView!=="summary"&&<section className="panel"><h2>Resultado FST</h2><p>Selecione uma execução concluída na aba Análise.</p></section>}
+    {colabSelected&&!result&&visibleView==="summary"&&<ExperimentRunSummary experiment={experiment}/>}
+    {colabSelected&&loadingResult&&<p role="status">Carregando dados FST da execução…</p>}
+    {colabSelected&&result&&<>
+      <ResultPanel id="fst-view" view="trajectory" active={visibleView}><BoxTrajectoryView tracks={colabTracks} width={result.video.width} height={result.video.height}/></ResultPanel>
+      <ResultPanel id="fst-view" view="details" active={visibleView}>
+        <AnalysisDetailsLayout video={<DetailsVideoCard description="Vídeo e observações sincronizados por cilindro.">
         <div className="fst-player" style={{aspectRatio:`${displayedWidth}/${displayedHeight}`,maxWidth:`${690*displayedWidth/displayedHeight}px`}}>
           {videoSource?<video ref={playerRef} src={videoSource} controls onLoadedMetadata={e=>{if(e.currentTarget.videoWidth>0&&e.currentTarget.videoHeight>0)setVideoSize({src:videoSource,width:e.currentTarget.videoWidth,height:e.currentTarget.videoHeight})}} onTimeUpdate={e=>setTime(e.currentTarget.currentTime)} onSeeked={e=>setTime(e.currentTarget.currentTime)}/>:<div className="fst-player-empty">Vídeo indisponível neste dispositivo. {labeledVideoError||"Os dados por frame permanecem abaixo."}</div>}
           {useOriginal&&<svg className="fst-overlay" viewBox={`0 0 ${result.video.width} ${result.video.height}`} preserveAspectRatio="none" aria-label="Caixas e pontos sincronizados">
@@ -219,8 +241,23 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
         {useOriginal&&<p className="fst-note">Caixas e pontos usam as coordenadas da análise e acompanham as dimensões reais do vídeo exibido. Revise o MP4 anotado e os dados por frame em casos de dúvida.</p>}
         <div className="fst-visibility"><label><input type="checkbox" checked={showBoxes} onChange={e=>setShowBoxes(e.target.checked)}/> Caixas dinâmicas</label><label><input type="checkbox" checked={showPoints} onChange={e=>setShowPoints(e.target.checked)}/> Pontos anatômicos</label></div>
         {!useOriginal&&<p className="fst-note">A visibilidade das caixas e pontos no MP4 anotado é fixa. Reanexe o vídeo original para controlar os overlays.</p>}
-      </section>
-      <section className="fst-animals" role="tabpanel" id="fst-view-animals-panel" aria-labelledby="fst-view-animals-tab" hidden={visibleView!=="animals"}><h2>Resultados por animal</h2><div className="fst-animal-tabs">{result.subjects.map(s=><button key={s.animalId} className={selectedAnimal===s.animalId?"active":""} onClick={()=>setSelectedAnimal(s.animalId)}>{s.animalId} · {s.subjectId}</button>)}</div>
+
+        </DetailsVideoCard>}>
+          <ResultMotionChart tracks={colabTracks} width={result.video.width} height={result.video.height} time={time} onSeek={seek}/>
+          <PresenceResultChart subjects={result.subjects} frames={result.frames}/>
+          <Card className="fst-review-panel"><CardHeader><CardTitle>Revisão de intervalos</CardTitle></CardHeader><CardContent>
+            <SelectMenu label="Animal em revisão" value={selectedAnimal} onChange={setSelectedAnimal} options={result.subjects.map(subject=>({value:subject.animalId,label:`${subject.animalId} · ${subject.subjectId}`}))}/>
+<p>Marque trechos para revisão. Cada evento mantém sujeito, intervalo, autor manual, versão e execução.</p><div className="fst-annotation-form"><label>Início (s)<input type="number" min="0" step="0.1" value={startSec} onChange={e=>setStartSec(Number(e.target.value))}/></label><label>Fim (s)<input type="number" min="0" step="0.1" value={endSec} onChange={e=>setEndSec(Number(e.target.value))}/></label><SelectMenu label="Rótulo da revisão" value={label} onChange={value=>setLabel(value as FstBehavior)} options={labels.map(value=>({value,label:value}))}/><Button onClick={annotate}>Registrar intervalo</Button></div>
+        <div className="fst-review-shortlist"><h3>Trechos sugeridos para revisão</h3>{result.reviewShortlist.filter(item=>item.animalId===selectedAnimal).slice(0,16).map(item=><button key={`${item.animalId}-${item.startSec}`} onClick={()=>{seek(item.startSec);setStartSec(item.startSec);setEndSec(item.endSec)}}>{item.startSec.toFixed(1)}–{item.endSec.toFixed(1)} s · {item.reason==="LOWER_OBSERVED_MOTION"?"Menor movimento observado":item.reason==="HIGHER_OBSERVED_MOTION"?"Maior movimento observado":"Tracking insuficiente"} <ArrowRight size={14}/></button>)}{result.frames.filter(f=>f.animalId===selectedAnimal&&f.presence==="UNCERTAIN").filter((_,i)=>i%Math.max(1,Math.round(result.video.fps))===0).slice(0,5).map(f=><button key={`uncertain-${f.frame}`} onClick={()=>{seek(f.timestampSec);setStartSec(f.timestampSec);setEndSec(Math.min(result.video.frameCount/result.video.fps,f.timestampSec+1))}}>{f.timestampSec.toFixed(1)} s · Presença incerta <ArrowRight size={14}/></button>)}</div>
+        <ol className="fst-annotations">{annotations.map(a=><li key={a.id}><strong>{a.animalId} · {a.label}</strong><span>{a.startSec.toFixed(1)}–{a.endSec.toFixed(1)} s · manual · {new Date(a.createdAt).toLocaleString("pt-BR")}</span></li>)}</ol>
+
+          </CardContent></Card>
+        </AnalysisDetailsLayout>
+      </ResultPanel>
+      <ResultPanel id="fst-view" view="summary" active={visibleView}>
+        {visibleView==="summary"&&<ExperimentRunSummary experiment={experiment}/>}
+        <Card className="fst-animals"><CardHeader><CardTitle>Resultados por animal</CardTitle></CardHeader><CardContent>
+          <SelectMenu label="Animal do resumo" value={selectedAnimal} onChange={setSelectedAnimal} options={result.subjects.map(subject=>({value:subject.animalId,label:`${subject.animalId} · ${subject.subjectId}`}))}/>
         {result.subjects.map(s=>{const values=result.frames.filter(f=>f.animalId===s.animalId);const confirmed=values.filter(f=>f.presence==="IN_TANK");const quality=result.quality[s.animalId];const bins=Array.from({length:Math.min(120,values.length)},(_,i)=>values[Math.min(values.length-1,Math.floor(i*values.length/Math.min(120,values.length)))]);
           return selectedAnimal===s.animalId&&<article key={s.animalId} className={`fst-animal-card ${selectedAnimal===s.animalId?"selected":""}`}>
             <h3>{s.animalId} · {s.subjectId}</h3><div className="fst-metrics"><div><span>Tempo de vídeo</span><strong>{formatDuration(result.video.frameCount/result.video.fps)}</strong></div><div><span>Presença confirmada</span><strong>{formatDuration(quality?.presenceSec??0)}</strong></div><div><span>Caixa visual com presença</span><strong>{quality?.localizedShareOfPresence===undefined?"—":`${(quality.localizedShareOfPresence*100).toFixed(1)}%`}</strong><small>heurística visual · conferir frames</small></div><div><span>Cobertura anatômica com presença</span><strong>{((quality?.anatomicalCoverage??0)*100).toFixed(1)}%</strong></div><div><span>Movimento corporal relativo</span><strong>{showNumber(mean(confirmed.map(f=>f.relativeMotion)))}</strong><small>diagonais da ROI/s · observado</small></div><div><span>Alteração de silhueta</span><strong>{showNumber(mean(confirmed.map(f=>f.silhouetteChange)))}</strong><small>fração/s · observado</small></div><div><span>Movimento do centro corporal</span><strong>{showNumber(mean(confirmed.map(f=>f.centroidMotion)))}</strong><small>diagonais da ROI/s · observado</small></div><div><span>Dados insuficientes</span><strong>{formatDuration(quality?.insufficientDataSec??0)}</strong></div><div><span>Classificação automática</span><strong>NOT_CLASSIFIED</strong></div></div>
@@ -229,13 +266,10 @@ export function ForcedSwimResults({experimentId}:{experimentId:string}) {
             {selectedAnimal===s.animalId&&<p className="fst-note">A intensidade da segunda faixa representa atividade visual observada; roxo indica tracking insuficiente. Nenhuma faixa equivale a imobilidade, natação ou escalada classificadas.</p>}
             {selectedAnimal===s.animalId&&(result.insufficientIntervals[s.animalId]?.length??0)>0&&<div className="fst-insufficient-list"><h4>Intervalos de tracking insuficiente</h4>{result.insufficientIntervals[s.animalId].slice(0,20).map((gap,i)=><button key={i} onClick={()=>seek(gap.startSec)}>{gap.startSec.toFixed(1)}–{gap.endSec.toFixed(1)} s</button>)}{result.insufficientIntervals[s.animalId].length>20&&<small>Mais {result.insufficientIntervals[s.animalId].length-20} intervalos no resultado exportado.</small>}</div>}
           </article>})}
-      </section>
-      <section className="fst-review-panel" role="tabpanel" id="fst-view-review-panel" aria-labelledby="fst-view-review-tab" hidden={visibleView!=="review"}><h2>Revisão humana</h2><p>Marque trechos para revisão. Cada evento mantém sujeito, intervalo, autor manual, versão e execução.</p><div className="fst-annotation-form"><label>Início (s)<input type="number" min="0" step="0.1" value={startSec} onChange={e=>setStartSec(Number(e.target.value))}/></label><label>Fim (s)<input type="number" min="0" step="0.1" value={endSec} onChange={e=>setEndSec(Number(e.target.value))}/></label><label>Rótulo<select value={label} onChange={e=>setLabel(e.target.value as FstBehavior)}>{labels.map(v=><option key={v} value={v}>{v}</option>)}</select></label><Button onClick={annotate}>Registrar intervalo</Button></div>
-        <div className="fst-review-shortlist"><h3>Trechos sugeridos para revisão</h3>{result.reviewShortlist.filter(item=>item.animalId===selectedAnimal).slice(0,16).map(item=><button key={`${item.animalId}-${item.startSec}`} onClick={()=>{seek(item.startSec);setStartSec(item.startSec);setEndSec(item.endSec)}}>{item.startSec.toFixed(1)}–{item.endSec.toFixed(1)} s · {item.reason==="LOWER_OBSERVED_MOTION"?"Menor movimento observado":item.reason==="HIGHER_OBSERVED_MOTION"?"Maior movimento observado":"Tracking insuficiente"} <ArrowRight size={14}/></button>)}{result.frames.filter(f=>f.animalId===selectedAnimal&&f.presence==="UNCERTAIN").filter((_,i)=>i%Math.max(1,Math.round(result.video.fps))===0).slice(0,5).map(f=><button key={`uncertain-${f.frame}`} onClick={()=>{seek(f.timestampSec);setStartSec(f.timestampSec);setEndSec(Math.min(result.video.frameCount/result.video.fps,f.timestampSec+1))}}>{f.timestampSec.toFixed(1)} s · Presença incerta <ArrowRight size={14}/></button>)}</div>
-        <ol className="fst-annotations">{annotations.map(a=><li key={a.id}><strong>{a.animalId} · {a.label}</strong><span>{a.startSec.toFixed(1)}–{a.endSec.toFixed(1)} s · manual · {new Date(a.createdAt).toLocaleString("pt-BR")}</span></li>)}</ol>
-      </section>
+        </CardContent></Card>
+      </ResultPanel>
       <section className="fst-exports" role="tabpanel" id="fst-view-exports-panel" aria-labelledby="fst-view-exports-tab" hidden={visibleView!=="exports"}><h2>Exportações FST</h2><p>Arquivos da execução selecionada, separados das métricas de Campo Aberto.</p><div>{artifacts.map(file=><a key={file.name} href={file.url} download={file.name}><Download size={15}/>{file.name}</a>)}{labeledVideo&&<a href={labeledVideo} download="fst_annotated.mp4"><Download size={15}/>MP4 anotado</a>}</div><Button variant="secondary" disabled={!manifest} onClick={()=>downloadText(`fst-${result.runId}-manifest-reviewed.json`,JSON.stringify({...manifest,reviewExportedAt:new Date().toISOString(),manualAnnotations:annotations},null,2),"application/json")}>Exportar manifesto com revisão humana</Button></section>
     </>}
     </div>
-  </div>;
+  </div>}</ForcedSwimLocalPanel>;
 }

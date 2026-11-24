@@ -4,11 +4,12 @@ import { Info } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { formatBytes } from "../../lib/format";
 import { useAppStore } from "../../store/AppStore";
-import type { OpenFieldExperiment, TrackingSelection } from "../../types";
+import type { BoundingBox, OpenFieldExperiment, TrackingSelection } from "../../types";
+import { LocalTargetSeed } from "./LocalTargetSeed";
 import { LATEST_HYBRID_BUNDLE_ID, loadStagedVideo, prepareColabVideo, type VideoPreparationProgress } from "../colab/analysis";
 import { isTauriRuntime } from "../colab/connection";
 import { preparedGeometry, scaleArenaToUpload } from "../colab/videoGeometry";
-import { cancelLocalJob, listLocalJobs, startLocalWistar, type LocalJob } from "./api";
+import { cancelLocalJob, getLocalEnvironment, setupLocalEnvironment, listLocalJobs, stageLocalOriginal, startLocalJob, startLocalWistar, type LocalJob } from "./api";
 
 const stateLabel: Record<LocalJob["state"], string> = {
   queued: "Na fila", running: "Em andamento", succeeded: "Concluída",
@@ -30,6 +31,9 @@ export function LocalAnalysisPanel({ experiment, selectSource, colabBusy, childr
   const [jobs, setJobs] = useState<LocalJob[]>([]);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [strategy, setStrategy] = useState("classical_roi_v1");
+  const [processingWidth, setProcessingWidth] = useState(640);
+  const [initialBox, setInitialBox] = useState<BoundingBox>();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const dialogTitleId = useId();
   const dialogDescriptionId = useId();
@@ -38,6 +42,10 @@ export function LocalAnalysisPanel({ experiment, selectSource, colabBusy, childr
   const busy = running || Boolean(active) || colabBusy;
   const selected = jobs.find(job => experiment.trackingSelection?.engine === "opencv" && job.jobId === experiment.trackingSelection.jobId);
   const preparation = (active ?? selected)?.config.videoPreparation;
+
+  useEffect(() => {
+    setInitialBox(undefined);
+  }, [experiment.id]);
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
@@ -68,16 +76,36 @@ export function LocalAnalysisPanel({ experiment, selectSource, colabBusy, childr
       const updateVideoProgress = (_percent: number, text: string, detail?: VideoPreparationProgress) =>
         setAnalysisActivity(experiment.id, { message: text, videoProgress: detail
           ? { phase: detail.phase, percent: detail.percent, remainingSec: detail.remainingSec } : null });
-      const bundleId = experiment.modelBundleId ?? (experiment.analysisEngine === "superanimal_video_adapt_b_legacy"
-        ? LATEST_HYBRID_BUNDLE_ID : "wistar_df_v1");
-      if (bundleId !== "wistar_df_v1" && bundleId !== "wistar_df_v2") throw new Error(`Modelo desconhecido: ${bundleId}`);
-      const media = await prepareColabVideo(experiment.id, experiment.video, file, updateVideoProgress);
-      if (!media) { fileRef.current?.click(); return; }
-      const { preparation, originalSha256 } = media;
-      const geometry = preparedGeometry(experiment.video, preparation);
-      const arena = scaleArenaToUpload(experiment.arena, experiment.video, preparation);
-      const job = await startLocalWistar(experiment.id, preparation.uploadId, originalSha256, experiment.video,
-        { ...arena, videoWidth: geometry.width, videoHeight: geometry.height }, bundleId);
+      let job: LocalJob;
+      let originalSha256: string;
+      let preparation = experiment.video.preparation;
+      if (strategy === "classical_roi_v1") {
+        const media = await stageLocalOriginal(experiment.id, experiment.video, file, updateVideoProgress);
+        if (!media) { fileRef.current?.click(); return; }
+        originalSha256 = media.originalSha256;
+        if (!(await getLocalEnvironment()).ready) {
+          setAnalysisActivity(experiment.id, { message: "Preparando OpenCV local", videoProgress: null });
+          if (!(await setupLocalEnvironment()).ready) throw new Error("Não foi possível preparar OpenCV local.");
+        }
+        job = await startLocalJob(experiment.id, media.uploadId, {
+          protocol: "open_field", strategy, width: experiment.video.width, height: experiment.video.height,
+          arena: experiment.arena, mode: "auto", threshold: 25, minAreaFraction: .001,
+          maxAreaFraction: .12, maxWidth: processingWidth, maxPredictionSec: .25,
+          referenceApproved: false, useOpenCL: false, autorotate: true,
+          ...(initialBox ? { initialBox } : {}),
+        }, { optimizeVideo: false, expectedVideoSha256: originalSha256 });
+      } else {
+        const bundleId = experiment.modelBundleId ?? (experiment.analysisEngine === "superanimal_video_adapt_b_legacy"
+          ? LATEST_HYBRID_BUNDLE_ID : "wistar_df_v1");
+        if (bundleId !== "wistar_df_v1" && bundleId !== "wistar_df_v2") throw new Error(`Modelo desconhecido: ${bundleId}`);
+        const media = await prepareColabVideo(experiment.id, experiment.video, file, updateVideoProgress);
+        if (!media) { fileRef.current?.click(); return; }
+        ({ preparation, originalSha256 } = media);
+        const geometry = preparedGeometry(experiment.video, preparation);
+        const arena = scaleArenaToUpload(experiment.arena, experiment.video, preparation);
+        job = await startLocalWistar(experiment.id, preparation.uploadId, originalSha256, experiment.video,
+          { ...arena, videoWidth: geometry.width, videoHeight: geometry.height }, bundleId);
+      }
       started = true;
       updateExperiment(experiment.id, current => ({
         status: "processing",
@@ -90,7 +118,7 @@ export function LocalAnalysisPanel({ experiment, selectSource, colabBusy, childr
           : await loadStagedVideo(experiment.id, job.uploadId).catch(() => undefined);
         setAsset(experiment.id, { ...asset, file, objectUrl });
       }
-      setAnalysisActivity(experiment.id, { message: "Preparando os modelos Wistar e HRNet", videoProgress: null });
+      setAnalysisActivity(experiment.id, { message: strategy === "classical_roi_v1" ? "Construindo a referência de fundo" : "Preparando os modelos Wistar e HRNet", videoProgress: null });
       for (;;) {
         const current = (await listLocalJobs(experiment.id)).find(item => item.jobId === job.jobId);
         if (!current) throw new Error("A execução local não foi encontrada.");
@@ -128,8 +156,18 @@ export function LocalAnalysisPanel({ experiment, selectSource, colabBusy, childr
         void run();
       }}>
         <h2 id={dialogTitleId}>Analisar na máquina local</h2>
-        <p id={dialogDescriptionId}>O detector Wistar localiza o animal e a HRNet estima 27 pontos anatômicos. A análise e a renderização do vídeo acontecem neste computador.</p>
-        <p>A primeira execução requer Python 3.10 a 3.13 de 64 bits e pode baixar os modelos e as dependências. Em CPU, o processamento pode levar mais tempo.</p>
+        <p id={dialogDescriptionId}>A análise e o vídeo de revisão são processados neste computador.</p>
+        <label>Método<select value={strategy} disabled={busy} onChange={event => setStrategy(event.target.value)}>
+          <option value="classical_roi_v1">OpenCV rápido · CPU (experimental)</option><option value="wistar_hrnet">Wistar + HRNet · pontos anatômicos</option>
+        </select></label>
+        {strategy === "classical_roi_v1" ? <>
+          <p>Fundo fixo, diferenças de cor e continuidade visual para localizar o corpo e reduzir trocas por reflexos. Sem download de modelos. O MP4 inclui um eixo estimado da silhueta e um gráfico de deslocamento; o eixo não identifica pontos anatômicos. Rearing não é classificado automaticamente.</p>
+          <label>Largura de processamento<select value={processingWidth} disabled={busy} onChange={event => setProcessingWidth(Number(event.target.value))}>
+            <option value={480}>480 px</option><option value={640}>640 px</option><option value={960}>960 px</option>
+          </select></label>
+          <LocalTargetSeed experiment={experiment} file={asset?.file} disabled={busy} box={initialBox} onChange={setInitialBox} />
+          <p>A primeira execução requer Python 3 e pode baixar OpenCV e suas dependências. Métricas exigem revisão das observações.</p>
+        </> : <p>O detector Wistar localiza o animal e a HRNet estima 27 pontos anatômicos. A primeira execução requer Python 3.10 a 3.13 de 64 bits e pode baixar modelos e dependências. Em CPU, pode levar mais tempo.</p>}
         <div className="confirm-modal-actions">
           <Button type="button" variant="secondary" onClick={() => dialogRef.current?.close()}>Cancelar</Button>
           <Button type="submit" disabled={busy}>Iniciar análise</Button>
@@ -142,7 +180,19 @@ export function LocalAnalysisPanel({ experiment, selectSource, colabBusy, childr
       {active?.report.computeBackend && <div className="local-progress" role="status"><strong>{active.report.computeBackend}</strong>
         {active.report.processingFps != null && <span> · {active.report.processingFps.toFixed(1)} FPS de processamento</span>}</div>}
       {preparation && <p>{preparation.message} Original {formatBytes(preparation.originalBytes)} · análise {formatBytes(preparation.uploadBytes)}</p>}
-      {selected?.report.segmentationSelection && <p className="local-detection-result">Contraste estimado: {selected.report.segmentationSelection.mode === "dark" ? "animal escuro" : "animal claro"} · limiar {selected.report.segmentationSelection.threshold} · {selected.report.segmentationSelection.inspectedFrames ?? selected.report.segmentationSelection.sampledFrames} frames inspecionados.</p>}
+      {selected?.report.segmentationSelection && <p className="local-detection-result">{selected.report.backgroundReference ? "Contraste auxiliar estimado" : "Contraste estimado"}: {selected.report.segmentationSelection.mode === "dark" ? "animal escuro" : "animal claro"} · limiar {selected.report.segmentationSelection.threshold} · {selected.report.segmentationSelection.inspectedFrames ?? selected.report.segmentationSelection.sampledFrames} frames inspecionados.</p>}
+      {selected?.report.backgroundReference && <p>Fundo fixo estimado com {selected.report.backgroundReference.sampledFrames} amostras da sessão.
+        {selected.report.trackingObservedCoveragePct != null && ` ${selected.report.trackingObservedCoveragePct.toFixed(1)}% de localizações aceitas pelo rastreador.`}
+        {selected.report.validObservationCoveragePct != null && ` ${selected.report.validObservationCoveragePct.toFixed(1)}% de observações sem alertas.`}
+        {selected.report.reviewRequiredFrames != null && ` ${selected.report.reviewRequiredFrames} frames exigem revisão.`}</p>}
+      {selected?.report.qualityReasonCounts && <details><summary>Motivos de revisão</summary>
+        <p>{selected.report.geometryRejectedFrames ?? 0} localizações aceitas pelo rastreador têm geometria insuficiente para métricas no piso.</p>
+        <p>Caixas recuperadas e previsões continuam fora das métricas. Os indicadores do rastreador são heurísticos.</p>
+        <ul>{Object.entries(selected.report.qualityReasonCounts).sort((a, b) => b[1]-a[1]).map(([reason, count]) =>
+          <li key={reason}>{({ near_wall_or_partial: "Próximo à borda ou projeção na parede", silhouette_clipped: "Silhueta cortada pela área analisável",
+            ambiguous_candidates: "Candidatos semelhantes", identity_pending: "Identificação inicial pendente", reacquisition_pending: "Reidentificação pendente",
+            appearance_changed: "Aparência diferente", area_changed: "Área corporal diferente", outside_floor_candidate: "Candidato sem apoio suficiente no piso", shape_inconsistent: "Formato inconsistente", no_contour: "Sem silhueta", camera_shift: "Câmera deslocada" } as Record<string, string>)[reason] ?? "Outro alerta"}: {count}</li>)}</ul>
+      </details>}
       {jobs.length > 0 && <div className="local-job-history"><h3>Execuções locais</h3>
         {jobs.map(job => <button type="button" key={job.jobId} disabled={busy || job.state !== "succeeded"}
           aria-pressed={selected?.jobId === job.jobId} onClick={() => void selectSource({ engine: "opencv", jobId: job.jobId })}>
@@ -156,7 +206,7 @@ export function LocalAnalysisPanel({ experiment, selectSource, colabBusy, childr
       {selected?.report.cameraMotionState === "unavailable" && <div className="validation-box" role="status"><Info size={16} />
         Não foi possível verificar a estabilidade da câmera com pontos estáticos na arena. Confira visualmente a calibração ao longo do vídeo.
       </div>}
-      {selected?.config.referenceApproved === false && <p className="local-environment">O centro da caixa desta execução está disponível para revisão. Uma nova análise local usa os pontos anatômicos para calcular as métricas.</p>}
+      {selected?.config.referenceApproved === false && <p className="local-environment">Centro da caixa e silhueta disponíveis para revisão. Observações incertas e previsões ficam fora das métricas; o centro da caixa não é um ponto anatômico.</p>}
     </section>}
   </>;
   return children({ run: confirmAnalysis, busy, ready: experiment.video.timingSource !== "synthetic", job: active ?? jobs[0] ?? null, panel });

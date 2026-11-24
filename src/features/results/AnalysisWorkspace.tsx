@@ -6,6 +6,7 @@ import type { ColabJob } from "../colab/analysis";
 import { isTauriRuntime } from "../colab/connection";
 import type { WorkflowProtocol } from "../colab/workflow";
 import type { LocalJob } from "../local/api";
+import type { ResultPanels } from "./ResultTabs";
 
 type Engine = "colab" | "opencv";
 
@@ -15,6 +16,7 @@ export type LocalAnalysisControls = {
   ready: boolean;
   job: LocalJob | null;
   panel: ReactNode;
+  resultPanels?: ResultPanels;
 };
 
 export type ColabAnalysisControls = {
@@ -23,6 +25,7 @@ export type ColabAnalysisControls = {
   job: ColabJob | null;
   error?: string | null;
   panel?: ReactNode;
+  resultPanels?: ResultPanels;
 };
 
 export function AnalysisWorkspace({ experimentId, protocol, defaultEngine, local, colab, disabled = false }: {
@@ -54,7 +57,7 @@ export function AnalysisWorkspace({ experimentId, protocol, defaultEngine, local
   const colabJob = !isLocal && !showingPreviousJob ? colab.job : null;
   const failure = currentActivity?.error ?? (!isLocal ? colab.error : null) ?? null;
   const desktop = isTauriRuntime();
-  const elapsedSec = colabJob ? Math.max(0, (Date.parse(colabJob.updatedAt) - Date.parse(colabJob.createdAt)) / 1000) : 0;
+  const elapsedSec = colabJob ? Math.max(0, (Date.parse(colabJob.updatedAt) - Date.parse(colabJob.createdAt)) / 1000) : localJob?.report.elapsedSec ?? 0;
 
   useEffect(() => setSelection(defaultEngine), [defaultEngine]);
   useEffect(() => { if (runningEngine) setSelection(runningEngine); }, [runningEngine]);
@@ -72,6 +75,11 @@ export function AnalysisWorkspace({ experimentId, protocol, defaultEngine, local
     {!isLocal && !colab.connected && desktop &&
       <Button type="button" variant="secondary" onClick={() => navigate({ name: "colab" })}>Conectar Colab</Button>}
     {!desktop && <span className="analysis-controls-note">A análise está disponível no aplicativo desktop.</span>}
+    <details className="analysis-settings">
+      <summary>Configuração e histórico de execuções</summary>
+      <div hidden={!isLocal}>{local.panel}</div>
+      {colab.panel && <div hidden={isLocal}>{colab.panel}</div>}
+    </details>
   </div>;
 
   return <>
@@ -79,7 +87,5 @@ export function AnalysisWorkspace({ experimentId, protocol, defaultEngine, local
       preparing={preparing && !colabJob && !localJob} message={preparing || failure ? currentActivity?.message ?? "" : ""}
       localError={failure} elapsedSec={elapsedSec}
       startedAt={currentActivity?.startedAt} localProgress={currentActivity?.videoProgress} />
-    <div hidden={!isLocal}>{local.panel}</div>
-    {colab.panel && <div hidden={isLocal}>{colab.panel}</div>}
   </>;
 }

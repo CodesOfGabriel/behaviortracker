@@ -37,7 +37,7 @@ const ramWorkflowSteps = workflowSteps.map((step, index) => {
 const colabSteps = { open_field: workflowSteps, forced_swim: fstWorkflowSteps, radial_arm_maze: ramWorkflowSteps };
 
 export function localCheckpoints(job: LocalJob | null, preparing: boolean, failed: boolean, protocol: WorkflowProtocol) {
-  const wistar = job?.config.strategy === "wistar_hrnet" || (!job && protocol === "open_field");
+  const wistar = job?.config.strategy === "wistar_hrnet";
   const steps = wistar ? [
     { title: "Preparando vídeo", description: "Reutilização da cópia de análise do projeto" },
     { title: "Preparando modelos", description: "Configuração do ambiente Wistar e HRNet" },
@@ -47,7 +47,8 @@ export function localCheckpoints(job: LocalJob | null, preparing: boolean, faile
   ] : [
     { title: "Preparando vídeo", description: "Leitura do arquivo e preparação da cópia local" },
     { title: "Preparando OpenCV", description: "Inicialização do processamento no computador" },
-    { title: "Preparando detecção", description: protocol === "forced_swim" ? "Montagem da referência visual dos cilindros" : "Reconhecimento do animal na área analisável" },
+    { title: "Preparando detecção", description: protocol === "forced_swim" ? "Montagem da referência visual dos cilindros"
+      : job?.config.strategy === "classical_roi_v1" ? "Fundo mediano da sessão por amostras do vídeo" : "Reconhecimento do animal na área analisável" },
     { title: protocol === "forced_swim" ? "Detectando presença" : "Detectando animal", description: "Processamento dos frames no computador" },
     { title: "Renderizando vídeo", description: "MP4 com as observações da execução para auditoria" },
   ];

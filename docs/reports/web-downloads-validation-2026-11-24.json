@@ -1,0 +1,167 @@
+{
+  "scope": "Local production build in Chrome. Tauri simulated only; no OAuth authentication, installer execution or remote deployment.",
+  "checks": [
+    {
+      "check": "landing",
+      "heading": "Baixe agora!",
+      "cards": 3,
+      "logoLoaded": true,
+      "loginHref": "#/login",
+      "appleLink": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.4/BehaviorTracker-v0.1.4-macOS-Apple-Silicon.dmg",
+      "allLinks": [
+        "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.4/BehaviorTracker-v0.1.4-macOS-Apple-Silicon.dmg",
+        "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.4/BehaviorTracker-v0.1.4-Windows-x64.exe",
+        "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.4/BehaviorTracker-v0.1.4-Linux-x64.AppImage",
+        "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.4/BehaviorTracker-v0.1.4-Linux-x64.deb"
+      ],
+      "overflow": false
+    },
+    {
+      "check": "mac-keyboard-selection",
+      "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.4/BehaviorTracker-v0.1.4-macOS-Intel.dmg"
+    },
+    {
+      "check": "mac-tab-accessibility",
+      "controlsMatchPanels": true
+    },
+    {
+      "check": "responsive",
+      "width": 1024,
+      "overflow": false,
+      "columns": "295.203px 295.203px 295.219px",
+      "buttons": [
+        {
+          "height": 46,
+          "width": 245.203125,
+          "overflow": false
+        },
+        {
+          "height": 46,
+          "width": 245.203125,
+          "overflow": false
+        },
+        {
+          "height": 46,
+          "width": 245.21875,
+          "overflow": false
+        }
+      ]
+    },
+    {
+      "check": "responsive",
+      "width": 768,
+      "overflow": false,
+      "columns": "440px",
+      "buttons": [
+        {
+          "height": 46,
+          "width": 390,
+          "overflow": false
+        },
+        {
+          "height": 46,
+          "width": 390,
+          "overflow": false
+        },
+        {
+          "height": 46,
+          "width": 390,
+          "overflow": false
+        }
+      ]
+    },
+    {
+      "check": "responsive",
+      "width": 760,
+      "overflow": false,
+      "columns": "440px",
+      "buttons": [
+        {
+          "height": 46,
+          "width": 390,
+          "overflow": false
+        },
+        {
+          "height": 46,
+          "width": 390,
+          "overflow": false
+        },
+        {
+          "height": 46,
+          "width": 390,
+          "overflow": false
+        }
+      ]
+    },
+    {
+      "check": "responsive",
+      "width": 390,
+      "overflow": false,
+      "columns": "350px",
+      "buttons": [
+        {
+          "height": 46,
+          "width": 300,
+          "overflow": false
+        },
+        {
+          "height": 46,
+          "width": 300,
+          "overflow": false
+        },
+        {
+          "height": 46,
+          "width": 300,
+          "overflow": false
+        }
+      ]
+    },
+    {
+      "check": "responsive",
+      "width": 320,
+      "overflow": false,
+      "columns": "280px",
+      "buttons": [
+        {
+          "height": 46,
+          "width": 230,
+          "overflow": false
+        },
+        {
+          "height": 46,
+          "width": 230,
+          "overflow": false
+        },
+        {
+          "height": 46,
+          "width": 230,
+          "overflow": false
+        }
+      ]
+    },
+    {
+      "check": "login-route-reload",
+      "hash": "#/login",
+      "googleButton": true
+    },
+    {
+      "check": "back-to-downloads",
+      "passed": true
+    },
+    {
+      "check": "legal-page",
+      "route": "/privacy/",
+      "status": 200
+    },
+    {
+      "check": "legal-page",
+      "route": "/terms/",
+      "status": 200
+    },
+    {
+      "check": "simulated-desktop-entry",
+      "directGoogleLogin": true
+    }
+  ],
+  "errors": []
+}

@@ -38,6 +38,9 @@ import { SelectMenu } from "../../components/ui/SelectMenu";
 import { activeCorrectionEvents, applyCorrections } from "../../lib/corrections";
 import { hasUnassignedCorrections, reviewEvents, selectTrackingReview, trackingSourceKey } from "../../lib/tracking-reviews";
 import { parseCanonicalPoseCsv } from "../../lib/csv";
+import { boxCenterTrajectory, boxTrajectoryStyle } from "../../lib/boxes";
+import { LocalMotionOverlay } from "../local/LocalMotionOverlay";
+import { LocalBodyOverlay } from "../local/LocalBodyOverlay";
 import { confidenceLabel, drawablePose, inferredFps, metricEligible, originalPose, poseSourceLabel, qualityTimelineBins, referencePoseSamples, trajectorySegments } from "../../lib/pose";
 import { makeDemoPose } from "../../lib/demo-data";
 import { centerPolygonPx, pointsToSvg } from "../../lib/geometry";
@@ -335,6 +338,10 @@ function TrackingReviewEditor({ experimentId }: { experimentId: string }) {
       return metricEligible(current) ? current : {...current,status:"missing" as const};
     }));
   }, [referenceSamples, currentFrame, drag, viewMode, referenceKeypoint]);
+  const localBoxTrajectory = useMemo(() => localTracking && experiment
+    ? boxCenterTrajectory(displayedSamples.filter(sample => sample.frameIndex >= currentFrame-100 && sample.frameIndex <= currentFrame),
+      experiment.video.width, experiment.video.height) : null,
+  [localTracking, displayedSamples, currentFrame, experiment?.video.width, experiment?.video.height]);
 
   const setTime = (next: number) => {
     dragRef.current = null; setDrag(null); setPlacingPoint(false);setDrawingBox(false);
@@ -788,7 +795,12 @@ function TrackingReviewEditor({ experimentId }: { experimentId: string }) {
                 <polygon points={pointsToSvg(experiment.arena.cornersPx)} fill="none" stroke="#a7adb2" strokeOpacity=".75" strokeWidth="3" />
                 {experiment.arena.rimCornersPx && <polygon points={pointsToSvg(experiment.arena.rimCornersPx)} fill="none" stroke="#f0f0ed" strokeOpacity=".65" strokeWidth="3" strokeDasharray="12 8" />}
                 <polygon points={pointsToSvg(centerPolygon)} fill="#85ae98" fillOpacity=".07" stroke="#85ae98" strokeOpacity=".55" strokeWidth="2" strokeDasharray="10 8" />
-                {showTrajectory && trajectory.map((segment, index) => <polyline key={index} points={pointsToSvg(segment)} fill="none" stroke="#a7adb2" strokeWidth="4" strokeOpacity=".75" strokeLinecap="round" strokeLinejoin="round" />)}
+                {showTrajectory && !localTracking && trajectory.map((segment, index) => <polyline key={index} points={pointsToSvg(segment)} fill="none" stroke="#a7adb2" strokeWidth="4" strokeOpacity=".75" strokeLinecap="round" strokeLinejoin="round" />)}
+                {showTrajectory && localBoxTrajectory?.segments.map((segment, index) => <polyline key={`local-${index}`}
+                  points={pointsToSvg(segment.points)} fill="none" stroke={boxTrajectoryStyle[segment.state].color}
+                  strokeDasharray={boxTrajectoryStyle[segment.state].dash} strokeWidth="4" strokeOpacity=".85" strokeLinecap="round" strokeLinejoin="round" />)}
+                {localBoxTrajectory?.centers.filter(sample => sample.frameIndex === currentFrame).map(sample =>
+                  <circle key="local-box-center" cx={sample.xPx!} cy={sample.yPx!} r={6} fill="#51ddce" stroke="#142c29" strokeWidth={2} pointerEvents="none" />)}
                 {showTrajectory && keyframePreview.map((segment, index) => <polyline key={`keyframe-${index}`} points={pointsToSvg(segment)} fill="none" stroke="#f0f0ed" strokeWidth="4" strokeDasharray="11 8" strokeOpacity=".9" strokeLinecap="round" strokeLinejoin="round" />)}
                 {[["nose", "body_center"], ["body_center", "tail_base"], ["left_ear", "nose"], ["right_ear", "nose"]].map(([a, b]) => {
                   const first = currentPoints.find((sample) => sample.keypoint === a);
@@ -829,6 +841,8 @@ function TrackingReviewEditor({ experimentId }: { experimentId: string }) {
                   width={experiment.video.width} height={experiment.video.height} drawing={drawingBox} editable={!positionLocked&&workspaceTab==="review"}
                   predicted={currentReference?.source==="predicted"} manual={currentReference?.source==="manual"}
                   onStart={()=>{videoRef.current?.pause();setPlaying(false);setCorrectionMessage("");}} onCancel={()=>setDrawingBox(false)} onCommit={saveBox}/>}
+                {localTracking && macroMode && <LocalBodyOverlay sample={currentReference} width={experiment.video.width} height={experiment.video.height} />}
+                {localTracking && <LocalMotionOverlay samples={displayedSamples} width={experiment.video.width} height={experiment.video.height} time={currentTime} />}
               </svg>
               <div className="stage-badges"><Badge tone="neutral">Frame {currentFrame}</Badge><Badge tone={qualityInfo.tone}>{qualityInfo.label}</Badge>{currentReference?.source && currentReference.source !== "detected" && currentReference.source !== "recovered" && <Badge tone="warning">{poseSourceLabel(currentReference)}</Badge>}</div>
               {workspaceTab==="review"&&viewMode!=="raw"&&(!asset?.objectUrl&&experiment.video.timingSource!=="synthetic"?<div className="placement-hint">Abra o vídeo original para conferir a posição real do animal</div>:macroMode?(drawingBox&&<div className="placement-hint">Arraste de um canto ao outro ao redor do animal · Esc cancela</div>):(placingPoint||!drawablePose(selectedPoint))&&<div className="placement-hint">{currentFrameSample?`Clique e arraste para posicionar ${keypointLabels[selectedKeypoint] ?? selectedKeypoint}`:"Sem timestamp de origem para este frame · edição bloqueada para não corrigir o frame errado"}</div>)}

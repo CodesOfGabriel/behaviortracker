@@ -28,7 +28,6 @@ export default function App({ onInitialSessionResolved }: { onInitialSessionReso
   const [session, setSession] = useState<OAuthProfileSummary>(emptyColabSummary);
   const [checkingSession, setCheckingSession] = useState(true);
   const [sessionError, setSessionError] = useState<string | null>(null);
-  const [localAccess, setLocalAccess] = useState(false);
   const [draftVisited, setDraftVisited] = useState(false);
   const [draftGeneration, setDraftGeneration] = useState(0);
   const initialSessionReported = useRef(false);
@@ -104,14 +103,13 @@ export default function App({ onInitialSessionResolved }: { onInitialSessionReso
       const disconnected = await invoke<OAuthProfileSummary>("disconnect_google_account", { profileId: COLAB_PROFILE_ID });
       updateSession(disconnected);
     }
-    setLocalAccess(false);
   }
 
   if (checkingSession && isTauriRuntime()) return null;
 
-  if (!session.connected && !localAccess) {
+  if (!session.connected) {
     return <LoginPage summary={session} checking={checkingSession} checkError={sessionError} onSessionChange={updateSession}
-      onRetry={() => void refreshSession()} onLocalAccess={() => setLocalAccess(true)} />;
+      onRetry={() => void refreshSession()} />;
   }
   let content = null;
   switch (route.name) {

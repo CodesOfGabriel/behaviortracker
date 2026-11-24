@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boxFromPoints, detectorTrajectory, provisionalBoxAt, translateBox } from "./boxes";
+import { boxCenterTrajectory, boxFromPoints, detectorTrajectory, provisionalBoxAt, translateBox } from "./boxes";
 import { applyCorrections } from "./corrections";
 import { originalPose, metricEligible } from "./pose";
 import { parseCanonicalPoseCsv, poseToCsv } from "./csv";
@@ -26,6 +26,45 @@ describe("caixa macro e correções auditáveis",()=>{
     expect(detectorTrajectory([...frames,withPrediction],100,80,5).observedFrames).toBe(4);
     const manualBox={...frames[2],source:"manual" as const,bbox:{x:20,y:20,width:20,height:20}};
     expect(detectorTrajectory([...frames,manualBox],100,80,5).observedFrames).toBe(4);
+  });
+  it("liga os centros das caixas locais apesar de alertas de geometria, sem aprovar métricas",()=>{
+    const frames:PoseSample[]=[0,1,2,3].map(frameIndex=>({...raw,frameIndex,timestampSec:frameIndex/25,
+      xPx:99,yPx:99,status:frameIndex%2?"low_confidence":"valid",spatialRegion:"wall_projection",
+      bbox:{x:frameIndex*10,y:20,width:20,height:30}}));
+    const track=boxCenterTrajectory(frames,100,80);
+    expect(track.centers.map(s=>[s.xPx,s.yPx])).toEqual([[10,35],[20,35],[30,35],[40,35]]);
+    expect(track.segments.flatMap(s=>s.points)).toContainEqual({x:40,y:35});
+    expect(track.segments.every(s=>s.state==="uncertain")).toBe(true);
+    expect(track.segments[0].points).toHaveLength(4);
+    expect(track.centers.every(s=>!metricEligible(s))).toBe(true);
+    expect(frames[0].xPx).toBe(99);
+    expect(frames[1].status).toBe("low_confidence");
+  });
+  it("preserva continuidade ao mudar origem e distingue previsões, mas não liga perdas ou saltos de tempo",()=>{
+    const frames:PoseSample[]=[0,1,2,3,4,5,6,7].map(frameIndex=>({...raw,frameIndex,timestampSec:frameIndex/25,
+      bbox:frameIndex===4?undefined:{x:frameIndex*10,y:20,width:20,height:30}}));
+    frames[1].source="predicted";frames[2].source="recovered";
+    frames[7].timestampSec=1;
+    const track=boxCenterTrajectory(frames,100,80);
+    expect(track.predictedFrames).toBe(2);
+    expect(track.segments.map(s=>s.state)).toEqual(["predicted","recovered","observed","observed"]);
+    expect(track.segments.map(s=>s.points)).toEqual([
+      [{x:10,y:35},{x:20,y:35},{x:30,y:35}],
+      [{x:30,y:35},{x:40,y:35}],
+      [{x:60,y:35},{x:70,y:35}],
+      [{x:80,y:35}],
+    ]);
+  });
+  it("prioriza a caixa corrigida e deduplica keypoints sem desenhar caixas inválidas ou ausentes",()=>{
+    const frames:PoseSample[]=[...Array.from({length:27},(_,i)=>({...raw,keypoint:`point_${i}`})),
+      {...raw,source:"manual",trackingAccepted:false,bbox:{x:10,y:20,width:20,height:30}},
+      {...raw,frameIndex:4,status:"missing"},
+      {...raw,frameIndex:5,bbox:{x:90,y:20,width:20,height:30}}];
+    const track=boxCenterTrajectory(frames,100,80,6);
+    expect(track.boxFrames).toBe(1);
+    expect(track.totalFrames).toBe(6);
+    expect(track.centers[0]).toMatchObject({source:"manual",xPx:20,yPx:35});
+    expect(track.segments).toEqual([{state:"observed",points:[{x:20,y:35}]}]);
   });
   it("desenha em qualquer direção e limita a translação à imagem",()=>{
     expect(boxFromPoints({x:100,y:90},{x:50,y:30})).toEqual({x:50,y:30,width:50,height:60});

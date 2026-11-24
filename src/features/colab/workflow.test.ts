@@ -34,6 +34,16 @@ describe("checkpoints da análise", () => {
     expect(localCheckpoints(reference, false, false, "forced_swim").find(step => step.state === "active")?.description).toContain("cilindros");
     expect(checkpoints(job({ stage: "uploading" }), false, false, "forced_swim").find(step => step.state === "active")?.title).toBe("Enviando vídeo");
   });
+  it("descreve o fundo da sessão e mantém os checkpoints neurais quando selecionados", () => {
+    const reference: LocalJob = { jobId: "local", experimentId: "experiment", state: "running", error: null,
+      createdAt: "2026-11-24T12:00:00Z", videoSha256: "sha", uploadId: "original",
+      config: { strategy: "classical_roi_v1" }, report: { phase: "reference" } };
+    const steps = localCheckpoints(reference, false, false, "open_field");
+    expect(steps.find(step => step.state === "active")?.description).toContain("Fundo mediano");
+    expect(steps.some(step => step.title === "Estimando pose")).toBe(false);
+    expect(localCheckpoints({ ...reference, config: { strategy: "wistar_hrnet" } }, false, false, "open_field")
+      .some(step => step.title === "Estimando pose")).toBe(true);
+  });
 
   it("avança da detecção Wistar para a pose antes de preparar o vídeo anotado", () => {
     const pose: LocalJob = { jobId: "local-wistar", experimentId: "experiment-1", state: "running",

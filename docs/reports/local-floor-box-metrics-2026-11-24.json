@@ -1,0 +1,135 @@
+{
+  "date": "2026-11-24",
+  "scope": "Separate, calibrated floor-box estimates when classical local references are not approved; source selector, coverage, explicit missing-data messages and identified export",
+  "realSavedData": {
+    "sourceSha256": "02b5095b8816b53fd753f5c59c42dc3f88ea75f3e6f0e11679e9edc1312ddb12",
+    "before": {
+      "revision": "reviewed",
+      "analysisDurationSec": 306.458333,
+      "validDurationSec": 0,
+      "coveragePct": 0,
+      "distanceCm": null,
+      "meanSpeedCmS": null,
+      "centerTimeSec": 0,
+      "peripheralTimeSec": 0,
+      "unknownTimeSec": 306.458333,
+      "centerPctClassifiable": null,
+      "centerEntries": 0,
+      "centerLatencySec": null,
+      "immobilityTimeSec": 0
+    },
+    "estimate": {
+      "policy": {
+        "version": "oft-floor-box-estimate-1",
+        "reference": "box_center",
+        "units": {
+          "distance": "cm",
+          "speed": "cm/s",
+          "time": "s"
+        },
+        "referenceApproval": "not_granted",
+        "requireConsecutiveFrames": true,
+        "maxPairGapSec": 0.5,
+        "minCenterDwellSec": 0.2,
+        "eligibility": "observed_floor_boxes_only",
+        "scientificValidation": "not_established"
+      },
+      "metrics": {
+        "revision": "raw",
+        "analysisDurationSec": 306.458333,
+        "validDurationSec": 23.54166799999998,
+        "coveragePct": 7.6818495256906525,
+        "distanceCm": 324.97670927446933,
+        "meanSpeedCmS": 13.8043196121222,
+        "centerTimeSec": 0,
+        "peripheralTimeSec": 23.54166799999998,
+        "unknownTimeSec": 282.916665,
+        "centerPctClassifiable": 0,
+        "centerEntries": 0,
+        "centerLatencySec": null,
+        "immobilityTimeSec": 0.5416670000000181
+      },
+      "frameCount": 7356,
+      "boxFrames": 7356,
+      "eligibleFloorFrames": 655,
+      "pendingReferenceFrames": 655,
+      "exclusions": {
+        "not_floor": 6631,
+        "uncertain_tracking": 68,
+        "predicted_or_recovered": 2
+      }
+    },
+    "scientificUnchanged": true,
+    "sourceUnchanged": true,
+    "limits": "Saved DD2 data. Availability of geometric estimates, not tracking ground-truth or full-video scientific metrics."
+  },
+  "browser": {
+    "checks": [
+      {
+        "check": "automatic-floor-estimates",
+        "text": "Estimativas pelo centro da caixa\nCálculo geométrico nos trechos observados no piso, com a calibração da arena.\nReferência dos indicadores\nCentro da caixa · estimativa no piso\nDistância estimada\n47,8 cm\nSomente pares consecutivos no piso\nVelocidade média estimada\n30,64 cm/s\nTempo observado dos pares utilizáveis\nTempo estimado no centro\n1,4 s\n87.2% do tempo classificável\nEntradas estimadas no centro\n1\nPermanência mínima de 0,2 s\n\nO centro da caixa ainda não foi aprovado como referência revisada. Estes valores são estimativas, sem aprovação automática das observações.\n\n100.0% do tempo com pares utilizáveis\n0:02 de 0:02\nTrechos incertos permanecem desconhecidos. Os valores não representam o vídeo inteiro.\nExportar estimativas"
+      },
+      {
+        "check": "export-estimates",
+        "filename": "box_metrics_estimated.json",
+        "policy": {
+          "version": "oft-floor-box-estimate-1",
+          "reference": "box_center",
+          "units": {
+            "distance": "cm",
+            "speed": "cm/s",
+            "time": "s"
+          },
+          "referenceApproval": "not_granted",
+          "requireConsecutiveFrames": true,
+          "maxPairGapSec": 0.5,
+          "minCenterDwellSec": 0.2,
+          "eligibility": "observed_floor_boxes_only",
+          "scientificValidation": "not_established"
+        },
+        "distanceCm": 47.800000000000004
+      },
+      {
+        "check": "reviewed-path-unchanged",
+        "text": "Métricas da referência revisada\nReferência elegível pelas regras de qualidade e revisão desta execução.\nReferência dos indicadores\nReferência revisada\nDistância válida\nNão mensurável\nSomente pares consecutivos no piso\nVelocidade média\nNão mensurável\nTempo observado dos pares utilizáveis\nTempo no centro\nNão mensurável\nSem tempo classificável\nEntradas observadas no centro\nNão mensurável\nPermanência mínima de 0,2 s\n\nHá caixas observadas cuja referência geométrica ainda não foi aprovada. Selecione a estimativa no piso para consultar esses trechos.\n\n0.0% do tempo com pares utilizáveis\n0:00 de 0:02\n\nNão há pares consecutivos de posições elegíveis nesta referência. Ausência de dados utilizáveis não significa que o animal ficou parado."
+      },
+      {
+        "check": "boundary-geometry-remains-unknown",
+        "text": "Estimativas pelo centro da caixa\nCálculo geométrico nos trechos observados no piso, com a calibração da arena.\nReferência dos indicadores\nCentro da caixa · estimativa no piso\nDistância estimada\nNão mensurável\nSomente pares consecutivos no piso\nVelocidade média estimada\nNão mensurável\nTempo observado dos pares utilizáveis\nTempo estimado no centro\nNão mensurável\nSem tempo classificável\nEntradas estimadas no centro\nNão mensurável\nPermanência mínima de 0,2 s\n0.0% do tempo com pares utilizáveis\n0:00 de 0:02\n\nNão há pares consecutivos de caixas aceitas no piso. Confira a calibração e os alertas de rastreamento; posições na parede, previsões e perdas não permitem medir estes indicadores.\n\nTrechos incertos permanecem desconhecidos. Os valores não representam o vídeo inteiro.\nExportar estimativas"
+      },
+      {
+        "check": "colab-reviewed-reference-restored",
+        "text": "Métricas da referência revisada\nReferência elegível pelas regras de qualidade e revisão desta execução.\nReferência dos indicadores\nReferência revisada\nDistância válida\n0,0 cm\nSomente pares consecutivos no piso\nVelocidade média\n0,00 cm/s\nTempo observado dos pares utilizáveis\nTempo no centro\n0,0 s\n0.0% do tempo classificável\nEntradas observadas no centro\n0\nPermanência mínima de 0,2 s\n100.0% do tempo com pares utilizáveis\n0:02 de 0:02"
+      }
+    ],
+    "errors": [],
+    "limits": "Chrome with mocked Tauri APIs, generic fixtures and placeholder MP4. No installed Tauri or Colab execution."
+  },
+  "checks": {
+    "typescriptViteBuild": "passed; existing chunk-size warning",
+    "vitest": {
+      "passed": 156,
+      "files": 25
+    },
+    "gitDiffCheck": "passed"
+  },
+  "sourceSha256": {
+    "src/lib/metrics.ts": "5f3f013b8eb727270d759029daab072815f8c5673f4a169b2b2b14c9841bdf9c",
+    "src/lib/metrics.test.ts": "a1726ec3248ebc7c1f5f240f42d8e0ad292836fbac94aca5981d0346255991f2",
+    "src/features/results/Results.tsx": "f213735d10064ebebc40060c03d63c728e31c5026b44e783fca41d9305e8b818",
+    "src/features/results/OpenFieldMetricSummary.tsx": "cd824b86405316cbcbaf1a07d228801aeeea93c5e4b40d0af7adfa46adb39907",
+    "src/styles.css": "43bd953d95ca4624dd23b551a0edad6543e82921aecef1bd1e5e51989ec2a373"
+  },
+  "previews": [
+    "local-floor-box-metrics-2026-11-24.png",
+    "local-reviewed-metrics-explanation-2026-11-24.png"
+  ],
+  "limits": [
+    "Saved DD2 data were read without changing observations or approvals. The estimate covers 7.68% of that video, not the whole session.",
+    "The estimates are geometric box proxies in the calibrated floor, not validated anatomical or behavioral measurements.",
+    "Scientific metric eligibility and the original metrics.csv export remain unchanged. Estimated results have a separate policy and JSON export.",
+    "Browser used generic fixtures, a placeholder MP4 and mocked native commands; no installed-app or remote Colab/GPU validation.",
+    "Zero observed movement and missing usable data remain distinct. Missing intervals are not filled.",
+    "No commit, push, deployment or tracking rerun."
+  ]
+}

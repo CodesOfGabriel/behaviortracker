@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "local-video-overlay-validation-1",
+  "date": "2026-11-24",
+  "dataset": "DD2",
+  "videoSha256": "53f45629b5c6545ad29b03c5b6e9383e7bf2fd53ac657ea7f0af8a4d2afa9ef0",
+  "outputSha256": "4f9e1e16dc9b1742f0bd3ec9124a1c8a233df82d501cb6907d143379b72ad5d7",
+  "outputBytes": 61220864,
+  "frameCount": 7356,
+  "timestampsEqual": true,
+  "width": 1280,
+  "height": 720,
+  "renderElapsedSec": 156.146939219,
+  "trackingRerun": false,
+  "visualization": {
+    "version": "local-audit-2",
+    "skeletonMethod": "silhouette_cross_sections_1",
+    "anatomicalPose": false,
+    "skeletonFrames": 5654,
+    "displacementChart": {
+      "position": "top_right",
+      "units": "px/s",
+      "reference": "box_center",
+      "coordinateSpace": "source_image",
+      "windowSec": 10,
+      "maxPairGapSec": 0.5,
+      "validPairs": 5929,
+      "scientificMetric": false
+    }
+  },
+  "independentAnatomicalValidation": false,
+  "packagedAppInteractionTested": false,
+  "axisComputationBenchmark": {
+    "schemaVersion": "local-silhouette-axis-benchmark-1",
+    "sampledContours": 503,
+    "axisAvailable": 466,
+    "meanMs": 2.7841244652225874,
+    "medianMs": 1.9423939993430395,
+    "p95Ms": 3.6182849999022437,
+    "scope": "axis computation only; excludes encoding and chart; no anatomical validation",
+    "rendererSha256": "c906847e78d31afc9e55d998e275ab8e5d3e713bb635e0adfdd226660826d57e"
+  },
+  "tests": {
+    "vitest": 130,
+    "rustLocalTracking": 11,
+    "pythonRenderTests": 13,
+    "typescriptViteBuild": "passed"
+  }
+}

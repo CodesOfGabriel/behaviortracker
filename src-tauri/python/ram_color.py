@@ -5,7 +5,7 @@ and never update the temporal reference. No predicted point becomes an observati
 """
 import math
 
-VERSION = 'ram-color-geometry-2'
+VERSION = 'ram-color-geometry-2-roi-1'
 DEFAULTS = dict(valueMin=80, saturationMin=25, labBMin=135, minAreaPx=280,
                 maxAreaPx=72000, minDensity=.12, maxSpeedFraction=.21,
                 reacquireSec=.5, ambiguityMargin=.4)
@@ -25,13 +25,17 @@ class RamColorSegmenter:
     def process(self, frame, timestamp, guide_box=None):
         cv, np, p = self.cv, self.np, self.params
         view = cv.resize(frame, self.size, interpolation=cv.INTER_AREA)
+        rx, ry, rw, rh = self.spatial.roi_rect
+        view = view[ry:ry+rh, rx:rx+rw]
+        roi = self.spatial.roi[ry:ry+rh, rx:rx+rw]
         hsv, lab = cv.cvtColor(view, cv.COLOR_BGR2HSV), cv.cvtColor(view, cv.COLOR_BGR2Lab)
         mask = ((hsv[:, :, 2] > p['valueMin']) & (hsv[:, :, 1] > p['saturationMin'])
-                & (lab[:, :, 2] > p['labBMin']) & (self.spatial.roi > 0)).astype(np.uint8)*255
+                & (lab[:, :, 2] > p['labBMin']) & (roi > 0)).astype(np.uint8)*255
         mask = cv.morphologyEx(mask, cv.MORPH_OPEN, np.ones((3, 3), np.uint8))
         mask = cv.morphologyEx(mask, cv.MORPH_CLOSE, np.ones((5, 5), np.uint8))
         # Morphology may expand across the boundary; enforce the exact spatial mask again.
-        self.foreground = cv.bitwise_and(mask, self.spatial.roi)
+        self.foreground = np.zeros_like(self.spatial.roi)
+        self.foreground[ry:ry+rh, rx:rx+rw] = cv.bitwise_and(mask, roi)
         contours, _ = cv.findContours(self.foreground, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
         candidates = []
         fx, fy = frame.shape[1]/self.size[0], frame.shape[0]/self.size[1]
@@ -42,8 +46,8 @@ class RamColorSegmenter:
             center = ((x+w/2)*fx, (y+h/2)*fy)
             if not (p['minAreaPx'] <= area <= p['maxAreaPx'] and w >= 7 and h >= 6 and density >= p['minDensity']): continue
             if cv.pointPolygonTest(self.spatial.enclosure, center, False) < 0: continue
-            component = np.zeros(self.foreground.shape, np.uint8)
-            cv.drawContours(component, [contour], -1, 255, -1)
+            component = np.zeros(roi.shape, np.uint8)
+            cv.drawContours(component, [contour], -1, 255, -1, offset=(-rx, -ry))
             appearance = cv.mean(lab, mask=component)[:3]
             angle = math.radians(cv.minAreaRect(contour)[2])
             candidates.append(dict(center=center, area=area, density=density,
