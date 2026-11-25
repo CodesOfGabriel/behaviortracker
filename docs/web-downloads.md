@@ -4,6 +4,8 @@ O navegador abre a página de downloads em `/`. O ícone **Entrar** abre a tela 
 
 A página usa a logo da aplicação, cards e abas de shadcn/ui já presentes no projeto. Oferece macOS Intel e Apple Silicon, Windows x64 e Linux x64 (AppImage ou Debian). Os links apontam diretamente para os assets dos instaladores publicados no GitHub Releases.
 
+A identidade visual usa fundo grafite, cinzas neutros e botões em azul acinzentado. As marcas da UFPel, NeuroCell e NeuroLab aparecem em uma faixa discreta abaixo dos downloads, reutilizando os arquivos de `public/` e mantendo textos alternativos e adaptação para telas pequenas.
+
 ## Atualizar os downloads
 
 Em `src/features/web/downloads.ts`, atualize `desktopRelease.version` somente depois de publicar e conferir os cinco instaladores da versão correspondente. O padrão de nomes é o mesmo de `.github/workflows/publish-desktop-release.yml`. A versão de desenvolvimento do `package.json` não é usada para anunciar um instalador ainda não publicado. A página não depende de consultas à API do GitHub durante a visita.

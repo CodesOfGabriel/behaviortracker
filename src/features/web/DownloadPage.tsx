@@ -13,8 +13,8 @@ function SystemIcon({ system }: { system: "mac" | "windows" | "linux" }) {
   </svg>;
   return <svg viewBox="0 0 32 32" aria-hidden="true">
     <path d="M11 11c-2 3-5 7-5 12 0 5 20 5 20 0 0-5-3-9-5-12 1-9-11-9-10 0Z" fill="currentColor" />
-    <ellipse cx="16" cy="21" rx="6.5" ry="7" fill="#111a16" />
-    <ellipse cx="13.5" cy="10" rx="2" ry="3" fill="#111a16" /><ellipse cx="18.5" cy="10" rx="2" ry="3" fill="#111a16" />
+    <ellipse cx="16" cy="21" rx="6.5" ry="7" fill="#1a1f25" />
+    <ellipse cx="13.5" cy="10" rx="2" ry="3" fill="#1a1f25" /><ellipse cx="18.5" cy="10" rx="2" ry="3" fill="#1a1f25" />
     <circle cx="14" cy="10" r=".8" fill="currentColor" /><circle cx="18" cy="10" r=".8" fill="currentColor" />
     <path d="m12 14 4-2 4 2-4 3-4-3ZM9 23l-6 4 8 2 2-4-4-2Zm14 0 6 4-8 2-2-4 4-2Z" fill="currentColor" />
   </svg>;
@@ -35,8 +35,8 @@ export function DownloadPage() {
       <div className="download-intro">
         <div className="download-logo"><img src="/RatLogo_white.png" alt="Logo do Behavior Tracker" width="112" height="112" /></div>
         <p className="download-eyebrow">Behavior Tracker · Desktop</p>
-        <h1>Baixe agora<span>!</span></h1>
-        <p className="download-description">Sua pesquisa em movimento.<br />Escolha seu sistema e comece a analisar.</p>
+        <h1>Software para pesquisa</h1>
+        <p className="download-description">Ferramenta para análise comportamental de roedores.<br />Selecione o instalador compatível com seu sistema operacional.</p>
       </div>
       <div className="download-platforms" aria-label="Instaladores por sistema operacional">
         <Card className="download-card">
@@ -88,6 +88,11 @@ export function DownloadPage() {
         </Card>
       </div>
       <p className="download-release">Versão {desktopRelease.version}<span aria-hidden="true">·</span><a href={desktopReleaseUrl} target="_blank" rel="noopener noreferrer">Notas da versão</a></p>
+      <div className="download-institutions" role="group" aria-label="Instituições">
+        <span className="download-institution download-institution-ufpel"><img src="/ufpel.png" alt="Universidade Federal de Pelotas (UFPel)" width="48" height="48" /></span>
+        <span className="download-institution"><img src="/neurocell.png" alt="NeuroCell" width="112" height="38" /></span>
+        <span className="download-institution download-institution-neurolab"><img src="/neurolab.png" alt="NeuroLab" width="128" height="128" /></span>
+      </div>
     </main>
     <footer className="download-footer">
       <span>Análise comportamental de roedores</span>

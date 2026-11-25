@@ -1009,14 +1009,13 @@ body, .tracking-page { background: #090a0b; }
 /* Entrada e menu de conta */
 .download-page {
   min-height: 100svh; display: flex; flex-direction: column;
-  padding: 0 clamp(20px, 5vw, 80px); color: #f3f6f4; background: #0b110e;
-  background-image: radial-gradient(ellipse at 50% 23%, #233b2a80, transparent 58%);
+  padding: 0 clamp(20px, 5vw, 80px); color: #edf0f3; background: #111418;
 }
 .download-page a { color: inherit; text-decoration: none; }
 .download-page a:focus-visible, .download-page button:focus-visible, .web-back-downloads:focus-visible {
-  outline: 2px solid #c2ee9b; outline-offset: 5px;
+  outline: 2px solid #b7c8d8; outline-offset: 5px;
 }
-.download-page ::selection { color: #0b110e; background: #c2ee9b; }
+.download-page ::selection { color: #111418; background: #b7c8d8; }
 .download-header, .download-footer { width: 100%; max-width: 1280px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
 .download-header { min-height: 104px; border-bottom: 1px solid #ffffff10; }
 .download-brand { display: inline-flex; align-items: center; gap: 12px; font-size: 17px; font-weight: 650; letter-spacing: -.03em; }
@@ -1027,38 +1026,45 @@ body, .tracking-page { background: #090a0b; }
 .download-intro { text-align: center; }
 .download-logo { display: grid; place-items: center; margin: 0 auto 18px; width: 100px; height: 100px; }
 .download-logo img { width: 100%; height: 100%; object-fit: contain; }
-.download-eyebrow { margin: 0 0 14px; color: #b5c7b9; font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .2em; }
+.download-eyebrow { margin: 0 0 14px; color: #b3bcc6; font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .2em; }
 .download-intro h1 { margin: 0; font-size: clamp(62px, 8vw, 112px); font-weight: 750; line-height: 1.02; letter-spacing: -.065em; }
-.download-intro h1 > span { color: #c2ee9b; }
-.download-description { margin: 22px 0 0; color: #a6b6ac; font-size: 17px; line-height: 1.65; }
+.download-intro h1 > span { color: #b7c8d8; }
+.download-description { margin: 22px 0 0; color: #a5afba; font-size: 17px; line-height: 1.65; }
 .download-platforms { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-top: 42px; }
-.download-card[data-slot="card"] { gap: 0; padding: 26px 24px 20px; border: 1px solid #ffffff1a; border-radius: 18px; background: #111a16; color: #f3f6f4; box-shadow: 0 8px 32px #00000012; }
+.download-card[data-slot="card"] { gap: 0; padding: 26px 24px 20px; border: 1px solid #ffffff1a; border-radius: 18px; background: #1a1f25; color: #edf0f3; box-shadow: 0 8px 32px #00000012; }
 .download-card-heading[data-slot="card-header"] { display: flex; align-items: center; gap: 18px; padding: 0; }
 .download-system-icon { display: grid; place-items: center; flex: 0 0 36px; }
 .download-system-icon svg { width: 32px; height: 32px; }
 .download-card h2 { margin: 0; font-size: 21px; font-weight: 650; letter-spacing: -.025em; }
-.download-card-heading p { margin: 7px 0 0; color: #96a69b; font-size: 13px; font-weight: 400; line-height: 1.4; }
+.download-card-heading p { margin: 7px 0 0; color: #a2adb9; font-size: 13px; font-weight: 400; line-height: 1.4; }
 .download-card-body[data-slot="card-content"] { padding: 24px 0 0; }
 .download-mac-tabs[data-slot="tabs"] { gap: 0; }
-.download-chip-tabs[data-slot="tabs-list"] { display: flex; width: 100%; height: 40px; padding: 4px; border: 1px solid #ffffff13; border-radius: 8px; background: #090f0c; }
-.download-chip-tabs [data-slot="tabs-trigger"] { flex: 1; height: 30px; min-width: 0; border: 0; border-radius: 5px; color: #92a499; background: transparent; font-size: 13px; box-shadow: none; cursor: pointer; }
-.download-chip-tabs [data-state="active"] { color: #ecf5ed; background: #2c3d31; box-shadow: 0 1px 4px #0003; }
-.download-format { display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 11px; border: 1px solid #ffffff0e; border-radius: 8px; color: #96a69b; font-size: 13px; }
-.download-format > span { color: #c5d3c9; font-size: 12px; }
-.download-page .download-button { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; margin-top: 16px; padding: 10px 12px; border-radius: 9px; background: #c2ee9b; color: #172216; font-size: 14px; font-weight: 650; transition: background .15s; }
-.download-page .download-button:hover { background: #d5f7b7; }
-.download-button > span { margin-left: auto; color: #3e5736; font-size: 12px; font-weight: 500; }
-.download-card-note { min-height: 36px; margin: 14px 0 0; color: #8f9f95; font-size: 12px; line-height: 1.5; }
-.download-card-note strong { color: #b8c7bd; font-weight: 500; }
-.download-card-note a { color: #c2ee9b; text-decoration: underline; text-underline-offset: 3px; }
-.download-release { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 24px 0 0; color: #8f9f95; font-size: 13px; }
-.download-release a:hover, .download-footer a:hover { color: #e6f2e8; text-decoration: underline; text-underline-offset: 4px; }
-.download-footer { min-height: 76px; border-top: 1px solid #ffffff10; color: #82958a; font-size: 12px; }
+.download-chip-tabs[data-slot="tabs-list"] { display: flex; width: 100%; height: 40px; padding: 4px; border: 1px solid #ffffff13; border-radius: 8px; background: #12161b; }
+.download-chip-tabs [data-slot="tabs-trigger"] { flex: 1; height: 30px; min-width: 0; border: 0; border-radius: 5px; color: #a5afba; background: transparent; font-size: 13px; box-shadow: none; cursor: pointer; }
+.download-chip-tabs [data-state="active"] { color: #edf0f3; background: #343e4a; box-shadow: 0 1px 4px #0003; }
+.download-format { display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 11px; border: 1px solid #ffffff0e; border-radius: 8px; color: #a2adb9; font-size: 13px; }
+.download-format > span { color: #c6cdd5; font-size: 12px; }
+.download-page .download-button { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; margin-top: 16px; padding: 10px 12px; border-radius: 9px; background: #b7c8d8; color: #18222d; font-size: 14px; font-weight: 650; transition: background .15s; }
+.download-page .download-button:hover { background: #cbd8e5; }
+.download-button > span { margin-left: auto; color: #394b5f; font-size: 12px; font-weight: 500; }
+.download-card-note { min-height: 36px; margin: 14px 0 0; color: #a0aab5; font-size: 12px; line-height: 1.5; }
+.download-card-note strong { color: #bdc6d0; font-weight: 500; }
+.download-card-note a { color: #b7c8d8; text-decoration: underline; text-underline-offset: 3px; }
+.download-release { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 24px 0 0; color: #a0aab5; font-size: 13px; }
+.download-release a:hover, .download-footer a:hover { color: #edf0f3; text-decoration: underline; text-underline-offset: 4px; }
+.download-institutions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 28px; margin: 32px auto 0; }
+.download-institution { display: grid; place-items: center; width: 112px; height: 48px; overflow: hidden; opacity: .72; }
+.download-institution img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
+.download-institution-ufpel { width: 48px; }
+/* The NeuroLab source has generous transparent margins around the wordmark. */
+.download-institution-neurolab { position: relative; }
+.download-institution-neurolab img { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 128px; height: 128px; max-width: none; max-height: none; filter: grayscale(1); }
+.download-footer { min-height: 76px; border-top: 1px solid #ffffff10; color: #a0aab5; font-size: 12px; }
 .download-footer nav { display: flex; gap: 24px; }
-.download-skip { position: fixed; left: 20px; top: 16px; z-index: 10; padding: 10px 16px; border-radius: 8px; background: #24382b; transform: translateY(-150%); }
+.download-skip { position: fixed; left: 20px; top: 16px; z-index: 10; padding: 10px 16px; border-radius: 8px; background: #303b48; transform: translateY(-150%); }
 .download-skip:focus { transform: translateY(0); }
-.web-back-downloads { position: absolute; right: 24px; top: 22px; z-index: 2; display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; border: 1px solid #ffffff33; border-radius: 999px; background: #151c18; color: #f1f5f1; font-size: 13px; text-decoration: none; }
-.web-back-downloads:hover { background: #2b382f; }
+.web-back-downloads { position: absolute; right: 24px; top: 22px; z-index: 2; display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; border: 1px solid #ffffff33; border-radius: 999px; background: #1a1f25; color: #edf0f3; font-size: 13px; text-decoration: none; }
+.web-back-downloads:hover { background: #343e4a; }
 @media (max-width: 1020px) {
   .download-platforms { gap: 12px; }
   .download-card[data-slot="card"] { padding: 22px 18px 18px; }
@@ -1082,6 +1088,10 @@ body, .tracking-page { background: #090a0b; }
   .download-footer { flex-direction: column; justify-content: center; gap: 12px; padding: 22px 0; text-align: center; }
 }
 @media (max-width: 350px) {
+  .download-institutions { gap: 18px; }
+  .download-institution { width: 92px; }
+  .download-institution-ufpel { width: 42px; }
+  .download-institution-neurolab img { width: 112px; height: 112px; }
   .download-button > span { display: none; }
 }
 

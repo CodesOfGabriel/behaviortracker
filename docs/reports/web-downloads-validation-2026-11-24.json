@@ -7,18 +7,35 @@
       "cards": 3,
       "logoLoaded": true,
       "loginHref": "#/login",
-      "appleLink": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.4/BehaviorTracker-v0.1.4-macOS-Apple-Silicon.dmg",
+      "appleLink": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.5/BehaviorTracker-v0.1.5-macOS-Apple-Silicon.dmg",
       "allLinks": [
-        "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.4/BehaviorTracker-v0.1.4-macOS-Apple-Silicon.dmg",
-        "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.4/BehaviorTracker-v0.1.4-Windows-x64.exe",
-        "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.4/BehaviorTracker-v0.1.4-Linux-x64.AppImage",
-        "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.4/BehaviorTracker-v0.1.4-Linux-x64.deb"
+        "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.5/BehaviorTracker-v0.1.5-macOS-Apple-Silicon.dmg",
+        "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.5/BehaviorTracker-v0.1.5-Windows-x64.exe",
+        "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.5/BehaviorTracker-v0.1.5-Linux-x64.AppImage",
+        "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.5/BehaviorTracker-v0.1.5-Linux-x64.deb"
       ],
       "overflow": false
     },
     {
+      "check": "institution-logos",
+      "institutions": [
+        {
+          "name": "Universidade Federal de Pelotas (UFPel)",
+          "loaded": true
+        },
+        {
+          "name": "NeuroCell",
+          "loaded": true
+        },
+        {
+          "name": "NeuroLab",
+          "loaded": true
+        }
+      ]
+    },
+    {
       "check": "mac-keyboard-selection",
-      "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.4/BehaviorTracker-v0.1.4-macOS-Intel.dmg"
+      "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.5/BehaviorTracker-v0.1.5-macOS-Intel.dmg"
     },
     {
       "check": "mac-tab-accessibility",
