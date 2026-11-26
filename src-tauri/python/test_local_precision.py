@@ -23,6 +23,96 @@ def frame(x=100, y=110, color=(200, 200, 200), axes=(12, 8), background=40):
 
 
 class PrecisionTests(unittest.TestCase):
+    def test_small_floor_fragment_recovers_wall_head_after_tracking_gap(self):
+        from test_arena import quad
+        background=frame(None)
+        background[:80]=170
+        cfg=settings(protocol="open_field")
+        cfg["arena"]={"cornersPx":quad(40,80,280,220),"rimCornersPx":quad(20,15,300,225)}
+        detector=RobustSegmenter(cfg,background)
+        before=background.copy()
+        cv2.ellipse(before,(160,115),(12,23),0,0,360,(200,)*3,-1)
+        detector.process(before,0)
+        self.assertTrue(detector.process(before,.04)["trackingAccepted"])
+        image=background.copy()
+        cv2.ellipse(image,(160,90),(10,9),0,0,360,(200,)*3,-1)
+        cv2.rectangle(image,(157,62),(163,90),(185,)*3,-1)
+        cv2.ellipse(image,(160,62),(9,15),0,0,360,(185,)*3,-1)
+        # The full historical body, rather than its small floor fragment,
+        # bounds pixel recovery even when identity needs reacquisition.
+        result=detector.process(image,1.)
+        self.assertGreater(result["wallExtension"]["addedAreaPx"],250)
+        self.assertLess(result["bbox"]["y"],50)
+        self.assertNotEqual(result["status"],"valid")
+        self.assertNotEqual(result["localQuality"]["geometry"],"floor")
+
+    def test_low_contrast_head_on_wall_is_recovered_without_static_wall_or_thin_tail(self):
+        from test_arena import quad
+        from body_axis import BodyAxisFilter
+        from oft_layers import LayeredTracker
+        background=frame(None)
+        background[:80]=170
+        cfg=settings(protocol="open_field",initialBox=dict(x=140,y=90,width=40,height=60))
+        cfg["arena"]={"cornersPx":quad(40,80,280,220),"rimCornersPx":quad(20,15,300,225)}
+        image=background.copy()
+        cv2.ellipse(image,(160,115),(12,23),0,0,360,(200,)*3,-1)
+        cv2.rectangle(image,(157,65),(163,105),(185,)*3,-1)
+        cv2.ellipse(image,(160,65),(7,9),0,0,360,(185,)*3,-1)
+        cv2.line(image,(160,138),(160,190),(150,)*3,1)
+        # Another head-sized object on the wall is disconnected from the body.
+        cv2.ellipse(image,(210,55),(8,10),0,0,360,(185,)*3,-1)
+        detector=RobustSegmenter(cfg,background)
+        result=detector.process(image,0)
+        self.assertGreater(result["wallExtension"]["addedAreaPx"],20)
+        self.assertLess(result["bbox"]["y"],65)
+        self.assertLess(result["bbox"]["x"]+result["bbox"]["width"],190)
+        self.assertLess(result["bbox"]["y"]+result["bbox"]["height"],155)
+        self.assertEqual(result["status"],"low_confidence")
+        self.assertNotEqual(result["localQuality"]["geometry"],"floor")
+        row={**result,"frameIndex":0,"timestampSec":0}
+        row["bodyAxis"]=BodyAxisFilter().update(row)
+        # Wall proximity by itself must not assign an anatomical direction.
+        from unittest.mock import patch
+        with patch("oft_layers.tail_evidence",return_value=(np.array([160.,138.]),np.array([160.,190.]))):
+            orientation=LayeredTracker(320,240,cfg["arena"]).update(image,row)["orientation"]
+        self.assertEqual(orientation["state"],"estimated")
+        self.assertLess(orientation["head"]["y"],80)
+        self.assertEqual(orientation["headRegion"],"wall_projection")
+        self.assertFalse(orientation["metricEligible"])
+
+    def test_rearing_body_crosses_floor_and_keeps_tracking_on_visible_wall(self):
+        from test_arena import quad
+        from body_axis import BodyAxisFilter
+        cfg=settings(protocol="open_field")
+        cfg["arena"]={"cornersPx":quad(70,80,250,210),"rimCornersPx":quad(30,20,290,225)}
+        before=__import__("copy").deepcopy(cfg["arena"])
+        detector=HybridSegmenter(cfg,RobustSegmenter(cfg,frame(None)))
+        axis=BodyAxisFilter()
+        for i,y in enumerate([105,105,90,75,60,55]):
+            result=detector.process(frame(140,y,axes=(12,30)),i/20)
+            body=axis.update({**result,"frameIndex":i,"timestampSec":i/20})
+            if i:
+                self.assertTrue(result["trackingAccepted"],result["reason"])
+                self.assertAlmostEqual(result["bbox"]["y"],y-30,delta=2)
+                self.assertGreaterEqual(result["bbox"]["y"]+result["bbox"]["height"],y+30)
+                self.assertEqual(result["status"],"low_confidence")
+                self.assertNotEqual(result["localQuality"]["geometry"],"floor")
+        self.assertLess(result["floorOverlapFraction"],.15)
+        self.assertEqual(body["state"],"reliable")
+        self.assertLess(min(p["y"] for p in body["points"]),80)
+        self.assertEqual(cfg["arena"],before)
+
+    def test_without_rim_the_metric_floor_does_not_crop_the_wall(self):
+        from test_arena import quad
+        cfg=settings(protocol="open_field",initialBox=dict(x=120,y=30,width=40,height=65))
+        cfg["arena"]={"cornersPx":quad(70,80,250,210)}
+        spatial=RobustSegmenter(cfg,frame(None))
+        result=spatial.process(frame(140,60,axes=(12,30)),0)
+        self.assertTrue(result["trackingAccepted"],result["reason"])
+        self.assertLess(result["bbox"]["y"],40)
+        self.assertEqual(result["spatialRegion"],"wall_projection")
+        self.assertEqual(result["status"],"low_confidence")
+
     def test_ram_walkability_gates_center_without_clipping_body_to_arm(self):
         polygon = [{"x": 146, "y": 30}, {"x": 174, "y": 30}, {"x": 174, "y": 210}, {"x": 146, "y": 210}]
         cfg = settings(protocol="radial_arm_maze", walkablePolygonPx=polygon, maxAreaFraction=.8)

@@ -1,5 +1,7 @@
+import { SelectMenu } from "../../components/ui/SelectMenu";
 import type { LocalAnalysisControls } from "../results/AnalysisWorkspace";
 import { useEffect, useId, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Info } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { formatBytes } from "../../lib/format";
@@ -10,6 +12,7 @@ import { LATEST_HYBRID_BUNDLE_ID, loadStagedVideo, prepareColabVideo, type Video
 import { isTauriRuntime } from "../colab/connection";
 import { preparedGeometry, scaleArenaToUpload } from "../colab/videoGeometry";
 import { cancelLocalJob, getLocalEnvironment, setupLocalEnvironment, listLocalJobs, stageLocalOriginal, startLocalJob, startLocalWistar, type LocalJob } from "./api";
+import { getBehaviorModelStatus, startBehavior } from "../behavior/api";
 
 const stateLabel: Record<LocalJob["state"], string> = {
   queued: "Na fila", running: "Em andamento", succeeded: "Concluída",
@@ -34,6 +37,8 @@ export function LocalAnalysisPanel({ experiment, selectSource, colabBusy, childr
   const [strategy, setStrategy] = useState("classical_roi_v1");
   const [processingWidth, setProcessingWidth] = useState(640);
   const [initialBox, setInitialBox] = useState<BoundingBox>();
+  const [detectRearing, setDetectRearing] = useState(false);
+  const [behaviorReady, setBehaviorReady] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const dialogTitleId = useId();
   const dialogDescriptionId = useId();
@@ -60,6 +65,7 @@ export function LocalAnalysisPanel({ experiment, selectSource, colabBusy, childr
     const dialog = dialogRef.current;
     if (busy || !dialog || dialog.open) return;
     dialog.showModal();
+    void getBehaviorModelStatus().then(value=>setBehaviorReady(value.installed&&value.environmentReady)).catch(()=>setBehaviorReady(false));
   }
 
   async function run(selectedFile?: File) {
@@ -118,13 +124,17 @@ export function LocalAnalysisPanel({ experiment, selectSource, colabBusy, childr
           : await loadStagedVideo(experiment.id, job.uploadId).catch(() => undefined);
         setAsset(experiment.id, { ...asset, file, objectUrl });
       }
-      setAnalysisActivity(experiment.id, { message: strategy === "classical_roi_v1" ? "Construindo a referência de fundo" : "Preparando os modelos Wistar e HRNet", videoProgress: null });
+      setAnalysisActivity(experiment.id, { message: strategy === "classical_roi_v1" ? "Construindo a referência de fundo" : "Preparando o detector Wistar e as camadas corporais", videoProgress: null });
       for (;;) {
         const current = (await listLocalJobs(experiment.id)).find(item => item.jobId === job.jobId);
         if (!current) throw new Error("A execução local não foi encontrada.");
         setJobs(previous => [current, ...previous.filter(item => item.jobId !== current.jobId)]);
         if (current.state === "succeeded") {
           if (!await selectSource({ engine: "opencv", jobId: current.jobId })) throw new Error("O resultado local não pôde ser aberto.");
+          if (strategy === "classical_roi_v1" && detectRearing && behaviorReady) {
+            try { await startBehavior(experiment.id, current.jobId, originalSha256); }
+            catch (reason) { setError(`Tracking concluído. Não foi possível iniciar rearing: ${message(reason)}`); }
+          }
           break;
         }
         if (current.state === "failed" || current.state === "cancelled") throw new Error(current.error || stateLabel[current.state]);
@@ -148,7 +158,9 @@ export function LocalAnalysisPanel({ experiment, selectSource, colabBusy, childr
 
   const panel = <>
     <input ref={fileRef} type="file" accept="video/*" className="sr-only" onChange={attach} />
-    <dialog ref={dialogRef} className="confirm-modal local-analysis-modal"
+    {/* The panel lives inside closed history details. A modal there makes the
+        page inert while remaining invisible, so mount it outside that subtree. */}
+    {createPortal(<dialog ref={dialogRef} className="confirm-modal local-analysis-modal"
       aria-labelledby={dialogTitleId} aria-describedby={dialogDescriptionId}>
       <form onSubmit={event => {
         event.preventDefault();
@@ -157,23 +169,22 @@ export function LocalAnalysisPanel({ experiment, selectSource, colabBusy, childr
       }}>
         <h2 id={dialogTitleId}>Analisar na máquina local</h2>
         <p id={dialogDescriptionId}>A análise e o vídeo de revisão são processados neste computador.</p>
-        <label>Método<select value={strategy} disabled={busy} onChange={event => setStrategy(event.target.value)}>
-          <option value="classical_roi_v1">OpenCV rápido · CPU (experimental)</option><option value="wistar_hrnet">Wistar + HRNet · pontos anatômicos</option>
-        </select></label>
+        <SelectMenu label="Método" value={strategy} disabled={busy} onChange={setStrategy} options={[{value:"classical_roi_v1",label:"OpenCV rápido · CPU (experimental)"},{value:"wistar_hrnet",label:"Wistar em camadas · caixa e orientação"}]}/>
         {strategy === "classical_roi_v1" ? <>
-          <p>Fundo fixo, diferenças de cor e continuidade visual para localizar o corpo e reduzir trocas por reflexos. Sem download de modelos. O MP4 inclui um eixo estimado da silhueta e um gráfico de deslocamento; o eixo não identifica pontos anatômicos. Rearing não é classificado automaticamente.</p>
-          <label>Largura de processamento<select value={processingWidth} disabled={busy} onChange={event => setProcessingWidth(Number(event.target.value))}>
-            <option value={480}>480 px</option><option value={640}>640 px</option><option value={960}>960 px</option>
-          </select></label>
+          <p>Fundo fixo, diferenças de cor e continuidade visual para localizar o corpo e reduzir trocas por reflexos. O MP4 inclui um eixo geométrico e um gráfico de deslocamento. Após o tracking, a aba Rearing permite anotar os episódios e executar um classificador supervisionado instalado.</p>
+          <SelectMenu label="Largura de processamento" value={String(processingWidth)} disabled={busy} onChange={value=>setProcessingWidth(Number(value))} options={[480,640,960].map(value=>({value:String(value),label:`${value} px`}))}/>
           <LocalTargetSeed experiment={experiment} file={asset?.file} disabled={busy} box={initialBox} onChange={setInitialBox} />
+          <p>As estimativas de cabeça e cauda são identificadas no vídeo. Se um modelo de ápices estiver selecionado na aba Rearing, as propostas serão geradas automaticamente.</p>
+          <label className="local-rearing-option"><input type="checkbox" checked={detectRearing} disabled={busy||!behaviorReady} onChange={event=>setDetectRearing(event.target.checked)}/><span>Classificar episódios completos após o tracking</span></label>
+          <p>{behaviorReady?"O classificador de episódios será executado em CPU como uma etapa independente. Acompanhe o resultado na aba Rearing.":"Para habilitar a classificação de episódios e duração, instale um modelo supervisionado de episódios na aba Rearing."}</p>
           <p>A primeira execução requer Python 3 e pode baixar OpenCV e suas dependências. Métricas exigem revisão das observações.</p>
-        </> : <p>O detector Wistar localiza o animal e a HRNet estima 27 pontos anatômicos. A primeira execução requer Python 3.10 a 3.13 de 64 bits e pode baixar modelos e dependências. Em CPU, pode levar mais tempo.</p>}
+        </> : <p>O detector Wistar localiza a caixa. As etapas seguintes analisam a silhueta, o eixo corporal e a orientação de cabeça e cauda. Estimativas ficam identificadas para revisão. Um modelo de ápices selecionado permite propor rearings. A primeira execução requer Python 3.10 a 3.13 de 64 bits e pode baixar dependências.</p>}
         <div className="confirm-modal-actions">
           <Button type="button" variant="secondary" onClick={() => dialogRef.current?.close()}>Cancelar</Button>
           <Button type="submit" disabled={busy}>Iniciar análise</Button>
         </div>
       </form>
-    </dialog>
+    </dialog>, document.body)}
     {(jobs.length > 0 || error) && <section className="panel local-analysis-panel" aria-label="Execuções locais">
       {active && <Button variant="secondary" onClick={() => void cancelLocalJob(active.jobId).catch(reason => setError(message(reason)))}>Cancelar</Button>}
       {error && <div className="validation-box invalid" role="alert"><Info size={16} />{error}</div>}
@@ -185,6 +196,9 @@ export function LocalAnalysisPanel({ experiment, selectSource, colabBusy, childr
         {selected.report.trackingObservedCoveragePct != null && ` ${selected.report.trackingObservedCoveragePct.toFixed(1)}% de localizações aceitas pelo rastreador.`}
         {selected.report.validObservationCoveragePct != null && ` ${selected.report.validObservationCoveragePct.toFixed(1)}% de observações sem alertas.`}
         {selected.report.reviewRequiredFrames != null && ` ${selected.report.reviewRequiredFrames} frames exigem revisão.`}</p>}
+      {selected?.report.rearing&&<p role="status">{selected.report.rearing.state==="model_unavailable"
+        ? "Rearing não classificado: selecione um modelo de ápices na aba Comportamento para as próximas análises."
+        : `${selected.report.rearing.candidates.length} propostas de rearing para revisão. Cabeça e cauda são estimativas; não entram nas métricas automáticas.`}</p>}
       {selected?.report.qualityReasonCounts && <details><summary>Motivos de revisão</summary>
         <p>{selected.report.geometryRejectedFrames ?? 0} localizações aceitas pelo rastreador têm geometria insuficiente para métricas no piso.</p>
         <p>Caixas recuperadas e previsões continuam fora das métricas. Os indicadores do rastreador são heurísticos.</p>
@@ -197,7 +211,7 @@ export function LocalAnalysisPanel({ experiment, selectSource, colabBusy, childr
         {jobs.map(job => <button type="button" key={job.jobId} disabled={busy || job.state !== "succeeded"}
           aria-pressed={selected?.jobId === job.jobId} onClick={() => void selectSource({ engine: "opencv", jobId: job.jobId })}>
           <strong>{new Date(job.createdAt).toLocaleString("pt-BR")}</strong>
-          <span>{stateLabel[job.state]} · {job.config.strategy === "wistar_hrnet" ? "Wistar + HRNet" : "OpenCV"}
+          <span>{stateLabel[job.state]} · {job.config.strategy === "wistar_hrnet" ? job.config.modelBundleId==="wistar_df_v2"?"Wistar em camadas":"Wistar + HRNet" : "OpenCV"}
             {job.report.observationCoveragePct == null ? "" : ` · ${job.report.observationCoveragePct.toFixed(1)}% de cobertura`}</span>
         </button>)}</div>}
       {selected && (selected.report.cameraUncertainFrames ?? 0) > 0 && <div className="validation-box invalid" role="status"><Info size={16} />

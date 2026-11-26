@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+repository=$(git rev-parse --show-toplevel)
+cd "$repository"
+exec node scripts/quality/pre-commit.mjs

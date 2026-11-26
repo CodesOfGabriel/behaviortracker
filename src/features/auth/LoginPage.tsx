@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { ArrowRight, LoaderCircle } from "lucide-react";
 import {
   COLAB_PROFILE_ID,
@@ -22,18 +22,19 @@ function GoogleMark() {
   );
 }
 
-export function LoginPage({ summary, checking, checkError, onSessionChange, onRetry }: {
+export function LoginPage({ checking, checkError, onSessionChange, onRetry }: {
   summary: OAuthProfileSummary;
   checking: boolean;
   checkError: string | null;
   onSessionChange: (summary: OAuthProfileSummary) => void;
   onRetry: () => void;
 }) {
-  const [pending, setPending] = useState<"connect" | null>(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const inFlight = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const desktop = isTauriRuntime();
-  const busy = pending !== null;
-  const configured = Boolean(summary.clientId && summary.hasClientSecret);
 
   async function openLegalPage(event: MouseEvent<HTMLAnchorElement>, page: "privacy" | "terms") {
     if (!desktop) return;
@@ -46,16 +47,20 @@ export function LoginPage({ summary, checking, checkError, onSessionChange, onRe
   }
 
   async function signIn() {
-    setPending("connect");
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
     setError(null);
     try {
-      const connected = await invoke<OAuthProfileSummary>("start_google_auth", { profileId: COLAB_PROFILE_ID });
-      if (!connected.connected) throw new Error("A conta Google não foi conectada. Tente novamente.");
-      onSessionChange(connected);
+      const current = await invoke<OAuthProfileSummary>("start_google_auth", { profileId: COLAB_PROFILE_ID });
+      if (!mounted.current) return;
+      if (!current.connected) throw new Error("A conta Google não foi conectada. Tente novamente.");
+      onSessionChange(current);
     } catch (reason) {
-      setError(errorMessage(reason));
+      if (mounted.current) setError(errorMessage(reason));
     } finally {
-      setPending(null);
+      inFlight.current = false;
+      if (mounted.current) setBusy(false);
     }
   }
 
@@ -75,11 +80,12 @@ export function LoginPage({ summary, checking, checkError, onSessionChange, onRe
             <button
               className="login-google-button"
               type="button"
-              disabled={checking || busy || !desktop || !configured}
+              disabled={busy || !desktop}
+              aria-busy={busy}
               onClick={() => void signIn()}
             >
-              {pending === "connect" ? <LoaderCircle size={18} className="login-spinner" /> : <GoogleMark />}
-              {pending === "connect" ? "Aguardando autorização…" : checking ? "Verificando sessão…" : "Entrar com Google"}
+              {busy ? <LoaderCircle size={18} className="login-spinner" /> : <GoogleMark />}
+              {busy ? "Aguardando autorização…" : "Entrar com Google"}
               {!busy && !checking && <ArrowRight size={16} className="login-arrow" />}
             </button>
             <nav className="login-legal" aria-label="Documentos legais">
@@ -87,9 +93,10 @@ export function LoginPage({ summary, checking, checkError, onSessionChange, onRe
               <span aria-hidden="true">·</span>
               <a href="https://behavior.usetars.com/terms" target="_blank" rel="noopener noreferrer" onClick={(event) => void openLegalPage(event, "terms")}>Termos de Serviço</a>
             </nav>
-            {pending === "connect" && <p className="login-hint" role="status">Conclua a autorização na janela do navegador.</p>}
+            {busy && <p className="login-hint" role="status">Conclua a autorização na janela do navegador.</p>}
+            {checking && !busy && <p className="login-hint" role="status">Verificando a sessão Google…</p>}
             {!desktop && <p className="login-error" role="alert">O login Google está disponível no aplicativo desktop.</p>}
-            {(error || checkError) && <div className="login-error" role="alert">{error || checkError}{checkError && <button type="button" onClick={onRetry}>Tentar novamente</button>}</div>}
+            {(error || checkError) && <div className="login-error" role="alert">{error || checkError}{checkError && <button type="button" disabled={busy} onClick={onRetry}>Verificar sessão novamente</button>}</div>}
           </div>
         </div>
         <p className="login-footer">Análise comportamental de roedores</p>

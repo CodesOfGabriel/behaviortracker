@@ -12,6 +12,7 @@ import sys
 
 
 SOURCE = "behavetracker-hybrid-df-v2"
+SKELETON_VIDEO_VERSION = "oft-layered-video-4"
 VISUAL_LIKELIHOOD = .50
 METRIC_LIKELIHOOD = .60
 MAX_PAIR_GAP_SEC = .5
@@ -38,10 +39,14 @@ COLORS = {"head": (238, 211, 34), "ears": (250, 165, 96), "trunk": (153, 211, 52
 
 
 def visual_point(row, width, height):
+    if (str(row.get("tracking_accepted", "")).strip().lower() in ("false", "0") and row.get("source") != "manual"
+            or row.get("status") in ("jump", "out_of_arena")):
+        return None
     try:
         x, y, score = float(row["x_px"]), float(row["y_px"]), float(row["likelihood"])
         if (all(math.isfinite(v) for v in (x, y, score)) and
-                0 <= x < width and 0 <= y < height and score >= VISUAL_LIKELIHOOD and
+                0 <= x < width and 0 <= y < height and
+                (score >= VISUAL_LIKELIHOOD or row.get("source") == "recovered" and row.get("processing_version") == "oft-layers-1") and
                 row["status"] != "missing"):
             return x, y, score
     except (ValueError, TypeError, KeyError):
@@ -54,6 +59,16 @@ def has_calibration(arena):
     measures = ((arena or {}).get(key) for key in ("widthCm", "heightCm"))
     return bool(corners and len(corners) == 4
                 and all(isinstance(value, (int, float)) and math.isfinite(value) and value > 0 for value in measures))
+
+
+def floor_speed_pairs(values, layers):
+    """A wall silhouette is visible tracking, never a floor speed pair."""
+    eligible = [row.get("trackingAccepted") is True
+                and (row.get("localQuality") or {}).get("tracking") == "observed"
+                and (row.get("localQuality") or {}).get("geometry") == "floor"
+                and row.get("reason") not in {"researcher_intervention", "researcher_intervention_pending"}
+                for row in layers]
+    return [value if i and eligible[i] and eligible[i-1] else None for i, value in enumerate(values)]
 
 
 def locomotor_series(poses, timestamps, arena, width, height):
@@ -72,7 +87,8 @@ def locomotor_series(poses, timestamps, arena, width, height):
     for index, rows in enumerate(poses):
         center = next((row for row in rows if row["keypoint"] == "mouse_center"), None)
         point = visual_point(center, width, height) if center else None
-        if not point or center["status"] != "valid" or point[2] < METRIC_LIKELIHOOD:
+        if (not point or center["status"] != "valid" or point[2] < METRIC_LIKELIHOOD
+                or center.get("source") in ("recovered", "predicted")):
             previous = None
             continue
         floor = cv2.perspectiveTransform(np.float32([[[point[0], point[1]]]]), matrix)[0, 0]
@@ -127,7 +143,7 @@ def digest(path):
     return value.hexdigest()
 
 
-def draw_panel(frame, index, timestamp, total, model, animal, valid_count, score, speed, series, timestamps, immobile, calibrated=True):
+def draw_panel(frame, index, timestamp, total, model, animal, valid_count, score, speed, series, timestamps, immobile, calibrated=True, point_count=27, skeleton_count=None):
     import cv2
 
     height, width = frame.shape[:2]
@@ -144,7 +160,8 @@ def draw_panel(frame, index, timestamp, total, model, animal, valid_count, score
     label(f"{animal}  |  {model}", margin + 11, margin + round(23 * scale), (238, 241, 244), .54)
     label(f"FRAME {index + 1}/{total}   TEMPO {timestamp:.2f} s", margin + 11, margin + round(47 * scale), size=.55)
     detector_text = f"DETECTOR {score:.2f}" if score is not None else "DETECTOR --"
-    label(f"POSE >=0.60 {valid_count}/27   {detector_text}", margin + 11, margin + round(71 * scale),
+    pose_text = f"SKELETON {skeleton_count}/7" if skeleton_count is not None else f"POSE >=0.60 {valid_count}/{point_count}"
+    label(f"{pose_text}   {detector_text}", margin + 11, margin + round(71 * scale),
           (153, 211, 52) if valid_count >= 2 else (80, 180, 250), .55)
 
     # Janela temporal de 10 segundos. Cada ponto vem do frame já renderizado.
@@ -221,7 +238,9 @@ def render(video, output_dir, arena, *, job_id=None, ffmpeg_path=None, progress=
         with (root / (f"{job_id}.csv" if job_id else "canonical_pose.csv")).open(newline="", encoding="utf-8-sig") as handle:
             for row in csv.DictReader(handle):
                 poses.setdefault(int(row["frame_index"]), []).append(row)
-        if len(poses) != expected or any(len(poses.get(i, [])) != 27 for i in range(expected)):
+        layered = manifest.get("pipelineVersion") == "oft-layers-1"
+        point_count = int(manifest.get("keypointCount", 27)) if layered else 27
+        if point_count <= 0 or point_count > 64 or len(poses) != expected or any(len(poses.get(i, [])) != point_count for i in range(expected)):
             raise ValueError("Contagem de poses incompatível")
         if set(manifest.get("keypoints", [])) != {row["keypoint"] for row in poses[0]}:
             raise ValueError("Keypoints do manifesto não correspondem às poses")
@@ -230,11 +249,41 @@ def render(video, output_dir, arena, *, job_id=None, ffmpeg_path=None, progress=
                for index, value in enumerate(timestamps)):
             raise ValueError("Timestamps de poses inválidos")
         pose_rows = [poses[index] for index in range(expected)]
+        # Historical OFT jobs retain their original 27-point CSV. Rebuild only
+        # the display geometry from the video and the saved detector boxes.
+        legacy_oft = (manifest.get("modelBundleId") in {"wistar_df_v1", "wistar_df_v2"}
+                      and manifest.get("protocol", "open_field") == "open_field"
+                      and manifest.get("engineId", "wistar_superanimal_hybrid_v1") == "wistar_superanimal_hybrid_v1")
+        from oft_layers import POLICY, TRACKING_BOX_POLICY, tracking_box
+        layer_root, layer_prefix = root, prefix
+        layer_source = "saved_layers" if layered else None
+        if legacy_oft and (not layered or manifest.get("layers", {}).get("trackingBox") != TRACKING_BOX_POLICY
+                           or manifest.get("layers", {}).get("headTracking") != POLICY["headTracking"]):
+            from oft_layered_pipeline import run as reconstruct_layers
+            layer_root, layer_prefix = root / f"{prefix}video-layers", ""
+            reconstruct_layers(video, detections, layer_root, arena, fps, width, height, ffmpeg=ffmpeg)
+            layer_source = "saved_detections_cpu_geometry"
+        body_overlay = layered or legacy_oft
+        layer_rows, layer_predictions = [], []
+        if body_overlay:
+            from oft_layers import draw_overlay
+            with (layer_root/f"{layer_prefix}samples.jsonl").open(encoding="utf-8") as source:
+                layer_rows = [json.loads(line) for line in source]
+            prediction_file = root/f"{prefix}rearing_predictions.jsonl" if layered else layer_root/f"{layer_prefix}rearing_predictions.jsonl"
+            with prediction_file.open(encoding="utf-8") as source:
+                layer_predictions = [json.loads(line) for line in source]
+            if len(layer_rows) != expected or len(layer_predictions) != expected or any(
+                row["frameIndex"] != i or abs(row["timestampSec"]-timestamps[i]) > 1e-6
+                for rows in [layer_rows, layer_predictions] for i,row in enumerate(rows)):
+                raise ValueError("Camadas e vídeo divergem")
         raw_speeds = locomotor_series(pose_rows, timestamps, arena, width, height)
+        if body_overlay:
+            raw_speeds = floor_speed_pairs(raw_speeds, layer_rows)
         calibrated = has_calibration(arena)
         speeds = smooth_series(raw_speeds, timestamps)
         immobility = immobility_flags(raw_speeds, timestamps)
-        capture = cv2.VideoCapture(str(video))
+        from layer_video import capture as open_video
+        capture = open_video(video,ffmpeg)
         if not capture.isOpened() or int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)) != width or int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)) != height:
             raise ValueError("Vídeo original não corresponde à inferência")
         process = subprocess.Popen([ffmpeg, "-v", "error", "-nostdin", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24",
@@ -242,6 +291,7 @@ def render(video, output_dir, arena, *, job_id=None, ffmpeg_path=None, progress=
             "-preset", "fast", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(temporary)],
             stdin=subprocess.PIPE, stderr=subprocess.PIPE)
         colors = {"cornersPx": (80, 195, 35), "rimCornersPx": (65, 185, 245)}
+        skeleton_frames = 0
         for index in range(expected):
             if progress is not None:
                 progress(index, expected)
@@ -256,12 +306,28 @@ def render(video, output_dir, arena, *, job_id=None, ffmpeg_path=None, progress=
             detection = detections[index]
             if int(detection["frame"]) != index:
                 raise ValueError("Detecções fora de ordem")
-            if detection.get("observed", "").lower() == "true":
+            stopped = body_overlay and layer_rows[index].get("reason") in ["researcher_intervention", "researcher_intervention_pending"]
+            if body_overlay and not stopped:
+                box=tracking_box(layer_rows[index])
+                if box:
+                    x,y,w,h=(round(box[key]) for key in ("x","y","width","height"))
+                    color=(45,185,245) if layer_rows[index].get("boxSource")=="recovered" else (248,189,56)
+                    cv2.rectangle(frame,(x,y),(x+w,y+h),color,max(2,round(width/640)))
+            elif detection.get("observed", "").lower() == "true" and not stopped:
                 x, y, w, h = (round(float(detection[key])) for key in ("x", "y", "w", "h"))
                 cv2.rectangle(frame, (x, y), (x+w, y+h), (248, 189, 56), max(2, round(width / 640)))
-            score = float(detection["score"]) if detection.get("observed", "").lower() == "true" else None
+            score = float(detection["score"]) if detection.get("observed", "").lower() == "true" and not stopped else None
             valid_count = 0
-            for pose in poses[index]:
+            recovered_count = 0
+            skeleton_count = None
+            if body_overlay:
+                draw_overlay(frame, layer_rows[index], layer_predictions[index])
+                axis = layer_rows[index].get("bodyAxis") or {}
+                skeleton_count = len(axis.get("points") or []) if not stopped and axis.get("state") == "reliable" else 0
+                skeleton_frames += skeleton_count == 7
+            # The shared skeleton already draws its seven nodes and estimated
+            # endpoints. Do not cover it with a second, incompatible pose.
+            for pose in ([] if body_overlay or stopped else poses[index]):
                 point = visual_point(pose, width, height)
                 if point is None:
                     continue
@@ -269,30 +335,43 @@ def render(video, output_dir, arena, *, job_id=None, ffmpeg_path=None, progress=
                 color = COLORS[REGIONS.get(pose["keypoint"], "other")]
                 radius = max(3, round(width / 320))
                 cv2.circle(frame, (round(x), round(y)), radius + 1, (12, 18, 22), -1, cv2.LINE_AA)
-                cv2.circle(frame, (round(x), round(y)), radius, color, -1, cv2.LINE_AA)
+                cv2.circle(frame, (round(x), round(y)), radius,
+                           (45, 185, 245) if pose.get("source") == "recovered" else color,
+                           1 if pose.get("source") == "recovered" else -1, cv2.LINE_AA)
+                recovered_count += pose.get("source") == "recovered"
                 if pose["status"] == "valid" and likelihood >= METRIC_LIKELIHOOD:
                     valid_count += 1
-            draw_panel(frame, index, timestamps[index], expected, manifest.get("modelBundleId", "Wistar D+F"),
-                       poses[index][0].get("animal_id", "animal_1"), valid_count, score,
-                       speeds[index], speeds, timestamps, immobility[index], calibrated)
+            if not body_overlay:
+                draw_panel(frame, index, timestamps[index], expected, manifest.get("modelBundleId", "Wistar D+F"),
+                           poses[index][0].get("animal_id", "animal_1"), valid_count, score,
+                           speeds[index], speeds, timestamps, immobility[index], calibrated, point_count, skeleton_count)
             legend_y = height - max(12, round(height * .025))
+            if recovered_count:
+                cv2.putText(frame, f"Estimativas: {recovered_count} pontos - revisar (circulos vazados)",
+                            (12, legend_y-22), cv2.FONT_HERSHEY_SIMPLEX,
+                            max(.35, min(width/1800, .55)), (45, 185, 245), 1, cv2.LINE_AA)
             legend_x = 12
-            for name, region in (("cabeca", "head"), ("orelhas", "ears"), ("tronco", "trunk"), ("anterior", "front"),
-                                 ("posterior", "hind"), ("cauda", "tail")):
-                cv2.circle(frame, (legend_x + 4, legend_y - 4), 4, COLORS[region], -1, cv2.LINE_AA)
+            legend = () if body_overlay else (("cabeca", "head"), ("orelhas", "ears"), ("tronco", "trunk"), ("anterior", "front"),
+                                 ("posterior", "hind"), ("cauda", "tail"))
+            for name, region in legend:
+                cv2.circle(frame, (legend_x + 4, legend_y - 4), 4, (255, 231, 107) if region == "axis" else COLORS[region], -1, cv2.LINE_AA)
                 cv2.putText(frame, name, (legend_x + 12, legend_y), cv2.FONT_HERSHEY_SIMPLEX,
                             max(.35, min(width / 1800, .55)), (238, 241, 244), 1, cv2.LINE_AA)
                 legend_x += max(70, round(width * .095))
+            if stopped and not body_overlay:
+                cv2.putText(frame, "Tracking interrompido - intervencao na arena", (12, legend_y-22),
+                            cv2.FONT_HERSHEY_SIMPLEX, max(.35, min(width/1800, .55)), (100,197,255), 1, cv2.LINE_AA)
             process.stdin.write(frame.tobytes())
         ok, _ = capture.read()
         if ok:
             raise RuntimeError("Vídeo possui frames extras")
         process.stdin.close()
         errors = process.stderr.read()
+        process.stderr.close()
         if process.wait() != 0:
             raise RuntimeError(errors.decode(errors="replace")[-1000:])
         process = None
-        verification = cv2.VideoCapture(str(temporary))
+        verification = open_video(temporary,ffmpeg)
         try:
             if not verification.isOpened() or int(verification.get(cv2.CAP_PROP_FRAME_COUNT)) != expected or int(verification.get(cv2.CAP_PROP_FRAME_WIDTH)) != width or int(verification.get(cv2.CAP_PROP_FRAME_HEIGHT)) != height:
                 raise RuntimeError("MP4 gerado não corresponde às poses")
@@ -301,7 +380,14 @@ def render(video, output_dir, arena, *, job_id=None, ffmpeg_path=None, progress=
         temporary.replace(target)
         report.update(available=True, sizeBytes=target.stat().st_size, sha256=digest(target), frameCount=expected,
                       width=width, height=height, fps=fps, playbackEncoding="h264-yuv420p",
-                      visualization={"version": "scientific-video-2", "reference": "mouse_center",
+                      visualization={"version": SKELETON_VIDEO_VERSION if body_overlay else "scientific-video-3", "reference": "mouse_center",
+                                     "skeletonMethod": "body-axis-2" if body_overlay else None,
+                                     "skeletonSource": layer_source, "skeletonFrames": skeleton_frames,
+                                     "trackingBoxPolicy": TRACKING_BOX_POLICY if body_overlay else None,
+                                     "textOverlay":not body_overlay,"headMarker":"hollow_triangle" if body_overlay else None,
+                                     "anatomicalPose": False if body_overlay else None,
+                                     "recoveryStyle": "hollow_amber_pending_review",
+                                     "estimatedPointsMetricEligible": False,
                                      "calibrated": calibrated, "validSpeedPairs": sum(speed is not None for speed in raw_speeds),
                                      "visualLikelihoodMinimum": VISUAL_LIKELIHOOD,
                                      "metricLikelihoodMinimum": METRIC_LIKELIHOOD,
@@ -318,8 +404,12 @@ def render(video, output_dir, arena, *, job_id=None, ffmpeg_path=None, progress=
             process.kill()
             process.wait()
         temporary.unlink(missing_ok=True)
-    if not job_id:
-        (root / "video_artifact.json").write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
+    # Keep an existing valid desktop artifact and its marker on render failure.
+    if report["available"] or not job_id:
+        marker = root / f"{prefix}video_artifact.json"
+        pending = marker.with_suffix(".partial.json")
+        pending.write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
+        pending.replace(marker)
     return report
 
 

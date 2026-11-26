@@ -71,7 +71,12 @@ export function AnalysisWorkspace({ experimentId, protocol, defaultEngine, local
       <span className="analysis-engine-option" data-selected={isLocal}>Máquina local</span>
     </label>
     <Button type="button" disabled={disabled || !desktop || busy || (isLocal ? !local.ready : !colab.connected)}
-      onClick={isLocal ? local.run : colab.run}>Analisar</Button>
+      onClick={event => {
+        // WebKit on macOS does not focus buttons on pointer clicks. Give the
+        // native dialog a focused opener to restore when Cancel/Escape closes it.
+        event.currentTarget.focus();
+        if (isLocal) local.run(); else colab.run();
+      }}>Analisar</Button>
     {!isLocal && !colab.connected && desktop &&
       <Button type="button" variant="secondary" onClick={() => navigate({ name: "colab" })}>Conectar Colab</Button>}
     {!desktop && <span className="analysis-controls-note">A análise está disponível no aplicativo desktop.</span>}

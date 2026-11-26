@@ -35,6 +35,34 @@ def convex_hull(points):
     return half(ordered)[:-1] + half(reversed(ordered))[:-1]
 
 
+def open_field_tracking_polygon(arena, width, height):
+    """Image-plane search region, independent of the metric floor polygon.
+
+    Floor and rim are not necessarily nested in perspective. Without a rim,
+    the floor cannot tell us where the visible walls end: retain the image.
+    """
+    arena = arena or {}
+    if not arena.get("rimCornersPx"):
+        return [(0, 0), (width-1, 0), (width-1, height-1), (0, height-1)]
+    points = polygon_points_any(arena["rimCornersPx"], width, height)
+    points += polygon_points_any(arena.get("cornersPx", []), width, height)
+    xs, ys = zip(*points)
+    padding_x, padding_y = (max(xs)-min(xs))*.05, (max(ys)-min(ys))*.05
+    return convex_hull([(max(0, min(width-1, x+dx)), max(0, min(height-1, y+dy)))
+                        for x, y in points for dx in [-padding_x, padding_x] for dy in [-padding_y, padding_y]])
+
+
+def open_field_tracking_mask(arena, width, height):
+    import cv2 as cv
+    import numpy as np
+    mask = np.zeros((height, width), np.uint8)
+    polygon = np.rint(open_field_tracking_polygon(arena, width, height)).astype(np.int32)
+    cv.fillPoly(mask, [polygon], 255)
+    for points in (arena or {}).get("occlusionPolygonsPx", []):
+        cv.fillPoly(mask, [np.rint(polygon_points_any(points, width, height)).astype(np.int32)], 0)
+    return mask
+
+
 def prepare_geometry(arena, width, height):
     if width <= 0 or height <= 0:
         raise ValueError("O vídeo não informou dimensões válidas")

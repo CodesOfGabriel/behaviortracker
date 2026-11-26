@@ -6,9 +6,9 @@ import { validBox } from "../../lib/corrections";
 type Drag = { pointerId: number; anchor: Point; screen: Point; box?: BoundingBox; opposite?: Point };
 
 /** Coordenadas em pixels do original, inclusive com letterboxing no player. */
-export function BoxOverlay({ box, width, height, drawing, editable, predicted, manual, onStart, onCancel, onCommit, onPlace }: {
+export function BoxOverlay({ box, width, height, drawing, editable, predicted, manual, showLabel=true, onStart, onCancel, onCommit, onPlace }: {
   box?: BoundingBox; width: number; height: number; drawing: boolean; editable: boolean; predicted?: boolean; manual?: boolean;
-  onStart: () => void; onCancel: () => void; onCommit: (box: BoundingBox) => void; onPlace?: (point: Point) => void;
+  showLabel?: boolean; onStart: () => void; onCancel: () => void; onCommit: (box: BoundingBox) => void; onPlace?: (point: Point) => void;
 }) {
   const [preview, setPreview] = useState<BoundingBox | null>(null);
   const drag = useRef<Drag | null>(null);
@@ -52,13 +52,13 @@ export function BoxOverlay({ box, width, height, drawing, editable, predicted, m
       if (validBox(next) && next.width >= 3 && next.height >= 3 && (!box || Object.keys(next).some(key => Math.abs(next[key as keyof BoundingBox] - box[key as keyof BoundingBox]) > .01))) onCommit(next);
     }}
     onPointerCancel={cancel} onLostPointerCapture={() => { if (drag.current) cancel(); }}>
-    {visible && validBox(visible) && <g data-tracking-box="animal">
+    {visible && validBox(visible) && <g data-tracking-box="animal" aria-label={predicted?"Previsão · não observada":manual?"Caixa manual":"Animal · caixa observada"}>
       <rect {...visible} fill={manual ? "#f0f0ed12" : "none"} stroke={predicted ? "#f7c96b" : manual ? "#f0f0ed" : "#a7adb2"}
         strokeWidth={Math.max(2, width * .002)} strokeDasharray={predicted ? "10 7" : undefined}
         style={{ cursor: editable ? "move" : "default", pointerEvents: editable ? "all" : "none" }} onPointerDown={event => begin(event, visible)} />
-      <text x={visible.x} y={Math.max(15, visible.y - 8)} fill="#fff" fontSize={Math.max(12, width * .012)}>
+      {showLabel&&<text x={visible.x} y={Math.max(15, visible.y - 8)} fill="#fff" fontSize={Math.max(12, width * .012)}>
         {predicted ? "Previsão · não observada" : manual ? "Caixa manual" : "Animal · caixa observada"}
-      </text>
+      </text>}
       {editable && !drawing && [
         [visible.x, visible.y, visible.x + visible.width, visible.y + visible.height],
         [visible.x + visible.width, visible.y, visible.x, visible.y + visible.height],

@@ -1,0 +1,10 @@
+{
+  "onsetThreshold": 0.75,
+  "offsetThreshold": 0.4,
+  "minimumDurationSec": 0.2,
+  "minimumOnsetConfirmationSec": 0.13,
+  "minimumOffsetConfirmationSec": 0.13,
+  "maximumMergeGapSec": 0.15,
+  "maximumUnobservedGapSec": 0.15,
+  "subtypeThreshold": 0.8
+}

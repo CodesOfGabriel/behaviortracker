@@ -4,10 +4,11 @@ import { SelectMenu } from "../../components/ui/SelectMenu";
 import { Button } from "../../components/ui/Button";
 import { formatDuration } from "../../lib/format";
 import type { OftMetrics } from "../../types";
+import type { ReactNode } from "react";
 export type MetricReferenceMode="reviewed"|"floor_box_estimate";
 const value=(number:number|null,unit:string,digits=1)=>number==null?"Não mensurável":`${number.toLocaleString("pt-BR",{minimumFractionDigits:digits,maximumFractionDigits:digits})} ${unit}`;
-export function OpenFieldMetricSummary({metrics,mode,onModeChange,hasBoxes,hasPendingReference,onExport}:{
-  metrics:OftMetrics;mode:MetricReferenceMode;onModeChange:(mode:MetricReferenceMode)=>void;hasBoxes:boolean;hasPendingReference:boolean;onExport:()=>void;
+export function OpenFieldMetricSummary({metrics,mode,onModeChange,hasBoxes,hasPendingReference,onExport,behavior}:{
+  metrics:OftMetrics;mode:MetricReferenceMode;onModeChange:(mode:MetricReferenceMode)=>void;hasBoxes:boolean;hasPendingReference:boolean;onExport:()=>void;behavior?:ReactNode;
 }) {
   const estimated=mode==="floor_box_estimate";
   const classifiable=metrics.validDurationSec>0;
@@ -31,6 +32,7 @@ export function OpenFieldMetricSummary({metrics,mode,onModeChange,hasBoxes,hasPe
       {!classifiable&&<p role="status" className="metric-reference-note">{estimated?"Não há pares consecutivos de caixas aceitas no piso. Confira a calibração e os alertas de rastreamento; posições na parede, previsões e perdas não permitem medir estes indicadores.":"Não há pares consecutivos de posições elegíveis nesta referência. Ausência de dados utilizáveis não significa que o animal ficou parado."}</p>}
       {estimated&&<div className="metric-estimate-actions"><span>Trechos incertos permanecem desconhecidos. Os valores não representam o vídeo inteiro.</span><Button size="sm" variant="secondary" icon={<Download size={14}/>} onClick={onExport}>Exportar estimativas</Button></div>}
     </CardContent></Card>
+    {behavior}
 
   </div>;
 }

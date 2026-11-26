@@ -1,3 +1,4 @@
+import { SelectMenu } from "../../components/ui/SelectMenu";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent } from "react";
 import { Button } from "../../components/ui/Button";
@@ -33,6 +34,8 @@ export function HumanReferenceEditor({ experimentId }: { experimentId: string })
   const [frameConfirmed, setFrameConfirmed] = useState(false);
   const [animalId, setAnimalId] = useState("animal_1");
   const [keypoint, setKeypoint] = useState("mouse_center");
+  const [customKeypoint, setCustomKeypoint] = useState(false);
+  const keypoints = ["body_center", "mouse_center", "box_center", "nose", "tail_base", "left_ear", "right_ear"];
   const [annotatorId, setAnnotatorId] = useState("");
   const [reviewerId, setReviewerId] = useState("");
   const [visibility, setVisibility] = useState<Visibility>("visible");
@@ -203,10 +206,7 @@ export function HumanReferenceEditor({ experimentId }: { experimentId: string })
     {recording && <div className="validation-layout">
       <section className="panel">
         <div className="validation-controls">
-          <label>Trecho <select value={mode} onChange={event => setMode(event.target.value)}>
-            <option value="frames">Frames do piloto ({recording.frames.length})</option>
-            {recording.clips.map(item => <option key={item.clipIndex} value={item.clipIndex}>Clipe {item.clipIndex + 1} · {item.startSec.toFixed(1)}–{item.endSec.toFixed(1)} s</option>)}
-          </select></label>
+          <SelectMenu label="Trecho" value={mode} onChange={setMode} options={[{value:"frames",label:`Frames do piloto (${recording.frames.length})`},...recording.clips.map(item=>({value:String(item.clipIndex),label:`Clipe ${item.clipIndex+1} · ${item.startSec.toFixed(1)}–${item.endSec.toFixed(1)} s`}))]}/>
           <Button variant="secondary" disabled={framePosition === 0} onClick={() => setFramePosition(index => index - 1)}>Frame anterior</Button>
           <Button variant="secondary" disabled={framePosition >= frames.length - 1} onClick={() => setFramePosition(index => index + 1)}>Próximo frame</Button>
           <span>Frame {current?.frameIndex ?? "—"} · {current?.timestampSec.toFixed(3) ?? "—"} s · {framePosition + 1}/{frames.length}</span>
@@ -226,12 +226,12 @@ export function HumanReferenceEditor({ experimentId }: { experimentId: string })
         <h2>Anotação independente</h2>
         <label>Identificador do anotador <input value={annotatorId} onChange={event => setAnnotatorId(event.target.value)} placeholder="observador_1" /></label>
         <label>Animal <input value={animalId} onChange={event => setAnimalId(event.target.value)} /></label>
-        <label>Ponto <input list="validation-keypoints" value={keypoint} onChange={event => setKeypoint(event.target.value)} /></label>
-        <datalist id="validation-keypoints"><option value="body_center"/><option value="mouse_center"/><option value="box_center"/><option value="nose"/><option value="tail_base"/><option value="left_ear"/><option value="right_ear"/></datalist>
+        <SelectMenu label="Ponto" value={customKeypoint || !keypoints.includes(keypoint) ? "custom" : keypoint}
+          onChange={value=>{setCustomKeypoint(value === "custom");if(value !== "custom")setKeypoint(value);}}
+          options={[...keypoints.map(value=>({value,label:value})),{value:"custom",label:"Outro ponto…"}]}/>
+        {(customKeypoint || !keypoints.includes(keypoint)) && <label>Nome do ponto <input value={keypoint} onChange={event=>setKeypoint(event.target.value)}/></label>}
         <small>Use uma definição fixa por protocolo. <code>box_center</code> é o centro geométrico de uma caixa; <code>body_center</code> é anatômico.</small>
-        <label>Visibilidade <select value={visibility} onChange={event => { setVisibility(event.target.value as Visibility); setPoint(null); }}>
-          {Object.entries(visibilityLabels).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-        </select></label>
+        <SelectMenu label="Visibilidade" value={visibility} onChange={value=>{setVisibility(value as Visibility);setPoint(null);}} options={Object.entries(visibilityLabels).map(([value,label])=>({value,label}))}/>
         {visibility === "visible" ? <p>{point ? `x ${point.x.toFixed(1)} · y ${point.y.toFixed(1)} px` : "Clique no vídeo para marcar o ponto."}</p>
           : <p>Sem coordenada: a visibilidade ficará registrada sem inventar uma posição.</p>}
         <p>Status: <strong>{selected?.status ?? "não anotado"}</strong>{selected && ` · revisão ${selected.revision}`}</p>

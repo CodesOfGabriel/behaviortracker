@@ -210,7 +210,7 @@ export function ForcedSwimLocalPanel({ experiment, children }: {
                 <rect {...row.bbox} fill="none" stroke="#51ddce" strokeWidth={Math.max(2, result.video.width / 500)} />
                 <circle cx={row.bbox.x+row.bbox.width/2} cy={row.bbox.y+row.bbox.height/2} r={Math.max(4, result.video.width/350)} fill="#51ddce" />
               </>}
-              <LocalBodyOverlay sample={boxSamples.get(row.animalId)?.[frame]} width={result.video.width} height={result.video.height} />
+              <LocalBodyOverlay sample={boxSamples.get(row.animalId)?.[frame]} samples={boxSamples.get(row.animalId)} width={result.video.width} height={result.video.height} />
               <text x={tank?.roiPx.x ?? 0} y={(tank?.roiPx.y ?? 0) + 24} fill={row.presence === "UNCERTAIN" ? "#e9b85c" : "#51ddce"} stroke="#111" strokeWidth="3" paintOrder="stroke" fontSize={Math.max(15, result.video.width / 75)}>{row.animalId}: {row.presence}</text></g>; })}
           <LocalMotionOverlay tracks={boxSamples} width={result.video.width} height={result.video.height} time={time} />
         </svg></div> : <div className="details-video-empty">O vídeo original não está disponível neste dispositivo.</div>}

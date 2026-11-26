@@ -1,3 +1,4 @@
+import { SelectMenu } from "../../components/ui/SelectMenu";
 import { useRef, useState, type ChangeEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { ArrowLeft, ArrowRight, Info, UploadCloud } from "lucide-react";
 import { Button } from "../../components/ui/Button";
@@ -257,7 +258,7 @@ export function RadialArmMazeExperimentWizard({ onBack, onComplete = () => {}, e
       {phaseError && <p className="validation-box invalid"><Info size={16}/>{phaseError}{geometryPhase === 2 && validateRadialCups(geometry, video.width, video.height) && <Button variant="secondary" size="sm" onClick={() => { showGeometryPhase(1); const invalid = cupTargets.find(item => validateRadialCup(geometry, Number(item.split("-")[1]) as ArmId, video.width, video.height)); if (invalid) setTarget(invalid); }}>Corrigir pote</Button>}</p>}
     </section>}
     {step === 3 && <section className="wizard-section ram-fields"><h2>Critério de visita</h2><p>Estes limiares são configuráveis e precisam de calibração com anotações humanas antes de uso científico.</p>
-      <label>Escolha válida<select value={policy.choiceCriterion} onChange={e => setPolicy(current => ({ ...current, choiceCriterion: e.target.value as RamVisitPolicy["choiceCriterion"] }))}><option value="arm_entry">Entrada no braço</option><option value="distal_reached">Alcance distal</option></select></label>
+      <SelectMenu label="Escolha válida" value={policy.choiceCriterion} onChange={value=>setPolicy(current=>({...current,choiceCriterion:value as RamVisitPolicy["choiceCriterion"]}))} options={[{value:"arm_entry",label:"Entrada no braço"},{value:"distal_reached",label:"Alcance distal"}]}/>
       {([ ["minimumArmDwellSec", "Permanência mínima no braço"], ["minimumCenterDwellSec", "Permanência mínima no centro"], ["minimumDistalDwellSec", "Permanência mínima na região distal"], ["unknownGapToleranceSec", "Tolerância a lacuna desconhecida"] ] as const).map(([key, label]) => <label key={key}>{label} (s)<input type="number" min="0" max="30" step="0.05" value={policy[key]} onChange={e => setPolicy(current => ({ ...current, [key]: Number(e.target.value) }))}/></label>)}
       <p>A área e os potes ficam salvos como preparação. Visitas por braço dependem de uma geometria própria e de tracking RAM validados para esta sessão antes do cálculo.</p>
       {(geometryError || policyError || error) && <p className="validation-box invalid"><Info size={16}/>{geometryError || policyError || error}</p>}

@@ -46,6 +46,9 @@ class LocalRun:
         if self.request["config"]["modelBundleId"] != "wistar_df_v2":
             raise RuntimeError("Instale o bundle Wistar v1 verificado para analisar com os pesos deste projeto.")
         registry = json.loads((self.root / "bundle.json").read_text(encoding="utf-8"))
+        # The layered v2 path consumes only the detector checkpoint. Legacy
+        # installations can keep their already cached HRNet files.
+        registry = {**registry,"files":{"best_detector.pth":registry["files"]["best_detector.pth"]}}
         return install_bundle(registry, self.request["appData"], "deeplabcut-pytorch-3",
                               bundled_config_dir=self.root, cancelled=self.cancelled,
                               progress=lambda _received, _total: self.progress("model_setup"))
@@ -76,6 +79,8 @@ class LocalRun:
             "__POSE_SHA256__": self.request["modelHashes"]["snapshot-hrnet_w32-001.pt"],
             "__CONFIG_SHA256__": self.request["modelHashes"]["pytorch_config.yaml"],
             "__ARENA__": self.request["config"]["arena"], "LOCAL_PROGRESS": self.progress,
+            "LAYERED_REARING_MODEL_DIRECTORY": self.request.get("rearingModelDirectory"),
+            "LAYERED_FFMPEG": self.request["ffmpeg"], "LAYERED_FFPROBE": self.request.get("ffprobe"),
         })
         manifest = json.loads((self.root / "run_manifest.json").read_text(encoding="utf-8"))
         count = manifest["frameCount"]
@@ -92,7 +97,8 @@ class LocalRun:
         except Exception as error:
             self.report["videoError"] = str(error)
         self.report.update(state="succeeded", phase="complete", framesProcessed=count, totalFrames=count,
-                           observationCoveragePct=100 * valid / count, processingFps=None)
+                           observationCoveragePct=100 * valid / count, processingFps=None,
+                           layers=manifest.get("layers"),rearing=manifest.get("rearing"))
 
 
 def run_command(args, job):

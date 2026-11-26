@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from hybrid_render import REGIONS, draw_panel, immobility_flags, locomotor_series, smooth_series, visual_point
+from hybrid_render import REGIONS, draw_panel, floor_speed_pairs, immobility_flags, locomotor_series, smooth_series, visual_point
 
 
 def center(frame, x, score=.9, status="valid"):
@@ -22,6 +22,13 @@ class PerspectiveResult:
 
 
 class HybridRenderTests(unittest.TestCase):
+    def test_wall_tracking_is_visible_but_never_creates_or_bridges_floor_speed_pairs(self):
+        floor=dict(trackingAccepted=True,localQuality=dict(tracking="observed",geometry="floor"))
+        wall=dict(trackingAccepted=True,localQuality=dict(tracking="observed",geometry="wall_projection"))
+        uncertain=dict(trackingAccepted=True,localQuality=dict(tracking="uncertain",geometry="floor"))
+        rows=[floor,floor,wall,floor,floor,uncertain,floor,floor]
+        self.assertEqual(floor_speed_pairs([None,4,8,10,12,14,16,18],rows),[None,4,None,None,12,None,None,18])
+
     def test_palette_covers_model_names(self):
         config = Path(__file__).resolve().parents[2] / "models/wistar_df_v2/pytorch_config.yaml"
         bodyparts = config.read_text().split("  bodyparts:\n", 1)[1].split("  unique_bodyparts:", 1)[0]
@@ -51,6 +58,24 @@ class HybridRenderTests(unittest.TestCase):
             speed = locomotor_series(rows, [0, .25, .5, .75, 1], arena, 200, 200)
         self.assertEqual(speed, [None, 20, None, None, 20])
         self.assertEqual(smooth_series(speed, [0, .25, .5, .75, 1]), speed)
+
+    def test_rejected_refined_points_are_not_drawn_even_at_high_likelihood(self):
+        rejected = {**center(0, 10, .99), "tracking_accepted": "false"}
+        self.assertIsNone(visual_point(rejected, 100, 100))
+        self.assertIsNone(visual_point(center(0, 10, .99, "jump"), 100, 100))
+        self.assertIsNotNone(visual_point({**rejected, "tracking_accepted": "true"}, 100, 100))
+        self.assertIsNotNone(visual_point({**rejected, "tracking_accepted": ""}, 100, 100))
+
+    def test_recovered_or_predicted_center_is_visible_but_never_a_measured_speed_pair(self):
+        arena = {"cornersPx": [{"x": 0, "y": 0}, {"x": 100, "y": 0},
+                               {"x": 100, "y": 100}, {"x": 0, "y": 100}],
+                 "widthCm": 100, "heightCm": 100}
+        for source in ("recovered", "predicted"):
+            estimate = {**center(1, 20, .99), "source": source, "tracking_accepted": "true"}
+            self.assertIsNotNone(visual_point(estimate, 100, 100))
+            values = locomotor_series([[center(0, 10)], [estimate], [center(2, 30)], [center(3, 40)]],
+                                      [0, .25, .5, .75], arena, 100, 100)
+            self.assertEqual(values, [None, None, None, 40.])
 
     def test_immobility_requires_duration_and_resets_at_gap(self):
         values = [None, 1, 1, 1, None, 1, 1]

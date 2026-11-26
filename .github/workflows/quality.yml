@@ -1,0 +1,71 @@
+name: Required quality checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Quality (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-15-intel, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Linux native dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v6
+        id: python
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: scripts/quality/requirements.txt
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+      - run: npm ci
+      - run: |
+          python -m pip install --only-binary=:all: -r scripts/quality/requirements.txt
+      - run: npx playwright install --with-deps chromium webkit
+      - name: Prepare isolated native video tools
+        shell: bash
+        run: |
+          export BEHAVETRACKER_VIDEO_TOOLS_DIR="$RUNNER_TEMP/behavetracker-video-tools"
+          echo "BEHAVETRACKER_VIDEO_TOOLS_DIR=$BEHAVETRACKER_VIDEO_TOOLS_DIR" >> "$GITHUB_ENV"
+          npm install --prefix "$BEHAVETRACKER_VIDEO_TOOLS_DIR" --no-package-lock --no-audit --no-fund ffmpeg-static@5.3.0 @derhuerst/ffprobe-static@5.3.0
+          node scripts/prepare-video-tools.mjs
+      - name: Run mandatory application checks
+        run: npm run verify
+        env:
+          BEHAVETRACKER_TEST_PYTHON: ${{ steps.python.outputs.python-path }}
+          # Synthetic credentials exercise compile-time OAuth in tests. The
+          # installer job separately requires the real repository secret.
+          BEHAVETRACKER_GOOGLE_CLIENT_ID: fixture-desktop.apps.googleusercontent.com
+          BEHAVETRACKER_GOOGLE_CLIENT_SECRET: fixture-google-client-secret
+      - name: Retain evidence when a check fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-failure-${{ matrix.os }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 14

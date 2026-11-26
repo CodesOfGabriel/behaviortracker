@@ -1,0 +1,7 @@
+{
+  "scenario": "failed session lookup cannot disable a valid Google sign-in",
+  "browser": "chromium",
+  "result": "failed_before_fix",
+  "assertion": "Expected enabled, received disabled",
+  "source": "Playwright run before production auth changes"
+}

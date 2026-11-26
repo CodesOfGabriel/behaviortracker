@@ -1,0 +1,193 @@
+{
+  "videoFilename": "openfield02.mp4",
+  "experimentNameConfirmed": true,
+  "jobId": "86a0ac49-483b-4f99-8554-94b169cb9e5c",
+  "videoSha256": "e8cd0c3a5624a4342346fcf56a328e8a86419cf058d27cccf1bea1a6141e51c4",
+  "frameCount": 4438,
+  "fps": 16.0,
+  "device": "cuda:0",
+  "modelBundleId": "wistar_df_v2",
+  "detectedBoxFrames": 4382,
+  "referenceValidFrames": 289,
+  "referenceConsecutiveValidPairs": 223,
+  "keypointStatuses": {
+    "low_confidence": 106296,
+    "valid": 12018,
+    "missing": 1512
+  },
+  "coverageByKeypoint": {
+    "nose": {
+      "low_confidence": 4134,
+      "valid": 248,
+      "missing": 56
+    },
+    "left_ear": {
+      "low_confidence": 3880,
+      "valid": 502,
+      "missing": 56
+    },
+    "right_ear": {
+      "low_confidence": 3859,
+      "valid": 523,
+      "missing": 56
+    },
+    "left_ear_tip": {
+      "low_confidence": 4142,
+      "valid": 240,
+      "missing": 56
+    },
+    "right_ear_tip": {
+      "low_confidence": 3891,
+      "valid": 491,
+      "missing": 56
+    },
+    "left_eye": {
+      "low_confidence": 4319,
+      "valid": 63,
+      "missing": 56
+    },
+    "right_eye": {
+      "low_confidence": 4323,
+      "valid": 59,
+      "missing": 56
+    },
+    "neck": {
+      "low_confidence": 4341,
+      "missing": 56,
+      "valid": 41
+    },
+    "mid_back": {
+      "low_confidence": 4371,
+      "valid": 11,
+      "missing": 56
+    },
+    "mouse_center": {
+      "low_confidence": 4093,
+      "valid": 289,
+      "missing": 56
+    },
+    "mid_backend": {
+      "low_confidence": 4321,
+      "valid": 61,
+      "missing": 56
+    },
+    "mid_backend2": {
+      "low_confidence": 4274,
+      "valid": 108,
+      "missing": 56
+    },
+    "mid_backend3": {
+      "low_confidence": 4313,
+      "valid": 69,
+      "missing": 56
+    },
+    "tail_base": {
+      "low_confidence": 1453,
+      "valid": 2929,
+      "missing": 56
+    },
+    "tail1": {
+      "low_confidence": 3552,
+      "valid": 830,
+      "missing": 56
+    },
+    "tail2": {
+      "low_confidence": 4222,
+      "valid": 160,
+      "missing": 56
+    },
+    "tail3": {
+      "low_confidence": 2686,
+      "valid": 1696,
+      "missing": 56
+    },
+    "tail4": {
+      "low_confidence": 4300,
+      "valid": 82,
+      "missing": 56
+    },
+    "tail5": {
+      "low_confidence": 4350,
+      "valid": 32,
+      "missing": 56
+    },
+    "left_shoulder": {
+      "low_confidence": 4379,
+      "valid": 3,
+      "missing": 56
+    },
+    "left_midside": {
+      "low_confidence": 4172,
+      "valid": 210,
+      "missing": 56
+    },
+    "left_hip": {
+      "low_confidence": 3576,
+      "valid": 806,
+      "missing": 56
+    },
+    "right_shoulder": {
+      "low_confidence": 4379,
+      "valid": 3,
+      "missing": 56
+    },
+    "right_midside": {
+      "low_confidence": 4014,
+      "valid": 368,
+      "missing": 56
+    },
+    "right_hip": {
+      "low_confidence": 3482,
+      "valid": 900,
+      "missing": 56
+    },
+    "tail_end": {
+      "valid": 1254,
+      "low_confidence": 3128,
+      "missing": 56
+    },
+    "head_midpoint": {
+      "low_confidence": 4342,
+      "valid": 40,
+      "missing": 56
+    }
+  },
+  "localComparison": {
+    "jobId": "b3ec2ab6-0ec6-48f5-bbba-0f505bdf97e8",
+    "algorithmVersion": "opencv-box-12",
+    "frames": 4438,
+    "acceptedObservedFrames": 4428,
+    "pointReference": "segmented_box_center",
+    "groundTruth": false
+  },
+  "sameVideoHistory": [
+    {
+      "jobId": "720121a6-a696-43af-8401-5e8bf8a513c4",
+      "modelBundleId": "wistar_df_v1",
+      "frameCount": 4438,
+      "framesWithoutQcFlags": 10,
+      "poseCheckpointSha256": null
+    },
+    {
+      "jobId": "bd79f9e9-f837-4665-8293-95d6f5ff2c74",
+      "modelBundleId": "wistar_df_v2",
+      "frameCount": 4438,
+      "framesWithoutQcFlags": 270,
+      "poseCheckpointSha256": "d81c8f18ba0729263168b96eab3e09b6bc3d0ee194b131fb381d2526266ff215"
+    },
+    {
+      "jobId": "86a0ac49-483b-4f99-8554-94b169cb9e5c",
+      "modelBundleId": "wistar_df_v2",
+      "frameCount": 4438,
+      "framesWithoutQcFlags": 289,
+      "poseCheckpointSha256": "d81c8f18ba0729263168b96eab3e09b6bc3d0ee194b131fb381d2526266ff215"
+    }
+  ],
+  "validationScope": "read-only audit of saved artifacts; no inference or training performed",
+  "limitations": [
+    "Confidence and accepted-observation rates are not accuracy measurements.",
+    "No independent anatomical ground truth is available in this audit.",
+    "Appearance mismatch is a hypothesis, not an experimentally isolated cause."
+  ],
+  "experimentName": "Teste R2"
+}

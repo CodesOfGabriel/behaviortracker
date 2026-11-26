@@ -1,3 +1,4 @@
+import { SelectMenu } from "../../components/ui/SelectMenu";
 import { ExperimentRunSummary } from "../results/ExperimentRunSummary";
 import { ExperimentVideos } from "../results/ExperimentVideos";
 import { ArrowLeft, Download, Info, ShieldCheck } from "lucide-react";
@@ -86,11 +87,7 @@ export function RadialMazeResults({ experimentId }: { experimentId: string }) {
           <div><dt>Região distal</dt><dd>{visitPolicy.minimumDistalDwellSec} s</dd></div><div><dt>Lacuna tolerada</dt><dd>{visitPolicy.unknownGapToleranceSec} s</dd></div>
           <div><dt>Recompensa</dt><dd>{geometry.arms.filter(arm => arm.baited).map(arm => `${geometry.walkablePolygonPx ? "P" : "B"}${arm.id}`).join(", ")}</dd></div>
           <div><dt>Revisões anteriores</dt><dd>{experiment.geometryHistory?.length ?? 0}</dd></div></dl>
-        {!!experiment.geometryHistory?.length && <div className="ram-revision-picker"><label>Restaurar geometria anterior
-          <select value={selectedRevisionIndex} onChange={event => setSelectedRevisionIndex(Number(event.target.value))}>
-            <option value={-1}>Selecione uma revisão</option>
-            {experiment.geometryHistory.map((item, index) => <option key={index} value={index}>Revisão {item.revision} · {item.walkableMaskVersion.slice(0, 25)}</option>)}
-          </select></label><Button variant="secondary" disabled={selectedRevisionIndex < 0} onClick={restoreRevision}>Restaurar como nova revisão</Button></div>}
+        {!!experiment.geometryHistory?.length && <div className="ram-revision-picker"><SelectMenu label="Restaurar geometria anterior" value={String(selectedRevisionIndex)} onChange={value=>setSelectedRevisionIndex(Number(value))} options={[{value:"-1",label:"Selecione uma revisão"},...experiment.geometryHistory.map((item,index)=>({value:String(index),label:`Revisão ${item.revision} · ${item.walkableMaskVersion.slice(0,25)}`}))]}/><Button variant="secondary" disabled={selectedRevisionIndex < 0} onClick={restoreRevision}>Restaurar como nova revisão</Button></div>}
         <div className="ram-analysis-note"><Info size={17}/><span>Os potes e recompensas ficam registrados na configuração. O tracking experimental observa somente a área do labirinto; erros de memória e consumo de recompensa dependem de revisão humana e validação do método.</span></div>
       </section>
     </div>

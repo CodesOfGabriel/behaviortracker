@@ -35,8 +35,20 @@ export function isTauriRuntime() {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-export function loadColabSummary() {
-  return invoke<OAuthProfileSummary>("get_google_oauth_config", { profileId: COLAB_PROFILE_ID });
+export const GOOGLE_SESSION_CHECK_TIMEOUT_MS = 10_000;
+
+export async function loadColabSummary() {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      invoke<OAuthProfileSummary>("get_google_oauth_config", { profileId: COLAB_PROFILE_ID }),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error("A verificação da sessão Google demorou demais. Você pode tentar entrar novamente.")), GOOGLE_SESSION_CHECK_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export function publishColabSummary(summary: OAuthProfileSummary) {

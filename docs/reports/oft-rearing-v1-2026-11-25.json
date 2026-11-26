@@ -1,0 +1,264 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-11-25",
+  "scope": "Open Field top-down local rearing implementation and annotation interface",
+  "modelStatus": "awaiting_human_annotations_and_training",
+  "scientificallyValidated": false,
+  "rearingAccuracyMeasured": false,
+  "checks": {
+    "productionBuild": "passed; pre-existing bundle size warning",
+    "vitest": {
+      "passed": 170,
+      "files": 26
+    },
+    "rust": {
+      "passed": 95
+    },
+    "python": {
+      "ran": 210,
+      "passed": 209,
+      "skipped": 1,
+      "skipReason": "Windows-only atomic-file-replacement test on macOS",
+      "latestBehaviorTargetedTestsPassed": 50
+    },
+    "syntheticEndToEnd": {
+      "state": "succeeded",
+      "sourceFrames": 32,
+      "behaviorSamples": 26,
+      "vfr": true,
+      "overlayPtsPreserved": true,
+      "zipExport": true,
+      "cancelDoesNotPublish": true,
+      "corruptModelRejected": true,
+      "biologicalAccuracyMeasured": false
+    },
+    "baselineOnnxParity": {
+      "fixture": "synthetic contract test only, not biological training",
+      "maximumAbsoluteError": 7.748603820800781e-07,
+      "atol": 0.0001,
+      "rtol": 0.0001
+    },
+    "browser": {
+      "runtime": "Chrome with mocked Tauri commands; no installed app verification",
+      "viewportWidths": [
+        1440,
+        1180,
+        980,
+        390
+      ],
+      "horizontalOverflow": false,
+      "keyboardIntervalSec": [
+        0.2,
+        0.8
+      ],
+      "undo": true,
+      "untrainedClassificationDisabled": true,
+      "consoleErrors": 0,
+      "behaviorSelectionPersistence": {
+        "persistedEarlierRun": true,
+        "summaryMatchesSelectedBehavior": true,
+        "trackingSwitchChangesBehaviorSource": true,
+        "browserErrors": []
+      }
+    },
+    "gitDiffCheck": "passed",
+    "datasetBuilder": {
+      "fixture": "Three synthetic independent groups; no animal ground truth",
+      "sequentialDecodingPassed": true,
+      "samples": 78,
+      "cropsSaved": true,
+      "unannotatedIntervalsRemainUnknown": true
+    },
+    "evaluatorIntegration": {
+      "fixture": "Synthetic feature-label contract fixture only",
+      "positiveSessionEvaluated": true,
+      "negativeSessionHandledWithoutUndefinedF1Failure": true,
+      "negativeOnlyCohortCannotApproveModel": true,
+      "biologicalAccuracyMeasured": false
+    },
+    "qualitativeErrorVideo": {
+      "generated": true,
+      "fixture": "synthetic VFR video",
+      "biologicalAccuracyMeasured": false
+    }
+  },
+  "dd2FeatureExtraction": {
+    "elapsedSec": 46.50780510499317,
+    "rows": 4597,
+    "originalFrames": 7356,
+    "cpuThreads": 2,
+    "peakMemoryMb": 71.4375,
+    "observationCounts": {
+      "OBSERVED": 3770,
+      "UNCERTAIN": 826,
+      "UNOBSERVED": 1
+    },
+    "contextPaddedSamples": 1803,
+    "internalMotionSamples": 3698,
+    "rearingAccuracyMeasured": false,
+    "referenceLengthPx": 154.0,
+    "referencePolicy": "median_accepted_long_bbox_side_session_v1",
+    "descriptorReference": {
+      "cropLengthPx": 154.0,
+      "dimensions": {
+        "silhouette_area": 5903.0,
+        "body_axis_length": 102.62487454889957,
+        "body_width_mean": 51.27606627194114
+      },
+      "descriptorPolicy": "median_64_reservoir_seed42_accepted_silhouettes_session_v1",
+      "descriptorReferenceCount": 64
+    },
+    "samplesSha256": "02b5095b8816b53fd753f5c59c42dc3f88ea75f3e6f0e11679e9edc1312ddb12",
+    "durationSec": 306.5,
+    "durationSource": "ffprobe_video_stream_duration",
+    "lastFrameSupport": "prediction_support_bounded_by_sampling_interval_remainder_unknown",
+    "timings": {
+      "decode_time_sec": 17.836059146400657,
+      "crop_extraction_time_sec": 1.9971594780508894,
+      "feature_extraction_time_sec": 23.60195588390343,
+      "encoder_time_sec": 0.0
+    },
+    "benchmark": "feature_extraction_only_no_classifier",
+    "scientificallyValidated": false,
+    "limitation": "Original tracking was reused. Context-only padding is allowed; clipped animal bodies remain uncertain. Eligibility is not rearing accuracy or classifiable model coverage."
+  },
+  "designReferences": [
+    "src/components/ui/EditorTabs.tsx",
+    "src/components/ui/tabs.tsx (shadcn/ui New York, MIT)",
+    "docs/shadcn-results-ui.md",
+    "Existing local analysis dialogs and result tabs"
+  ],
+  "remainingForPrecision": [
+    "Human annotations including hard negatives and uncertain segments",
+    "Training A/B/C/D on independent animal/session/video groups",
+    "Optimize decoder on validation only; evaluate complete independent test sessions",
+    "Measure frame/event F1, onset/offset, count/duration errors, coverage and human agreement",
+    "Benchmark trained encoder/classifier on local CPU and compare FP32/INT8",
+    "Verify installed desktop interaction and packaging on macOS, Windows and Linux"
+  ],
+  "artifacts": {
+    "studioScreenshot": "oft-rearing-studio-2026-11-25.png",
+    "scopeAudit": "../OFT_REARING_IMPLEMENTATION_AUDIT.md",
+    "summaryScreenshot": "oft-rearing-summary-2026-11-25.png"
+  },
+  "sourceSha256": {
+    "src-tauri/python/behavior/event_decoder.py": "793fc7f0137f01f5d3881792a0cb8e05af16e8edee259bde95507146f02d906a",
+    "src-tauri/python/behavior/export_dataset.py": "ff2eb173c11abd28c10b3da7adf0b0bcfab45bb26050a6b7642037f30a644ffc",
+    "src-tauri/python/behavior/metrics.py": "bed48d1ec0825ac7c82485a67ab44e60a7bf66122e7b6f1ba9c515a46011c91c",
+    "src-tauri/python/behavior/crop_extractor.py": "fa51f47877f9829968d04db2b75946a268b9e7d1eb6b402d82af5098206e807a",
+    "src-tauri/python/behavior/motion_features.py": "195aa58ed462a5bcc5e62901fe987101e62973dadf070638efefb16ac8c579ae",
+    "src-tauri/python/behavior/__init__.py": "4df931fffb245370e05bfbdc2e0381052482bce8e12806c6d2750d9987b170d0",
+    "src-tauri/python/behavior/contracts.py": "8e8f5953d69a68b34e7d021f38a5728ba7abba4f8d7c9fcb5167467cf072ac91",
+    "src-tauri/python/behavior/observation_quality.py": "9263f7f0d4ae1d36483593f3a4cb23d65c9839e1edf8cd9ebbeb463c58e5c016",
+    "src-tauri/python/behavior/temporal_windows.py": "5a42007054829c6836346faf2b59f100e007138a26ec826f223841dc2385f70c",
+    "src-tauri/python/behavior/onnx_inference.py": "1b418e0ae1329386210c512fdebed3c353e30d9c3dd6d31c46100d0a48353a94",
+    "src-tauri/python/behavior/silhouette_features.py": "3b46917ac161c810fdb569748fb9b93b520ff5abd5cc43ce141b971946aa1fb9",
+    "src-tauri/python/behavior/normalization.py": "3aef6d87209fcac8073fe03a9974089d4e636bd825c79bab36b918657b0c5090",
+    "src-tauri/python/behavior/model_registry.py": "c051bf549b833263266680d423e04fff619700441544cb8a072f06911d1c1954",
+    "src-tauri/python/behavior/open_field.py": "c4a000ddd3b0da3c68743def7d7c2b8607acad55e276228e3fbafda656c7999b",
+    "scripts/behavior/benchmark_oft_cpu.py": "c362e66cbae0cf3aa81788ce4e38439a0a6f5b7a905677e08ad21f008314a673",
+    "scripts/behavior/build_oft_dataset.py": "61f457a3488e45a8584df155e3fdcc4cd5aa249115efa837737877de7a20f2a0",
+    "scripts/behavior/validate_oft_behavior.py": "62b140b50e7c0ba162e9e07ffb28770533904df651d9f85234ab7d0bde70ed68",
+    "scripts/behavior/networks.py": "c08dd9e147d7817c01ba08e63a661c01621faacbd53d37f6a69d0c67ec317449",
+    "scripts/behavior/common.py": "b6a538196287ea81ed0516b327e216f4eabe7d7c10585b87b790cd6833039cc2",
+    "scripts/behavior/export_onnx.py": "9bc75e188a3acd623ea41285692bff9d5ca685c741e7fe33530ff88964d1c712",
+    "scripts/behavior/train_oft_visual.py": "8ecb0c14ba4b7f75a94c10abebc94163a9f72527ea555c163bd68c7e1d4b8429",
+    "scripts/behavior/train_oft_baseline.py": "0452d5d5e2c23801ab4d05a4bc935f078a30ee28065935b7e438a640061f8988",
+    "src/features/behavior/BehaviorVideoOverlay.tsx": "cb0112f004ea39a9a706bcedb66a059df9ce86bd1dc73855b23b726c55823bf0",
+    "src/features/behavior/BehaviorEventReview.tsx": "dd36003a04e3c6a34b2e183d187abc74cdabb885b56e9fb978e1da360353fd9f",
+    "src/features/behavior/BehaviorMetricSummary.tsx": "8c6af21f5ac6cf7fd84da7dc7dd6ac5b63bc01c248d24c405ade909e1c5ec701",
+    "src/features/behavior/BehaviorExperimentSummary.tsx": "dfb666402ecfbb0ba3e195a8ac2b4f102afa91a2dcd776c24c968fd2a0013b62",
+    "src/features/behavior/BehaviorAnnotationEditor.tsx": "0d436c8b92b0f5be67130fa8f961672c54440d2fc1929724cecdda3d68d9cb5b",
+    "src/features/behavior/BehaviorEthogram.tsx": "9735625b515d87ea4638729d82c65bded09c7e1e57cedaccd1d73358edbec376",
+    "src/features/behavior/BehaviorAnalysisPanel.tsx": "b85a0380d463b1064420f76101039893a04a0951c8b1a44a54102a524828868d",
+    "src/lib/behavior/behavior.test.ts": "3d342807acd45424a726acd91a9b9bfc1232237bcdf54c30ddac7ed80157bfeb",
+    "src/lib/behavior/validation.ts": "b51de449f611f9adda7dc3a585af9c85cfab1e92e827d2a5059f76584979c3b6",
+    "src/lib/behavior/selection.ts": "120f16eac198cf225df71c8051da1162f0d8943461a0ebe9cfe7b758a80ed325",
+    "src/lib/behavior/types.ts": "45aac6e391cdbdcaee914ac5e83932b3e4fd4838a857abbe47b20250dd48329d",
+    "src/lib/behavior/events.ts": "0a683fbfbcb9942df199397f6d139f8bd15eea974d07cc8fae4f2636689e46b8",
+    "src/lib/behavior/metrics.ts": "289a67a9f0da1d4658592126c29893f757d5fc546110901613fea50e651798f5",
+    "src-tauri/src/local_behavior.rs": "d9e5b3353fe6340b181c79bb7f43381d3ff2dbe8a9c39cb4731ebfdfaf6bc9c8",
+    "src-tauri/migrations/004_oft_behavior.sql": "c18cfca65c5b70906086a432e8a25b1c4b2ec5149b21cc156ebb82fe6e2bc5b0"
+  },
+  "dd2FlowComparison": {
+    "schemaVersion": 1,
+    "comparison": "Feature extraction only; no trained classifier or biological accuracy evaluation",
+    "methods": {
+      "farneback": {
+        "elapsedSec": 46.50780510499317,
+        "rows": 4597,
+        "originalFrames": 7356,
+        "cpuThreads": 2,
+        "peakMemoryMb": 71.4375,
+        "observationCounts": {
+          "OBSERVED": 3770,
+          "UNCERTAIN": 826,
+          "UNOBSERVED": 1
+        },
+        "contextPaddedSamples": 1803,
+        "internalMotionSamples": 3698,
+        "rearingAccuracyMeasured": false,
+        "referenceLengthPx": 154.0,
+        "referencePolicy": "median_accepted_long_bbox_side_session_v1",
+        "descriptorReference": {
+          "cropLengthPx": 154.0,
+          "dimensions": {
+            "silhouette_area": 5903.0,
+            "body_axis_length": 102.62487454889957,
+            "body_width_mean": 51.27606627194114
+          },
+          "descriptorPolicy": "median_64_reservoir_seed42_accepted_silhouettes_session_v1",
+          "descriptorReferenceCount": 64
+        },
+        "samplesSha256": "02b5095b8816b53fd753f5c59c42dc3f88ea75f3e6f0e11679e9edc1312ddb12",
+        "durationSec": 306.5,
+        "durationSource": "ffprobe_video_stream_duration",
+        "lastFrameSupport": "prediction_support_bounded_by_sampling_interval_remainder_unknown",
+        "timings": {
+          "decode_time_sec": 17.836059146400657,
+          "crop_extraction_time_sec": 1.9971594780508894,
+          "feature_extraction_time_sec": 23.60195588390343,
+          "encoder_time_sec": 0.0
+        }
+      },
+      "lk": {
+        "elapsedSec": 37.63485847300035,
+        "rows": 4597,
+        "originalFrames": 7356,
+        "cpuThreads": 2,
+        "peakMemoryMb": 93.55859375,
+        "observationCounts": {
+          "OBSERVED": 3770,
+          "UNCERTAIN": 826,
+          "UNOBSERVED": 1
+        },
+        "contextPaddedSamples": 1803,
+        "internalMotionSamples": 3665,
+        "rearingAccuracyMeasured": false,
+        "referenceLengthPx": 154.0,
+        "referencePolicy": "median_accepted_long_bbox_side_session_v1",
+        "descriptorReference": {
+          "cropLengthPx": 154.0,
+          "dimensions": {
+            "silhouette_area": 5903.0,
+            "body_axis_length": 102.62487454889957,
+            "body_width_mean": 51.27606627194114
+          },
+          "descriptorPolicy": "median_64_reservoir_seed42_accepted_silhouettes_session_v1",
+          "descriptorReferenceCount": 64
+        },
+        "samplesSha256": "02b5095b8816b53fd753f5c59c42dc3f88ea75f3e6f0e11679e9edc1312ddb12",
+        "durationSec": 306.5,
+        "durationSource": "ffprobe_video_stream_duration",
+        "lastFrameSupport": "prediction_support_bounded_by_sampling_interval_remainder_unknown",
+        "timings": {
+          "decode_time_sec": 16.43464781397779,
+          "crop_extraction_time_sec": 1.907510086282855,
+          "feature_extraction_time_sec": 15.877383021637797,
+          "encoder_time_sec": 0.0
+        }
+      }
+    },
+    "memoryMeasurementNote": "Peak RSS is a process-lifetime high-water mark from a serial comparison in one process; do not interpret the second method value as isolated incremental memory."
+  }
+}

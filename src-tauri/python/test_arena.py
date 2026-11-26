@@ -1,6 +1,6 @@
 import unittest
 
-from arena import prepare_geometry, restore_point, spatial_region, torso_center
+from arena import prepare_geometry, restore_point, spatial_region, torso_center, open_field_tracking_mask
 
 
 def quad(left, top, right, bottom):
@@ -9,6 +9,20 @@ def quad(left, top, right, bottom):
 
 
 class ArenaTests(unittest.TestCase):
+    def test_tracking_preserves_floor_wall_union_and_exclusions_without_mutating_floor(self):
+        import copy
+        import numpy as np
+        arena={"cornersPx":quad(80,80,250,210),"rimCornersPx":quad(30,20,280,180),
+               "occlusionPolygonsPx":[quad(200,40,220,60)]}
+        before=copy.deepcopy(arena)
+        mask=open_field_tracking_mask(arena,320,240)
+        for y,x in [(40,60),(200,120),(100,120)]:self.assertEqual(mask[y,x],255)
+        self.assertEqual(mask[50,210],0)
+        self.assertEqual(mask[0,0],0)
+        self.assertEqual(arena,before)
+        no_rim=open_field_tracking_mask({"cornersPx":arena["cornersPx"]},320,240)
+        self.assertTrue(np.all(no_rim==255))
+
     def setUp(self):
         self.arena = {"revision": 2, "cornersPx": quad(200, 300, 700, 800),
                       "rimCornersPx": quad(150, 100, 750, 650)}

@@ -9,7 +9,17 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "tauri": "tauri"
+    "tauri": "node scripts/tauri.mjs",
+    "test:unit": "vitest run",
+    "test:gate": "node --test scripts/quality/core.test.mjs scripts/quality/workflows.test.mjs scripts/quality/tauri-dev.test.mjs",
+    "test:oauth-build": "node --test scripts/quality/google-oauth-build.test.mjs",
+    "test:ui": "npm run build && playwright test",
+    "test:setup": "node scripts/quality/setup.mjs",
+    "verify": "node scripts/quality/check.mjs",
+    "verify:frontend": "node scripts/quality/check.mjs --frontend",
+    "verify:staged": "node scripts/quality/pre-commit.mjs",
+    "prepare": "node scripts/quality/install-hooks.mjs",
+    "test:regression-proof": "node scripts/quality/prove-modal-regression.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.12.4",
@@ -22,14 +32,20 @@
     "tailwind-merge": "^3.7.1"
   },
   "devDependencies": {
+    "@playwright/test": "1.65.1",
     "@tailwindcss/vite": "4.3.4",
     "@tauri-apps/cli": "2.12.4",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.13",
+    "@types/node": "22.20.7",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.2.1",
+    "jsdom": "29.1.1",
     "tailwindcss": "4.3.4",
     "typescript": "7.0.2",
     "vite": "8.3.6",
-    "vitest": "5.1.0"
+    "vitest": "5.1.0",
+    "yaml": "2.9.1"
   }
 }

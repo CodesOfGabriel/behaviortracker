@@ -41,7 +41,7 @@ import { parseCanonicalPoseCsv } from "../../lib/csv";
 import { boxCenterTrajectory, boxTrajectoryStyle } from "../../lib/boxes";
 import { LocalMotionOverlay } from "../local/LocalMotionOverlay";
 import { LocalBodyOverlay } from "../local/LocalBodyOverlay";
-import { confidenceLabel, drawablePose, inferredFps, metricEligible, originalPose, poseSourceLabel, qualityTimelineBins, referencePoseSamples, trajectorySegments } from "../../lib/pose";
+import { confidenceLabel, drawablePose, inferredFps, metricEligible, originalPose, poseSourceLabel, qualityTimelineBins, referencePoseSamples, trajectorySegments, visiblePose, LAYERED_SKELETON_EDGES } from "../../lib/pose";
 import { makeDemoPose } from "../../lib/demo-data";
 import { centerPolygonPx, pointsToSvg } from "../../lib/geometry";
 import { calculateOftMetrics } from "../../lib/metrics";
@@ -82,10 +82,12 @@ const statusInfo: Record<PoseStatus, { label: string; tone: "success" | "warning
 };
 
 const keypointLabels: Record<string, string> = {
+  ...Object.fromEntries(Array.from({length:7},(_,i)=>[`body_axis_${i}`,`Eixo corporal ${i+1}`])),
+  head_midpoint: "Centro da cabeça",
   box_center: "Centro da caixa · referência 2D",
   silhouette_center: "Centroide da silhueta",
   body_center: "Centro corporal",
-  mouse_center: "Centro corporal (HRNet)",
+  mouse_center: "Centro corporal",
   nose: "Focinho",
   tail_base: "Base da cauda",
   left_ear: "Orelha esquerda",
@@ -307,6 +309,8 @@ function TrackingReviewEditor({ experimentId }: { experimentId: string }) {
   const rawCurrentPoints = useMemo(() => rawSamples.filter((sample) => sample.frameIndex === currentFrame),[rawSamples,currentFrame]);
   const selectedPoint = currentPoints.find((sample) => sample.keypoint === selectedKeypoint);
   const visiblePointCount = currentPoints.filter(drawablePose).length;
+  const estimatedPointCount = currentPoints.filter(sample => drawablePose(sample)
+    && (sample.source === "recovered" || sample.source === "predicted")).length;
   const bins = useMemo(() => qualityTimelineBins(referenceSamples,duration), [referenceSamples,duration]);
   const reviewedReference = useMemo(() => referencePoseSamples(correctedSamples,referenceKeypoint), [correctedSamples,referenceKeypoint]);
   const reviewedMetrics = useMemo(() => experiment ? calculateOftMetrics(reviewedReference,experiment.arena) : null, [reviewedReference,experiment?.arena]);
@@ -802,16 +806,14 @@ function TrackingReviewEditor({ experimentId }: { experimentId: string }) {
                 {localBoxTrajectory?.centers.filter(sample => sample.frameIndex === currentFrame).map(sample =>
                   <circle key="local-box-center" cx={sample.xPx!} cy={sample.yPx!} r={6} fill="#51ddce" stroke="#142c29" strokeWidth={2} pointerEvents="none" />)}
                 {showTrajectory && keyframePreview.map((segment, index) => <polyline key={`keyframe-${index}`} points={pointsToSvg(segment)} fill="none" stroke="#f0f0ed" strokeWidth="4" strokeDasharray="11 8" strokeOpacity=".9" strokeLinecap="round" strokeLinejoin="round" />)}
-                {[["nose", "body_center"], ["body_center", "tail_base"], ["left_ear", "nose"], ["right_ear", "nose"]].map(([a, b]) => {
+                {[...[ ["nose", "body_center"], ["body_center", "tail_base"], ["left_ear", "nose"], ["right_ear", "nose"]], ...LAYERED_SKELETON_EDGES].map(([a, b]) => {
                   const first = currentPoints.find((sample) => sample.keypoint === a);
                   const second = currentPoints.find((sample) => sample.keypoint === b);
-                  if (!drawablePose(first) || !drawablePose(second) ||
-                      (first.source !== "manual" && first.likelihood < .5) ||
-                      (second.source !== "manual" && second.likelihood < .5)) return null;
+                  if (!visiblePose(first) || !visiblePose(second)) return null;
                   return <line key={`${a}-${b}`} x1={first.xPx} y1={first.yPx} x2={second.xPx} y2={second.yPx} stroke="#ecfdf5" strokeOpacity=".8" strokeWidth="4" />;
                 })}
                 {!macroMode&&currentPoints.map((sample) => {
-                  if (!drawablePose(sample) || (sample.source !== "manual" && sample.likelihood < .5)) return null;
+                  if (!visiblePose(sample)) return null;
                   const point = drag?.keypoint === sample.keypoint ? drag.current : { x: sample.xPx, y: sample.yPx };
                   const rawPoint = rawCurrentPoints.find((raw) => raw.keypoint === sample.keypoint);
                   const corrected = sample.source === "manual" && (!rawPoint || rawPoint.xPx !== sample.xPx || rawPoint.yPx !== sample.yPx);
@@ -820,7 +822,7 @@ function TrackingReviewEditor({ experimentId }: { experimentId: string }) {
                     <g
                       key={sample.keypoint}
                       data-keypoint={sample.keypoint}
-                      aria-label={`${keypointLabels[sample.keypoint]??sample.keypoint}${sample.source==="manual"?" · corrigido manualmente":""}`}
+                      aria-label={`${keypointLabels[sample.keypoint]??sample.keypoint}${sample.source==="manual"?" · corrigido manualmente":sample.source==="recovered"||sample.source==="predicted"?" · estimativa para revisão":""}`}
                       className="tracking-point"
                       transform={`translate(${point.x} ${point.y})`}
                       onPointerDown={(event) => {
@@ -829,22 +831,28 @@ function TrackingReviewEditor({ experimentId }: { experimentId: string }) {
                       }}
                     >
                       {corrected && <circle r="19" fill="none" stroke="#f7c96b" strokeWidth="3" strokeDasharray="4 4" />}
-                      <circle r={selected ? 12 : 9} fill={sample.source === "recovered" ? "#f0f0ed" : sample.status === "valid" ? "#a7adb2" : "#f7c96b"} stroke="#242628" strokeWidth="3" />
-                      {selected && <text y="-19" textAnchor="middle" fontSize="14" fontWeight="700" fill="#fff">{keypointLabels[sample.keypoint] ?? sample.keypoint}</text>}
+                      <title>{keypointLabels[sample.keypoint] ?? sample.keypoint} · {poseSourceLabel(sample)}</title>
+                      <circle r={selected ? 12 : 9}
+                        fill={sample.source === "recovered" || sample.source === "predicted" ? "none" : sample.status === "valid" ? "#a7adb2" : "#f7c96b"}
+                        stroke={sample.source === "recovered" || sample.source === "predicted" ? "#f7c96b" : "#242628"}
+                        strokeDasharray={sample.source === "predicted" ? "4 3" : undefined} strokeWidth="3" />
+                      {selected && experiment.testType!=="open_field" && <text y="-19" textAnchor="middle" fontSize="14" fontWeight="700" fill="#fff">{keypointLabels[sample.keypoint] ?? sample.keypoint}</text>}
                     </g>
                   );
                 })}
                 {!macroMode&&currentPoints.filter(sample=>drawablePose(sample)&&sample.bbox).map(sample=><BoxOverlay key={`legacy-box-${sample.keypoint}`} box={sample.bbox}
+                  showLabel={experiment.testType!=="open_field"}
                   width={experiment.video.width} height={experiment.video.height} drawing={false} editable={false} predicted={sample.source==="predicted"} manual={sample.source==="manual"}
                   onStart={()=>{}} onCancel={()=>{}} onCommit={()=>{}}/>)}
                 {macroMode&&<BoxOverlay key={`${trackingSourceKey(experiment.trackingSelection)}:${currentFrame}`} box={drawablePose(currentReference)?currentReference.bbox:undefined}
+                  showLabel={experiment.testType!=="open_field"}
                   width={experiment.video.width} height={experiment.video.height} drawing={drawingBox} editable={!positionLocked&&workspaceTab==="review"}
                   predicted={currentReference?.source==="predicted"} manual={currentReference?.source==="manual"}
                   onStart={()=>{videoRef.current?.pause();setPlaying(false);setCorrectionMessage("");}} onCancel={()=>setDrawingBox(false)} onCommit={saveBox}/>}
-                {localTracking && macroMode && <LocalBodyOverlay sample={currentReference} width={experiment.video.width} height={experiment.video.height} />}
+                {(localTracking && macroMode || currentReference?.oftLayers) && <LocalBodyOverlay sample={currentReference} samples={referenceSamples} width={experiment.video.width} height={experiment.video.height} />}
                 {localTracking && <LocalMotionOverlay samples={displayedSamples} width={experiment.video.width} height={experiment.video.height} time={currentTime} />}
               </svg>
-              <div className="stage-badges"><Badge tone="neutral">Frame {currentFrame}</Badge><Badge tone={qualityInfo.tone}>{qualityInfo.label}</Badge>{currentReference?.source && currentReference.source !== "detected" && currentReference.source !== "recovered" && <Badge tone="warning">{poseSourceLabel(currentReference)}</Badge>}</div>
+              <div className="stage-badges"><Badge tone="neutral">Frame {currentFrame}</Badge><Badge tone={qualityInfo.tone}>{qualityInfo.label}</Badge>{estimatedPointCount > 0 && <Badge tone="warning">{estimatedPointCount} estimativas · revisar · fora das métricas</Badge>}{currentReference?.source && currentReference.source !== "detected" && currentReference.source !== "recovered" && <Badge tone="warning">{poseSourceLabel(currentReference)}</Badge>}</div>
               {workspaceTab==="review"&&viewMode!=="raw"&&(!asset?.objectUrl&&experiment.video.timingSource!=="synthetic"?<div className="placement-hint">Abra o vídeo original para conferir a posição real do animal</div>:macroMode?(drawingBox&&<div className="placement-hint">Arraste de um canto ao outro ao redor do animal · Esc cancela</div>):(placingPoint||!drawablePose(selectedPoint))&&<div className="placement-hint">{currentFrameSample?`Clique e arraste para posicionar ${keypointLabels[selectedKeypoint] ?? selectedKeypoint}`:"Sem timestamp de origem para este frame · edição bloqueada para não corrigir o frame errado"}</div>)}
               {viewMode === "raw" && <div className="raw-lock"><RotateCcw size={15} /> Visualização bruta · edição bloqueada</div>}
             </div>

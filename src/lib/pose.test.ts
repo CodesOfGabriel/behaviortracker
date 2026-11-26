@@ -27,6 +27,28 @@ describe("timeline de qualidade usa o tempo real da seleção", () => {
 });
 
 describe("poses com visibilidade parcial", () => {
+  it("mostra recuperações por imagem para revisão sem promovê-las a métricas", () => {
+    const csv = `${header},source,tracking_accepted,tracking_reason,processing_version,raw_x_px,raw_y_px,raw_likelihood,raw_status,raw_source\n1,.0625,animal_1,mouse_center,50,50,.9,low_confidence,recovered,true,visual_recovery_pending_review,pose-consensus-flow-2,,,.1,missing,detected`;
+    const sample = parseCanonicalPoseCsv(poseToCsv(parseCanonicalPoseCsv(csv)))[0];
+    expect(sample.source).toBe("recovered");
+    expect(drawablePose(sample)).toBe(true);
+    expect(metricEligible(sample)).toBe(false);
+    expect(confidenceLabel(sample)).toBe("Revisar");
+    expect(originalPose(sample)).toMatchObject({ xPx: null, yPx: null, status: "missing", source: "detected" });
+    expect(metricEligible(originalPose(sample))).toBe(false);
+    expect(referencePoseSamples([sample], "mouse_center")[0].xPx).toBeNull();
+  });
+  it("preserva a rejeição do consenso Colab na importação, exportação, desenho e métricas", () => {
+    const csv = `${header},source,tracking_accepted,tracking_reason,processing_version\n0,0,animal_1,mouse_center,50,50,.99,low_confidence,detected,false,view_disagreement,pose-consensus-1`;
+    const sample = parseCanonicalPoseCsv(csv)[0];
+    expect(sample).toMatchObject({ xPx: 50, likelihood: .99, trackingAccepted: false,
+      reason: "view_disagreement", processingVersion: "pose-consensus-1" });
+    const restored = parseCanonicalPoseCsv(poseToCsv([sample]))[0];
+    expect(drawablePose(restored)).toBe(false);
+    expect(metricEligible(restored)).toBe(false);
+    expect(drawablePose({ ...restored, source: "manual" })).toBe(true);
+    expect(trajectorySegments([restored, { ...restored, frameIndex: 1 }])).toEqual([]);
+  });
   it("não promove caixas previstas ou recuperadas ao construir a referência", () => {
     for (const source of ["predicted", "recovered"] as const) {
       for (const status of ["valid", "low_confidence"] as const) {

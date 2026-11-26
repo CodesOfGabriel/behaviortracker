@@ -54,6 +54,7 @@ def select_detection(
     detections, width, height, threshold=.30, margin=.12,
     roi_polygon=None, floor_polygon=None, previous_box=None,
     frame_gap=1, roi_area=None, roi_overlap_min=.22, return_audit=False,
+    precision=False,
 ):
     """Seleciona uma bbox com os critérios geométricos e temporais do M4.
 
@@ -79,7 +80,9 @@ def select_detection(
     if roi_area is None and roi is not None:
         roi_area = max(float(cv2.contourArea(roi)), 1.0)
     candidates = []
-    rejected = {"below_threshold": 0, "invalid": 0, "size": 0, "roi": 0, "jump": 0}
+    rejected = {"below_threshold": 0, "invalid": 0, "size": 0, "roi": 0, "jump": 0, "shape": 0}
+    effective_threshold = max(threshold, .65) if precision and (previous_box is None or frame_gap > 16) else threshold
+    audited_candidates = []
     highest_score = 0.0
     for item in detections:
         try:
@@ -90,12 +93,22 @@ def select_detection(
             continue
         highest_score = max(highest_score, score)
         x1, y1, x2, y2 = box
-        if score < threshold:
+        if not 0 <= score <= 1:
+            rejected["invalid"] += 1
+            continue
+        if score < effective_threshold:
             rejected["below_threshold"] += 1
             continue
         if x2 <= x1 or y2 <= y1:
             rejected["invalid"] += 1
             continue
+        # Clip valid, partly off-screen boxes; completely off-screen boxes are
+        # not observations. Return raw and pose boxes in the same coordinates.
+        x1, y1, x2, y2 = max(0., x1), max(0., y1), min(width, x2), min(height, y2)
+        if x2 <= x1 or y2 <= y1:
+            rejected["invalid"] += 1
+            continue
+        box = (x1, y1, x2, y2)
         area = (x2 - x1) * (y2 - y1)
         if roi is not None and (area < .0004 * roi_area or area > .40 * roi_area):
             rejected["size"] += 1
@@ -117,18 +130,35 @@ def select_detection(
                 continue
             continuity = math.exp(-normalized / .14)
             iou = _iou(box, previous_box)
+            if precision and frame_gap == 1:
+                old_area = (previous_box[2] - previous_box[0]) * (previous_box[3] - previous_box[1])
+                ratio = area / max(old_area, 1.)
+                # An abrupt, several-fold size change without overlap is not a
+                # confirmed identity. Rearing with overlap is retained.
+                if iou < .10 and not .20 <= ratio <= 5.0:
+                    rejected["shape"] += 1
+                    continue
         floor_overlap = _overlap(box, floor) if floor is not None else 0.0
         floor_anchor = floor_overlap > .04
-        rank = score + .48 * continuity + .30 * iou + .08 * overlap + .68 * floor_overlap
+        rank = score + .48 * continuity + .30 * iou + .08 * overlap + (.20 if precision else .68) * floor_overlap
         if floor_anchor:
-            rank += .25
+            rank += .08 if precision else .25
         candidates.append((rank, Detection(score, x1, y1, x2, y2), overlap, floor_overlap, floor_anchor))
+        audited_candidates.append({"score": score, "xyxy": list(box), "rank": rank})
 
-    if not candidates:
+    ambiguous = False
+    if precision and len(candidates) > 1:
+        ordered = sorted(candidates, key=lambda item: item[0], reverse=True)
+        best = ordered[0]
+        first = (best[1].x1, best[1].y1, best[1].x2, best[1].y2)
+        ambiguous = any(best[0] - other[0] < .10 and _iou(first, (other[1].x1, other[1].y1, other[1].x2, other[1].y2)) < .10
+                        for other in ordered[1:])
+
+    if not candidates or ambiguous:
         result = {"observed": False, "score": None, "bboxRaw": None, "bboxPose": None,
-                  "qualityFlags": ["detector_missing"],
+                  "qualityFlags": ["detector_ambiguous" if ambiguous else "detector_missing"],
                   "audit": {"rawCandidates": len(detections), "highestRawScore": highest_score,
-                            "rejected": rejected}}
+                            "rejected": rejected, "candidates": audited_candidates, "ambiguous": ambiguous}}
         return result if return_audit else result
 
     rank, chosen, overlap, floor_overlap, floor_anchor = max(candidates, key=lambda item: item[0])
@@ -146,4 +176,4 @@ def select_detection(
             "qualityFlags": [], "selectionRank": rank, "roiOverlap": overlap,
             "floorOverlap": floor_overlap, "anchorOnFloor": floor_anchor,
             "audit": {"rawCandidates": len(detections), "highestRawScore": highest_score,
-                      "rejected": rejected}}
+                      "rejected": rejected, "candidates": audited_candidates, "ambiguous": False}}

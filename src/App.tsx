@@ -31,6 +31,7 @@ export default function App({ onInitialSessionResolved }: { onInitialSessionReso
   const [draftVisited, setDraftVisited] = useState(false);
   const [draftGeneration, setDraftGeneration] = useState(0);
   const initialSessionReported = useRef(false);
+  const sessionRevision = useRef(0);
 
   useLayoutEffect(() => {
     if (checkingSession || initialSessionReported.current) return;
@@ -43,37 +44,36 @@ export default function App({ onInitialSessionResolved }: { onInitialSessionReso
   }, [route.name]);
 
   const refreshSession = useCallback(async () => {
+    const revision = ++sessionRevision.current;
     if (!isTauriRuntime()) {
       setCheckingSession(false);
       return;
     }
     try {
       const current = await loadColabSummary();
+      if (revision !== sessionRevision.current) return;
       setSession(current);
       setSessionError(null);
       publishColabSummary(current);
     } catch (error) {
-      setSessionError(typeof error === "string" ? error : error instanceof Error ? error.message : "Não foi possível verificar a sessão Google.");
+      if (revision === sessionRevision.current) setSessionError(typeof error === "string" ? error : error instanceof Error ? error.message : "Não foi possível verificar a sessão Google.");
     } finally {
-      setCheckingSession(false);
+      if (revision === sessionRevision.current) setCheckingSession(false);
     }
   }, []);
 
   useEffect(() => {
-    let revision = 0;
     let disposed = false;
     const onStatus = (event: Event) => {
-      revision += 1;
+      sessionRevision.current += 1;
       const current = (event as CustomEvent<OAuthProfileSummary>).detail;
       setSession(current);
+      setSessionError(null);
       setCheckingSession(false);
     };
     const onFocus = () => {
       if (!isTauriRuntime()) return;
-      const requestRevision = ++revision;
-      void loadColabSummary().then((current) => {
-        if (!disposed && revision === requestRevision) publishColabSummary(current);
-      }).catch(() => undefined);
+      void refreshSession();
     };
     window.addEventListener(COLAB_STATUS_EVENT, onStatus);
     window.addEventListener("focus", onFocus);
@@ -85,6 +85,7 @@ export default function App({ onInitialSessionResolved }: { onInitialSessionReso
     void refreshSession();
     return () => {
       disposed = true;
+      sessionRevision.current += 1;
       window.removeEventListener(COLAB_STATUS_EVENT, onStatus);
       window.removeEventListener("focus", onFocus);
       void unlisten.then((stop) => stop?.());
@@ -92,7 +93,9 @@ export default function App({ onInitialSessionResolved }: { onInitialSessionReso
   }, [refreshSession]);
 
   function updateSession(current: OAuthProfileSummary) {
+    sessionRevision.current += 1;
     setSession(current);
+    setCheckingSession(false);
     setSessionError(null);
     publishColabSummary(current);
   }

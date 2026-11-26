@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "modelId": "oft_rearing_v1",
+  "modelVersion": "0.1.0-untrained",
+  "protocol": "open_field",
+  "cameraView": "top_down",
+  "species": "Rattus norvegicus",
+  "runtime": "onnxruntime",
+  "runtimeVersion": "1.20.1",
+  "architecture": "hybrid_tcn",
+  "sampleRateHz": 15,
+  "inputSize": [128, 128],
+  "embeddingDim": 128,
+  "temporalWindow": 31,
+  "featureSchema": "oft-behavior-features-1",
+  "availability": "awaiting_human_annotations_and_training",
+  "validationStatus": "experimental",
+  "probabilityCalibrated": false,
+  "subtypeTrained": false,
+  "files": {},
+  "validationResults": null
+}

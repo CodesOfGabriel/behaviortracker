@@ -50,7 +50,8 @@ class LocalAuditVideoTests(unittest.TestCase):
             metadata = render(request, root, annotated, lambda: False)
             self.assertEqual(probe(annotated), timestamps)
             self.assertEqual(metadata["skeletonFrames"], 1)
-            self.assertEqual(metadata["displacementChart"]["position"], "top_right")
+            self.assertFalse(metadata["textOverlay"])
+            self.assertFalse(metadata["displacementChart"]["visible"])
             decoded = subprocess.check_output([FFMPEG, "-v", "error", "-i", str(annotated), "-fps_mode", "passthrough",
                                                "-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
 
@@ -64,7 +65,7 @@ class LocalAuditVideoTests(unittest.TestCase):
                     self.assertEqual(luminance > 60, x == expected_box, (frame, x, luminance))
             self.assertGreater(brightness(0, 55, 107), 150)
             self.assertLess(brightness(1, 55, 107), 60)
-            self.assertGreater(max(brightness(0, x, y) for x in range(226, 310) for y in range(10, 26)), 150)
+            self.assertLess(max(brightness(0, x, y) for x in range(226, 310) for y in range(10, 26)), 60)
 
     def test_render_failure_preserves_completed_tracking(self):
         with TemporaryDirectory() as directory:
@@ -117,9 +118,7 @@ class LocalAuditVideoTests(unittest.TestCase):
         circle = [{"x": 60+12*float(np.cos(t)), "y": 100+12*float(np.sin(t))}
                   for t in np.linspace(0, 2*np.pi, 40, endpoint=False)]
         circular_path = silhouette_axis(circle, [0, 1])
-        self.assertEqual(len(circular_path), 7)
-        for x, y in circular_path:
-            self.assertLess(((x-60)/12)**2+((y-100)/12)**2, 1.05)
+        self.assertIsNone(circular_path)
         self.assertIsNone(silhouette_axis(None))
 
     def test_chart_uses_pts_breaks_at_uncertainty_and_is_causal(self):
@@ -157,9 +156,9 @@ class LocalAuditVideoTests(unittest.TestCase):
             target = root/"annotations.ass"
             metadata = write_annotations(target, root, {"width": 320, "height": 240}, 320, 240, lambda: False)
             data = target.read_text()
-            self.assertEqual(data.count("Eixo da silhueta estimado"), 2)
+            self.assertNotIn("Eixo da silhueta estimado",data)
             self.assertIn(AXIS, data)
-            self.assertEqual(data.count("DESLOCAMENTO - IMAGEM"), 3)
+            self.assertNotIn("DESLOCAMENTO - IMAGEM",data)
             self.assertEqual(metadata["skeletonFrames"], 2)
             self.assertEqual(metadata["displacementChart"]["validPairs"], 0)
             self.assertFalse(metadata["anatomicalPose"])
@@ -190,7 +189,20 @@ class LocalAuditVideoTests(unittest.TestCase):
             self.assertEqual(result["skeletonFrames"],2)
             self.assertEqual(result["uncertainSkeletonObservations"],1)
             self.assertEqual(result["displacementChart"]["validPairs"],0)
-            self.assertIn("Silhueta incerta",target.read_text())
+            self.assertNotIn("Silhueta incerta",target.read_text())
+            self.assertFalse(result["textOverlay"])
+
+    def test_export_hides_the_perpendicular_outlier_without_holding_the_previous_axis(self):
+        from test_body_axis import ellipse
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            samples = [ellipse(frame=i) for i in range(8)]
+            samples[5] = ellipse(1.5707963267948966, 5)
+            (root/"samples.jsonl").write_text("".join(json.dumps(row)+"\n" for row in samples))
+            metadata = write_annotations(root/"annotations.ass", root, {"width":320,"height":240}, 320, 240, lambda:False)
+            self.assertEqual(metadata["skeletonFrames"], 7)
+            self.assertEqual(metadata["axisQualityReasons"]["orientation_outlier"], 1)
+            self.assertEqual(metadata["skeletonMethod"], "body-axis-2")
 
 
 if __name__ == "__main__":

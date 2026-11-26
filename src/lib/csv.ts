@@ -1,5 +1,25 @@
 import type { BoundingBox, PoseSample, PoseSource, PoseStatus } from "../types";
 import { validBox } from "./corrections";
+import { parseLayeredObservation } from "./oft-layers";
+
+function csvRows(text: string): string[][] {
+  const rows: string[][] = []; let row: string[] = [], cell = "", quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"') {
+      if (quoted && text[i + 1] === '"') { cell += '"'; i++; }
+      else if (quoted || cell === "") quoted = !quoted;
+      else throw new Error("Aspas inválidas no CSV.");
+    } else if (c === "," && !quoted) { row.push(cell.trim()); cell = ""; }
+    else if ((c === "\n" || c === "\r") && !quoted) {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(cell.trim()); if (row.some(Boolean)) rows.push(row); row = []; cell = "";
+    } else cell += c;
+  }
+  if (quoted) throw new Error("Campo CSV incompleto.");
+  row.push(cell.trim()); if (row.some(Boolean)) rows.push(row);
+  return rows;
+}
 
 const validStatuses = new Set<PoseStatus>([
   "valid",
@@ -10,16 +30,16 @@ const validStatuses = new Set<PoseStatus>([
 ]);
 
 export function parseCanonicalPoseCsv(text: string): PoseSample[] {
-  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter(Boolean);
+  const lines = csvRows(text.replace(/^\uFEFF/, ""));
   if (lines.length < 2) throw new Error("O CSV não contém observações.");
-  const headers = lines[0].split(",").map((header) => header.trim());
+  const headers = lines[0];
   const required = ["frame_index", "timestamp_sec", "keypoint", "x_px", "y_px", "likelihood", "status"];
   required.forEach((column) => {
     if (!headers.includes(column)) throw new Error(`Coluna obrigatória ausente: ${column}`);
   });
   const indexOf = (column: string) => headers.indexOf(column);
-  const samples = lines.slice(1).map((line, rowIndex) => {
-    const values = line.split(",").map((value) => value.trim());
+  const samples = lines.slice(1).map((values, rowIndex) => {
+    if (values.length !== headers.length) throw new Error(`Colunas inválidas na linha ${rowIndex + 2}.`);
     const number = (column: string) => Number(values[indexOf(column)]);
     const nullableNumber = (column: string) => {
       const raw = values[indexOf(column)];
@@ -103,6 +123,8 @@ export function parseCanonicalPoseCsv(text: string): PoseSample[] {
     if (recoveryState && ["ready", "unavailable", "limited", "not_needed"].includes(recoveryState)) sample.recoveryState = recoveryState as PoseSample["recoveryState"];
     if (indexOf("tracking_reason") >= 0 && values[indexOf("tracking_reason")]) sample.reason = values[indexOf("tracking_reason")];
     if (indexOf("processing_version") >= 0 && values[indexOf("processing_version")]) sample.processingVersion = values[indexOf("processing_version")];
+    const layered = values[indexOf("layered_observation")];
+    if (layered) Object.assign(sample, parseLayeredObservation(layered, sample));
     for (const [column, field] of [["tracking_accepted", "trackingAccepted"], ["kalman_updated", "kalmanUpdated"]] as const) {
       const value = values[indexOf(column)];
       if (!value) continue;
@@ -136,7 +158,7 @@ function csvCell(value: unknown) {
 }
 
 export function poseToCsv(samples: PoseSample[]) {
-  const header = "frame_index,timestamp_sec,animal_id,keypoint,x_px,y_px,likelihood,status,spatial_region,support_count,support_total,source,raw_x_px,raw_y_px,raw_likelihood,raw_status,raw_spatial_region,raw_support_count,raw_support_total,recovery_state,metric_reference,reference_approved,bbox_x,bbox_y,bbox_width,bbox_height,raw_source,raw_bbox_x,raw_bbox_y,raw_bbox_width,raw_bbox_height,raw_metric_reference,raw_reference_approved,tracking_reason,processing_version,tracking_accepted,tracking_state,geometry_state,identity_state,quality_reasons,kalman_updated";
+  const header = "frame_index,timestamp_sec,animal_id,keypoint,x_px,y_px,likelihood,status,spatial_region,support_count,support_total,source,raw_x_px,raw_y_px,raw_likelihood,raw_status,raw_spatial_region,raw_support_count,raw_support_total,recovery_state,metric_reference,reference_approved,bbox_x,bbox_y,bbox_width,bbox_height,raw_source,raw_bbox_x,raw_bbox_y,raw_bbox_width,raw_bbox_height,raw_metric_reference,raw_reference_approved,tracking_reason,processing_version,tracking_accepted,tracking_state,geometry_state,identity_state,quality_reasons,kalman_updated,layered_observation";
   const rows = samples.map((sample) =>
     [
       sample.frameIndex,
@@ -168,6 +190,7 @@ export function poseToCsv(samples: PoseSample[]) {
       (sample.original ?? sample).metricReference ?? "", (sample.original ?? sample).referenceApproved ?? "", sample.reason ?? "", sample.processingVersion ?? "",
       sample.trackingAccepted ?? "", sample.localQuality?.tracking ?? "", sample.localQuality?.geometry ?? "",
       sample.localQuality?.identity ?? "", sample.localQuality?.reasons.map(value => encodeURIComponent(value)).join("|") ?? "", sample.kalmanUpdated ?? "",
+      sample.oftLayers && sample.bodyAxis ? JSON.stringify({bodyAxis: sample.bodyAxis, oftLayers: sample.oftLayers}) : "",
     ]
       .map(csvCell)
       .join(","),

@@ -42,8 +42,9 @@ function ColabRunVideo({experiment,run}:{experiment:Experiment;run:ExperimentRun
   return <section className="results-video-section" aria-label={`Vídeo ${runLabel(run)}`}>
     <div className="results-video-heading"><div><h2>{runLabel(run)}</h2><p>MP4 desta execução do experimento.</p></div>
       <Button variant="secondary" size="sm" disabled={loading||working} onClick={()=>setRefresh(value=>value+1)}>Recarregar</Button>
-      {needsRebuild&&experiment.testType==="open_field"&&<Button variant="secondary" size="sm" loading={working} onClick={()=>void rebuild()}>Atualizar gráfico</Button>}
+      {needsRebuild&&experiment.testType==="open_field"&&<Button variant="secondary" size="sm" loading={working} onClick={()=>void rebuild()}>Atualizar MP4</Button>}
     </div>
+    {needsRebuild&&experiment.testType==="open_field"&&<p>Atualize este MP4 para incluir o skeleton da análise local. A atualização usa o vídeo e as detecções salvas neste computador.</p>}
     {loading?<p role="status">Carregando vídeo…</p>:videos.length? videos.map(video=><div key={video.name} className="rendered-run-video">
       <div className="results-video-player"><video src={video.url} controls playsInline preload="none" aria-label={`MP4 ${runLabel(run)}`}
         onError={()=>setActionError("O player não conseguiu reproduzir este MP4.")}/></div>

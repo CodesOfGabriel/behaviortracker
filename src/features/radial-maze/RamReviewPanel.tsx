@@ -99,7 +99,7 @@ export function RamReviewPanel({ experiment, job, raw, videoUrl }: {
           {sample.bbox && <rect {...sample.bbox} fill="none" stroke={sample.status === "valid" ? "#51ddce" : "#ffb84c"} strokeWidth={4} />}
           {trajectory.centers.filter(s => s.frameIndex === sample.frameIndex).map(s => <circle key="box-center" cx={s.xPx!} cy={s.yPx!} r={6} fill="#51ddce" />)}
           {sample.source === "manual" && sample.xPx != null && sample.yPx != null && <circle cx={sample.xPx} cy={sample.yPx} r={9} fill="none" stroke="#ffb84c" strokeWidth={2} />}
-          <LocalBodyOverlay sample={sample} width={width} height={height} />
+          <LocalBodyOverlay sample={sample} samples={samples} width={width} height={height} />
           <LocalMotionOverlay samples={samples} width={width} height={height} time={sample.timestampSec} />
         </svg>
       </div>

@@ -24,7 +24,7 @@ export function LocalAuditVideo({ jobId, protocol = "tracking", title = "Vídeo 
     void loadLocalAuditVideo(jobId, false)
       .then(artifact => { if (live) setVideo(artifact); })
       .catch(error => {
-        if (live) setVideo({ videoUrl: null, videoError: error instanceof Error ? error.message : String(error) });
+        if (live) setVideo({ videoUrl: null, videoError: error instanceof Error ? error.message : String(error), needsRefresh:false });
       });
     return () => { live = false; };
   }, [jobId]);
@@ -36,7 +36,7 @@ export function LocalAuditVideo({ jobId, protocol = "tracking", title = "Vídeo 
       const artifact = await loadLocalAuditVideo(jobId, true);
       if (currentJob.current === jobId) setVideo(artifact);
     } catch (error) {
-      if (currentJob.current === jobId) setVideo({ videoUrl: null, videoError: error instanceof Error ? error.message : String(error) });
+      if (currentJob.current === jobId) setVideo({ videoUrl: null, videoError: error instanceof Error ? error.message : String(error), needsRefresh:false });
     } finally {
       if (currentJob.current === jobId) setRendering(false);
     }
@@ -63,8 +63,8 @@ export function LocalAuditVideo({ jobId, protocol = "tracking", title = "Vídeo 
         <h2>{title}</h2>
         <p>{protocol === "presence" ? "MP4 com os cilindros, as caixas e os estados de presença por frame."
           : "MP4 com a região analisada, as caixas e os estados do rastreamento por frame."} As anotações pertencem a esta execução.</p>
-        <p>O MP4 atualizado inclui o gráfico de deslocamento no canto superior direito. O modo rápido usa pixels por segundo.
-          {" Quando a silhueta permite, também exibe um esqueleto corporal estimado. Ele não identifica pontos anatômicos nomeados."}</p>
+        <p>{protocol==="presence"?"O gráfico de deslocamento usa pixels por segundo.":"O triângulo indica a cabeça; o círculo pequeno indica a base da cauda. Os marcadores âmbar representam estimativas para revisão, sem texto sobre a imagem."}</p>
+        {video?.needsRefresh&&<p role="status">Este MP4 usa a sobreposição anterior. Use Atualizar MP4 para aplicar a visualização atual.</p>}
       </div>
       {video && !video.videoUrl && <Button type="button" size="sm" variant="secondary"
         onClick={() => void rebuildVideo()}>Gerar MP4</Button>}

@@ -17,7 +17,17 @@ PREDICTED = "F19DD5"
 MISSING = "A0A0A0"
 REGION = "E7A66B"
 AXIS = "FFE76B"
-VISUALIZATION_VERSION = "local-audit-4"
+VISUALIZATION_VERSION = "local-audit-7"
+
+
+def head_triangle(head, tail, radius):
+    length = math.hypot(head["x"]-tail["x"], head["y"]-tail["y"])
+    if not math.isfinite(length) or length < 1e-6:
+        return []
+    x, y = (head["x"]-tail["x"])/length, (head["y"]-tail["y"])/length
+    return [(head["x"]+x*radius, head["y"]+y*radius),
+            (head["x"]-x*radius*.7-y*radius*.7, head["y"]-y*radius*.7+x*radius*.7),
+            (head["x"]-x*radius*.7+y*radius*.7, head["y"]-y*radius*.7-x*radius*.7)]
 
 
 def accepted_body(row, is_fst=False):
@@ -44,67 +54,10 @@ def visible_silhouette(row, is_fst=False):
 
 
 def silhouette_axis(contour, direction_hint=None):
-    """Linha central aproximada por secções da máscara; sem identidade anatômica.
-
-    Trabalha apenas no recorte corporal de até 96 px. Cada ponto permanece
-    dentro da silhueta. A direção de exibição nunca identifica cabeça/cauda.
-    """
-    import cv2 as cv
-    import numpy as np
-    if not contour or len(contour) < 3:
-        return None
-    points = np.asarray([[p["x"], p["y"]] for p in contour], np.float32)
-    if not np.isfinite(points).all():
-        return None
-    origin = points.min(axis=0)
-    extent = points.max(axis=0)-origin
-    if min(extent) < 3:
-        return None
-    factor = min(1., 94/max(extent))
-    local = np.round((points-origin)*factor).astype(np.int32)+1
-    mask = np.zeros((int(local[:, 1].max())+2, int(local[:, 0].max())+2), np.uint8)
-    cv.fillPoly(mask, [local], 255)
-    y, x = np.nonzero(mask)
-    if len(x) < 16:
-        return None
-    pixels = np.column_stack((x, y)).astype(np.float32)
-    eigenvalues, vectors = np.linalg.eigh(np.cov(pixels.T))
-    if eigenvalues[-1] < 1.6*max(1., eigenvalues[0]):
-        direction = np.asarray(direction_hint if direction_hint is not None else [1., 0.], np.float32)
-        if direction.shape != (2,) or not np.isfinite(direction).all() or np.linalg.norm(direction) < .001:
-            direction = np.array([1., 0.], np.float32)
-        direction /= np.linalg.norm(direction)
-    else:
-        direction = vectors[:, -1]
-    if direction[np.argmax(np.abs(direction))] < 0:
-        direction = -direction
-    projection = pixels@direction
-    low, high = np.quantile(projection, [.05, .95])
-    edges = np.linspace(low, high, 8)
-    distance = cv.distanceTransform(mask, cv.DIST_L2, 3)[y, x]
-    path = []
-    for start, end in zip(edges, edges[1:]):
-        selected = (projection >= start) & (projection <= end)
-        section = pixels[selected]
-        if not len(section):
-            continue
-        center = np.average(section, axis=0, weights=distance[selected]**2)
-        nearest = section[np.argmin(np.sum((section-center)**2, axis=1))]
-        point = (nearest-1)/factor+origin
-        path.append((float(point[0]), float(point[1])))
-    # Não conecte regiões de um corpo muito côncavo através do fundo.
-    longest, current = [], path[:1]
-    for a, b in zip(path, path[1:]):
-        segment = np.linspace((np.asarray(a)-origin)*factor+1,
-                              (np.asarray(b)-origin)*factor+1, 12).round().astype(int)
-        if np.mean(mask[segment[:, 1], segment[:, 0]] > 0) < .8:
-            if len(current) > len(longest):
-                longest = current
-            current = []
-        current.append(b)
-    if len(current) > len(longest):
-        longest = current
-    return longest if len(longest) >= 3 else None
+    """Body-core direction only; an ambiguous mask never inherits an old axis."""
+    from body_axis import measure
+    points = measure(contour)["points"]
+    return [(p["x"], p["y"]) for p in points] or None
 
 
 class DisplacementChart:
@@ -240,7 +193,11 @@ def observations(root, is_fst):
     with (root / "samples.jsonl").open(encoding="utf-8") as samples:
         for line in samples:
             row = json.loads(line)
-            if row["status"] == "missing":
+            if row.get("reason") == "researcher_intervention":
+                label, color = "Tracking encerrado (intervenção do pesquisador)", MISSING
+            elif row.get("reason") == "researcher_intervention_pending":
+                label, color = "Tracking suspenso (possível intervenção)", UNCERTAIN
+            elif row["status"] == "missing":
                 label, color = "Sem detecção", MISSING
             elif row["source"] == "predicted":
                 label, color = "Previsto", PREDICTED
@@ -256,15 +213,26 @@ def observations(root, is_fst):
             yield row["frameIndex"], row["timestampSec"], [(label, color, box, row)]
 
 
-def write_annotations(path, root, config, width, height, cancelled):
+def write_annotations(path, root, config, width, height, cancelled, behavior_predictions=None):
+    from body_axis import BodyAxisFilter
     scale = width / config["width"], height / config["height"]
     font = max(12, round(height * .032))
     stroke = max(1, round(height * .003))
     is_fst = config.get("protocol") == "forced_swim"
+    is_open_field = config.get("protocol", "open_field") == "open_field"
     chart = DisplacementChart(is_fst)
     skeleton_frames = 0
     uncertain_skeletons = 0
-    previous_axes = {}
+    axis_filters, axis_reasons = {}, {}
+    predictions = []
+    layer_predictions = {}
+    layer_file = root/"rearing_predictions.jsonl"
+    if layer_file.is_file() and config.get("protocol") == "open_field":
+        layer_predictions = {row["frameIndex"]:row for row in map(json.loads, layer_file.read_text(encoding="utf-8").splitlines())}
+    prediction_cursor = 0
+    if behavior_predictions and config.get("protocol") == "open_field":
+        with Path(behavior_predictions).open(encoding="utf-8") as source:
+            predictions = [json.loads(line) for line in source]
     with path.open("w", encoding="utf-8") as out:
         out.write(f"""[Script Info]
 ScriptType: v4.00+
@@ -283,25 +251,36 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         previous = None
 
         def write_frame(row, end):
-            nonlocal skeleton_frames, uncertain_skeletons
+            nonlocal skeleton_frames, uncertain_skeletons, prediction_cursor
             start, index, timestamp, items = row
+            while prediction_cursor < len(predictions) and predictions[prediction_cursor]["endSec"] <= timestamp:
+                prediction_cursor += 1
+            prediction = predictions[prediction_cursor] if prediction_cursor < len(predictions) else None
+            prediction = prediction if prediction and prediction["timestampSec"] <= timestamp < prediction["endSec"] else None
+            if predictions:
+                classification = prediction["classification"] if prediction else "UNKNOWN"
+                behavior_color = "E094C0" if classification.startswith("REARING_") else MISSING if classification == "UNKNOWN" else OBSERVED
+                if classification.startswith("REARING_"):
+                    items = [(label, behavior_color, box, sample) for label, _, box, sample in items]
             labels = r"\N".join(rf"{{\1c&H{color}&}}{label}" for label, color, _, _ in items)
-            out.write(event(start, end, rf"AUDITORIA LOCAL  |  Frame {index + 1}  |  {timestamp:.3f} s\N{labels}", 2))
+            if predictions:
+                label = {"NON_REARING": "NAO REARING", "REARING_SUPPORTED": "REARING | COM APOIO",
+                         "REARING_UNSUPPORTED": "REARING | SEM APOIO", "REARING_UNSPECIFIED": "REARING | APOIO INDETERMINADO",
+                         "UNKNOWN": "COMPORTAMENTO INCERTO"}[classification]
+                score = prediction.get("pRearing") if prediction else None
+                if score is not None and classification.startswith("REARING_"):
+                    label += f" | {'confianca' if prediction.get('scoreKind') == 'probability' else 'model score'} {score*100:.0f}%"
+                labels += rf"\N{{\1c&H{behavior_color}&}}{label}"
+            if not is_open_field:
+                out.write(event(start, end, rf"AUDITORIA LOCAL  |  Frame {index + 1}  |  {timestamp:.3f} s\N{labels}", 2))
             for _, color, box, sample in items:
                 if box:
                     out.write(event(start, end, rectangle(box, color, stroke, scale), 1))
                 subject = sample.get("animalId", "body")
-                old = previous_axes.pop(subject, None)
-                hint = None
-                if old and index == old[0]+1 and 0 < timestamp-old[1] <= .25 and box and old[3]:
-                    previous_box = old[3]
-                    movement = math.hypot(box["x"]+box["width"]/2-previous_box["x"]-previous_box["width"]/2,
-                                          box["y"]+box["height"]/2-previous_box["y"]-previous_box["height"]/2)
-                    if movement <= math.hypot(previous_box["width"], previous_box["height"]):
-                        hint = [old[2][-1][0]-old[2][0][0], old[2][-1][1]-old[2][0][1]]
-                path = silhouette_axis(sample.get("contour"), hint) if visible_silhouette(sample, is_fst) else None
+                observation = axis_filters.setdefault(subject, BodyAxisFilter()).update({**sample, "frameIndex":index, "timestampSec":timestamp})
+                axis_reasons[observation["reason"]] = axis_reasons.get(observation["reason"], 0)+1
+                path = [(p["x"],p["y"]) for p in observation["points"]]
                 if path:
-                    previous_axes[subject] = (index, timestamp, path, box)
                     uncertain = not accepted_body(sample, is_fst)
                     axis_color = UNCERTAIN if uncertain else AXIS
                     uncertain_skeletons += int(uncertain)
@@ -312,12 +291,25 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         radius = max(2, round(height*.003))
                         out.write(event(start, end, filled_rectangle(x*scale[0]-radius, y*scale[1]-radius,
                                                                     radius*2, radius*2, axis_color), 1))
-                    out.write(event(start, end, rf"{{\an1\pos(8,{height-8})\fs{max(10, round(font*.7))}}}"+
-                                    ("Silhueta incerta | " if uncertain else "")+
-                                    "Eixo da silhueta estimado - sem identidade anatômica", 2))
+                    if not is_open_field:
+                        out.write(event(start, end, rf"{{\an1\pos(8,{height-8})\fs{max(10, round(font*.7))}}}"+
+                                        ("Silhueta incerta | " if uncertain else "")+
+                                        "Eixo da silhueta estimado - sem identidade anatômica", 2))
+                orientation = (sample.get("oftLayers") or {}).get("orientation") or {}
+                if orientation.get("state") == "estimated" and orientation.get("head") and orientation.get("tailBase"):
+                    head, tail = orientation["head"], orientation["tailBase"]
+                    triangle = head_triangle(head,tail,max(4,height*.007)/max(scale))
+                    if triangle:out.write(event(start,end,outline([*triangle,triangle[0]],UNCERTAIN,stroke,scale),1))
+                    radius=max(2,height*.003)
+                    circle=[(tail["x"]+radius*math.cos(t)/scale[0],tail["y"]+radius*math.sin(t)/scale[1]) for t in [i*math.tau/16 for i in range(17)]]
+                    out.write(event(start,end,outline(circle,UNCERTAIN,stroke,scale),1))
+                candidate = layer_predictions.get(index)
+                if not is_open_field and candidate and candidate.get("classification", "").startswith("REARING_"):
+                    out.write(event(start,end,rf"{{\an1\pos(8,{height-35})\fs{max(11,font*.7):.1f}}}REARING - proposta para revisao",2))
             values = chart.update(index, timestamp, items)
-            for drawing in chart.drawing(timestamp, values, width, height):
-                out.write(event(start, end, drawing, 3))
+            if not is_open_field:
+                for drawing in chart.drawing(timestamp, values, width, height):
+                    out.write(event(start, end, drawing, 3))
 
         for expected, (index, timestamp, items) in enumerate(observations(root, is_fst)):
             if cancelled():
@@ -343,10 +335,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             polygon = config.get("walkablePolygonPx") or (config.get("arena") or {}).get("cornersPx", [])
             if polygon:
                 out.write(event(0, last_end, outline([(p["x"], p["y"]) for p in polygon], REGION, stroke, scale)))
-    return {"version": VISUALIZATION_VERSION, "skeletonMethod": "silhouette_cross_sections_1",
+    return {"version": VISUALIZATION_VERSION, "skeletonMethod": "body-axis-2", "axisQualityReasons":axis_reasons,
             "anatomicalPose": False, "skeletonFrames": skeleton_frames,
-            "uncertainSkeletonObservations": uncertain_skeletons, "skeletonVisibility": "current_mask_independent_of_metric_eligibility",
-            "displacementChart": {"position": "top_right", "units": "px/s", "reference": "box_center",
+            "textOverlay": not is_open_field, "headMarker": "hollow_triangle",
+            "uncertainSkeletonObservations": uncertain_skeletons, "skeletonVisibility": "body_core_and_temporal_outlier_gate",
+            "displacementChart": {"visible":not is_open_field,"position": "top_right" if not is_open_field else None, "units": "px/s", "reference": "box_center",
                                   "coordinateSpace": "source_image", "windowSec": 10, "maxPairGapSec": .5,
                                   "validPairs": chart.pairs, "scientificMetric": False}}
 
@@ -362,7 +355,7 @@ def render(request, root, destination, cancelled):
     destination.parent.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(prefix="audit-", dir=root) as work:
         work = Path(work)
-        visualization = write_annotations(work / "annotations.ass", root, config, width, height, cancelled)
+        visualization = write_annotations(work / "annotations.ass", root, config, width, height, cancelled, request.get("behaviorPredictions"))
         with TemporaryDirectory(prefix="audit-", dir=destination.parent) as staging:
             partial = Path(staging) / "video.mp4"
             filters = ("settb=1/1000000,setpts=(PTS-STARTPTS)*10,ass=annotations.ass,"
@@ -393,7 +386,7 @@ def render(request, root, destination, cancelled):
             if not partial.is_file() or partial.stat().st_size == 0:
                 raise ValueError("O FFmpeg não gerou o vídeo de auditoria")
             os.replace(partial, destination)
-            metadata = root/"video_overlay.json"
+            metadata = Path(request.get("overlayMetadataRoot", root))/"video_overlay.json"
             temporary = metadata.with_suffix(".tmp")
             temporary.write_text(json.dumps(visualization, ensure_ascii=False, allow_nan=False), encoding="utf-8")
             os.replace(temporary, metadata)

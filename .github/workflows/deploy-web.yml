@@ -13,11 +13,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  quality:
+    uses: ./.github/workflows/quality.yml
+
   deploy:
+    needs: quality
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:
-      DEPLOY_HOST: REMOVED_DEPLOY_HOST
+      DEPLOY_HOST: ${{ secrets.VPS_DEPLOY_HOST }}
       DEPLOY_USER: deploy
       DEPLOY_ROOT: /srv/apps/.behaviortracker-deploy
     steps:
@@ -41,26 +45,32 @@ jobs:
         shell: bash
         env:
           VPS_DEPLOY_SSH_KEY: ${{ secrets.VPS_DEPLOY_SSH_KEY }}
+          VPS_DEPLOY_KNOWN_HOSTS: ${{ secrets.VPS_DEPLOY_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
           test -n "$VPS_DEPLOY_SSH_KEY"
+          test -n "$DEPLOY_HOST"
+          test -n "$VPS_DEPLOY_KNOWN_HOSTS"
+          umask 077
           install -d -m 700 "$HOME/.ssh"
           printf '%s\n' "$VPS_DEPLOY_SSH_KEY" > "$HOME/.ssh/id_ed25519"
           chmod 600 "$HOME/.ssh/id_ed25519"
-          install -m 600 .github/behaviortracker-known-hosts "$HOME/.ssh/known_hosts"
+          printf '%s\n' "$VPS_DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          ssh-keygen -F "$DEPLOY_HOST" -f "$HOME/.ssh/known_hosts" > /dev/null
 
       - name: Upload tested website
         shell: bash
         run: |
           set -euo pipefail
           [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
-          ssh -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_ROOT/incoming/$GITHUB_SHA'"
-          rsync -az --delete -e 'ssh -o BatchMode=yes' dist/ \
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_ROOT/incoming/$GITHUB_SHA'"
+          rsync -az --delete -e 'ssh -o BatchMode=yes -o StrictHostKeyChecking=yes' dist/ \
             "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_ROOT/incoming/$GITHUB_SHA/"
 
       - name: Update repository and publish website
         shell: bash
         run: |
           set -euo pipefail
-          ssh -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" \
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" \
             "bash '$DEPLOY_ROOT/deploy.sh' '$GITHUB_SHA'"

@@ -1,4 +1,6 @@
 import type { ArenaConfig, Point, PoseSample } from "../types";
+import { LAYERED_SKELETON_EDGES, visiblePose } from "./pose";
+import { headTriangle } from "./oft-layers";
 
 function drawPolygon(context: CanvasRenderingContext2D, points: Point[], color: string) {
   if (!points.length) return;
@@ -11,6 +13,7 @@ function drawPolygon(context: CanvasRenderingContext2D, points: Point[], color: 
 }
 
 const skeletonEdges: Array<[string, string]> = [
+  ...LAYERED_SKELETON_EDGES,
   ["nose", "head_midpoint"], ["head_midpoint", "left_ear"], ["head_midpoint", "right_ear"],
   ["head_midpoint", "neck"], ["neck", "mid_back"], ["mid_back", "mid_backend"],
   ["mid_backend", "tail_base"], ["tail_base", "tail_end"],
@@ -40,10 +43,13 @@ function estimatedFps(samples: PoseSample[]) {
   return rates.length ? rates.sort((a, b) => a - b)[Math.floor(rates.length / 2)] : 30;
 }
 
-function drawPose(context: CanvasRenderingContext2D, samples: PoseSample[]) {
+export function drawPose(context: CanvasRenderingContext2D, samples: PoseSample[]) {
+  const layered=samples.find(sample=>sample.oftLayers);
   const points = new Map(samples
-    .filter(sample => sample.xPx != null && sample.yPx != null && sample.status !== "missing")
+    .filter(visiblePose)
     .map(sample => [sample.keypoint, sample] as const));
+  const stopped=samples.some(sample=>["researcher_intervention","researcher_intervention_pending"].includes(sample.reason??""));
+  if(stopped) return;
   const bbox = samples.find(sample => sample.bbox)?.bbox;
   if (bbox) {
     context.strokeStyle = "#9fb8a3";
@@ -51,10 +57,10 @@ function drawPose(context: CanvasRenderingContext2D, samples: PoseSample[]) {
     context.strokeRect(bbox.x, bbox.y, bbox.width, bbox.height);
   }
   context.lineCap = "round";
-  for (const [from, to] of skeletonEdges) {
+  for (const [from, to] of (layered?[]:skeletonEdges)) {
     const start = points.get(from);
     const end = points.get(to);
-    if (!start || !end || start.likelihood != null && start.likelihood < .6 || end.likelihood != null && end.likelihood < .6) continue;
+    if (!start || !end) continue;
     context.strokeStyle = "#76d6b1";
     context.lineWidth = 3;
     context.beginPath();
@@ -62,12 +68,28 @@ function drawPose(context: CanvasRenderingContext2D, samples: PoseSample[]) {
     context.lineTo(end.xPx!, end.yPx!);
     context.stroke();
   }
-  for (const sample of points.values()) {
+  for (const sample of (layered?[]:points.values())) {
+    const estimated = sample.source === "recovered" || sample.source === "predicted";
     const weak = sample.likelihood != null && sample.likelihood < .6;
-    context.fillStyle = weak ? "#f3bd62" : "#9fb8a3";
+    context.fillStyle = weak || estimated ? "#f3bd62" : "#9fb8a3";
+    context.strokeStyle = context.fillStyle;
     context.beginPath();
     context.arc(sample.xPx!, sample.yPx!, weak ? 3 : 4, 0, Math.PI * 2);
-    context.fill();
+    if (estimated) context.stroke(); else context.fill();
+  }
+  if(layered){
+    const path=layered.bodyAxis?.points??[];
+    context.strokeStyle="#6be7ff";context.lineWidth=2;
+    if(path.length){context.beginPath();path.forEach((p,i)=>i?context.lineTo(p.x,p.y):context.moveTo(p.x,p.y));context.stroke();}
+    context.fillStyle="#6be7ff";
+    for(const p of path){context.beginPath();context.arc(p.x,p.y,2,0,Math.PI*2);context.fill();}
+    const orientation=layered.oftLayers!.orientation;
+    context.strokeStyle="#ffca70";context.fillStyle="#ffca70";context.font="12px sans-serif";
+    if(orientation.state==="estimated"&&orientation.head&&orientation.tailBase){
+      const triangle=headTriangle(orientation.head,orientation.tailBase,5);
+      if(triangle.length){context.beginPath();context.moveTo(triangle[0].x,triangle[0].y);for(const p of [...triangle.slice(1),triangle[0]])context.lineTo(p.x,p.y);context.stroke();}
+      context.beginPath();context.arc(orientation.tailBase.x,orientation.tailBase.y,3,0,Math.PI*2);context.stroke();
+    }
   }
 }
 

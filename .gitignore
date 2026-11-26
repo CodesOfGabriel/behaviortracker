@@ -11,9 +11,18 @@ __pycache__/
 .env
 .env.*
 !.env.example
+.github/behaviortracker-known-hosts
 *.pth
 *.pt
+*.onnx
 models/*.yaml
+
+# Automated quality checks and isolated test dependencies.
+.venv-test/
+playwright-report/
+test-results/
 
 # Local diagnostic research artifacts; never publish with source.
 artifacts/ram-color-v2-diagnostic/
+artifacts/oft-rearing-local/
+artifacts/colab-continuity-2026-11-26/

@@ -42,6 +42,12 @@ jobs:
             .head_branch == "main" and
             .path == ".github/workflows/build-installers.yml"
           ' source-run.json > /dev/null
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/jobs?per_page=100" > source-jobs.json
+          jq -e '
+            [.[].jobs[] | select(.status == "completed" and .conclusion == "success") | .name] as $passed |
+            all(["Quality (ubuntu-22.04)", "Quality (macos-15-intel)", "Quality (windows-latest)"][];
+              . as $required | any($passed[]; endswith($required)))
+          ' source-jobs.json > /dev/null
           echo "sha=$(jq -r .head_sha source-run.json)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v7

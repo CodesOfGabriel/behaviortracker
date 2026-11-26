@@ -15,6 +15,7 @@ export type LocalJob = {
   uploadId: string;
   config: Record<string, unknown> & { videoPreparation?: VideoPreparation };
   report: { elapsedSec?: number; phase?: string; referenceFrames?: number; framesProcessed?: number | null; totalFrames?: number | null; processingFps?: number | null; observationCoveragePct?: number; computeBackend?: string;
+    layers?: {version:string}; rearing?: {state:"model_unavailable"|"classified";message:string;candidates:{frameIndex:number;timestampSec:number}[]};
     validObservationCoveragePct?: number; reviewRequiredFrames?: number;
     trackingObservedCoveragePct?: number; trackingObservedFrames?: number; geometryRejectedFrames?: number;
     kalmanUpdateCount?: number; reasonCounts?: Record<string, number>; qualityReasonCounts?: Record<string, number>;
@@ -45,10 +46,10 @@ export async function loadLocalOpenFieldResult(jobId: string) {
   return result ? scalePoseToOriginal(parseCanonicalPoseCsv(result.csv), result, result.preparation) : loadLocalResult(jobId);
 }
 export async function loadLocalAuditVideo(jobId: string, render = false) {
-  const { videoPath, videoError } = await invoke<{ videoPath: string | null; videoError: string | null }>(
+  const { videoPath, videoError, needsRefresh } = await invoke<{ videoPath: string | null; videoError: string | null; needsRefresh?:boolean }>(
     "get_local_audit_video", { jobId, render },
   );
-  return { videoUrl: videoPath ? convertFileSrc(videoPath)+(render ? `?v=${Date.now()}` : "") : null, videoError };
+  return { videoUrl: videoPath ? convertFileSrc(videoPath)+(render ? `?v=${Date.now()}` : "") : null, videoError, needsRefresh };
 }
 export const getLocalEnvironment = () => invoke<LocalEnvironment>("get_local_tracking_environment");
 export const setupLocalEnvironment = () => invoke<LocalEnvironment>("setup_local_tracking_environment");

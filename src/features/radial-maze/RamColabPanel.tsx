@@ -1,3 +1,4 @@
+import { SelectMenu } from "../../components/ui/SelectMenu";
 import { TrackingDetails } from "../results/TrackingDetails";
 import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/card";
 import type { PoseSample } from "../../types";
@@ -144,11 +145,7 @@ export function RamColabPanel({ experiment, children }: {
     <input ref={fileRef} className="sr-only" type="file" accept="video/*" onChange={attach}/>
     <h2>Tracking no Colab</h2>
     <p>O detector Wistar v2 e a HRNet geram observações por frame dentro da área marcada. Esta execução é experimental e exige revisão humana antes de qualquer métrica de comportamento.</p>
-    {history.length > 0 && <div className="ram-revision-picker"><label>Execução
-      <select disabled={busy || Boolean(active)} value={selected?.jobId ?? ""} onChange={event => { const jobId = event.target.value; setSelectedId(jobId);
-        if (history.find(job => job.jobId === jobId)?.resultsReady) updateRadialMazeExperiment(experiment.id, { status: "review", trackingSelection: { engine: "colab", jobId } }); }}>
-        {history.map(job => <option key={job.jobId} value={job.jobId}>{new Date(job.createdAt).toLocaleString("pt-BR")} · {job.status}</option>)}
-      </select></label></div>}
+    {history.length > 0 && <div className="ram-revision-picker"><SelectMenu label="Execução" disabled={busy||Boolean(active)} value={selected?.jobId??""} onChange={jobId=>{setSelectedId(jobId);if(history.find(job=>job.jobId===jobId)?.resultsReady)updateRadialMazeExperiment(experiment.id,{status:"review",trackingSelection:{engine:"colab",jobId}});}} options={history.map(job=>({value:job.jobId,label:`${new Date(job.createdAt).toLocaleString("pt-BR")} · ${job.status}`}))}/></div>}
   </section>;
   const trajectoryPanel = <>
     {result && <>

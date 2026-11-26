@@ -16,4 +16,10 @@ describe("linha corporal visual",()=>{
       expect(renderToStaticMarkup(createElement("svg",null,createElement(LocalBodyOverlay,{sample:row,width:100,height:100})))).not.toContain("polyline");
     }
   });
+  it("oculta orientação sem evidência em vez de desenhar uma linha arbitrária",()=>{
+    const circle={...sample,contour:Array.from({length:40},(_,i)=>({x:50+20*Math.cos(i*Math.PI/20),y:50+20*Math.sin(i*Math.PI/20)}))};
+    const markup=renderToStaticMarkup(createElement("svg",null,createElement(LocalBodyOverlay,{sample:circle,width:100,height:100})));
+    expect(markup).not.toContain("polyline");expect(markup).toContain("Orientação incerta");
+    expect(markup).toContain('data-axis-reason="ambiguous_orientation"');
+  });
 });

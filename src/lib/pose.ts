@@ -1,5 +1,15 @@
 import type { Point, PoseSample, PoseStatus } from "../types";
 
+export const LAYERED_SKELETON_EDGES: [string,string][] = [
+  ...Array.from({length:6},(_,i)=>[`body_axis_${i}`,`body_axis_${i+1}`] as [string,string]),
+  ["head_midpoint","mouse_center"],["mouse_center","tail_base"],
+];
+
+export function visiblePose(sample: PoseSample | undefined): sample is PoseSample & {xPx:number;yPx:number} {
+  return drawablePose(sample) && (sample.source === "manual" || sample.likelihood >= .5
+    || sample.source === "recovered" && sample.processingVersion === "oft-layers-1");
+}
+
 /** Somente evidência observada confiável ou confirmação humana entra nas métricas. */
 export function metricEligible(sample: PoseSample | undefined) {
   return drawablePose(sample) && sample.status === "valid"
@@ -51,6 +61,7 @@ export function referencePoseSamples(samples: PoseSample[], keypoint: string): P
     // Previsões e recuperações conservam sua origem e nunca viram detecção.
     const boxSample = frameSamples.get(frame.frameIndex)?.find((sample) => sample.bbox
       && (sample.source === "detected" || sample.source === undefined) && sample.trackingAccepted !== false
+      && sample.spatialRegion !== "wall_projection" && sample.spatialRegion !== "outside"
       && (!sample.localQuality || sample.localQuality.tracking === "observed" && sample.localQuality.geometry === "floor"));
     const box = boxSample?.bbox;
     if (box) {
@@ -67,9 +78,11 @@ export function referencePoseSamples(samples: PoseSample[], keypoint: string): P
         spatialRegion: "unknown" as const,
       };
     }
+    const layered=frameSamples.get(frame.frameIndex)?.find(sample=>sample.oftLayers);
     return {
       frameIndex: frame.frameIndex, timestampSec: frame.timestampSec, keypoint,
       xPx: null, yPx: null, likelihood: 0, status: "missing" as const, source: "detected" as const,
+      ...(layered ? {bodyAxis: layered.bodyAxis, oftLayers: layered.oftLayers, reason: layered.reason} : {}),
     };
   }).sort((a, b) => a.timestampSec - b.timestampSec || a.frameIndex - b.frameIndex);
 }
@@ -94,6 +107,7 @@ export function qualityTimelineBins(samples: PoseSample[], duration: number, cou
 
 export function drawablePose(sample: PoseSample | undefined): sample is PoseSample & { xPx: number; yPx: number } {
   return Boolean(sample && sample.status !== "missing" && sample.status !== "out_of_arena"
+    && (sample.source === "manual" || sample.trackingAccepted !== false)
     && sample.xPx != null && sample.yPx != null && Number.isFinite(sample.xPx) && Number.isFinite(sample.yPx)
     && sample.xPx >= 0 && sample.yPx >= 0);
 }
@@ -102,6 +116,7 @@ export function confidenceLabel(sample: PoseSample | undefined) {
   if (sample?.source === "segmented") return sample.metricReference === "box_center" ? "Caixa" : "Silhueta";
   if (sample?.source === "manual") return "Manual";
   if (sample?.source === "predicted") return "Previsto";
+  if (sample?.source === "recovered") return "Revisar";
   return sample && sample.status !== "missing" && Number.isFinite(sample.likelihood) && sample.likelihood > 0 && sample.likelihood <= 1
     ? `${Math.round(sample.likelihood * 100)}%` : "—";
 }

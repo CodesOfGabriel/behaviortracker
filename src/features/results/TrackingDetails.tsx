@@ -8,6 +8,8 @@ import { listLocalJobs, loadLocalAuditVideo, type LocalJob } from "../local/api"
 import { LocalBodyOverlay } from "../local/LocalBodyOverlay";
 import { AnalysisDetailsLayout, DetailsVideoCard } from "./AnalysisDetailsLayout";
 import { ResultMotionChart } from "./ResultMotionChart";
+import { useVideoFrameTime } from "../../lib/useVideoFrameTime";
+import { trackingFrameAt } from "../../lib/video-frame";
 
 export function useOriginalVideo(experiment:Experiment,job?:LocalJob) {
   const {assets}=useAppStore();
@@ -29,10 +31,9 @@ export function TrackingDetails({experiment,samples,reference="box",children}:{e
   const selection=experiment.trackingSelection;
   const key=`${selection?.engine}:${selection?.jobId}`;
   const originalUrl=useOriginalVideo(experiment,job?.jobId===selection?.jobId?job:undefined);
-  const [time,setTime]=useState(0);
   const player=useRef<HTMLVideoElement>(null);
   useEffect(()=>{
-    setTime(0);if(!selection||!isTauriRuntime())return;
+    if(!selection||!isTauriRuntime())return;
     let live=true;
     if(selection.engine==="opencv")void listLocalJobs(experiment.id).then(jobs=>{if(live)setJob(jobs.find(item=>item.jobId===selection.jobId));}).catch(()=>undefined);
     const load=selection.engine==="opencv"?loadLocalAuditVideo(selection.jobId):loadColabVideo(selection.jobId);
@@ -40,29 +41,25 @@ export function TrackingDetails({experiment,samples,reference="box",children}:{e
     return()=>{live=false;};
   },[experiment.id,key]);
   const source=originalUrl??(artifact?.key===key?artifact.url:null);
+  const {time}=useVideoFrameTime(player,source);
   const boxes=useMemo(()=>boxCenterTrajectory(samples,experiment.video.width,experiment.video.height).centers,[samples,experiment.video.width,experiment.video.height]);
   const timeline=useMemo(()=>[...new Map(samples.map(row=>[row.frameIndex,{frameIndex:row.frameIndex,timestampSec:row.timestampSec}])).values()]
     .sort((a,b)=>a.timestampSec-b.timestampSec),[samples]);
   const boxByFrame=useMemo(()=>new Map(boxes.map(row=>[row.frameIndex,row])),[boxes]);
-  const sample=useMemo(()=>{
-    let lo=0,hi=timeline.length-1;
-    while(lo<hi){const mid=Math.ceil((lo+hi)/2);if(timeline[mid].timestampSec<=time)lo=mid;else hi=mid-1;}
-    const current=timeline[lo];
-    const tolerance=experiment.video.fps?1.5/experiment.video.fps:.1;
-    return current&&current.timestampSec<=time&&time-current.timestampSec<=tolerance?boxByFrame.get(current.frameIndex):undefined;
-  },[boxByFrame,timeline,time,experiment.video.fps]);
-  function seek(value:number){if(player.current){player.current.currentTime=value;setTime(value);}}
+  const current=trackingFrameAt(timeline,time,experiment.video.fps??25);
+  const sample=current?boxByFrame.get(current.frameIndex):undefined;
+  function seek(value:number){if(player.current)player.current.currentTime=value;}
   return <AnalysisDetailsLayout video={<DetailsVideoCard description="Acompanhe o vídeo e consulte os gráficos ao lado.">
     <div className="tracking-details-player">
-      {source?<><video ref={player} src={source} controls playsInline preload="metadata" onTimeUpdate={event=>setTime(event.currentTarget.currentTime)}/>
+      {source?<><video ref={player} src={source} controls playsInline preload="metadata"/>
         {originalUrl&&sample?.bbox&&<svg viewBox={`0 0 ${experiment.video.width} ${experiment.video.height}`} aria-label="Caixa e linha corporal sincronizadas">
-          <rect {...sample.bbox} fill="none" stroke={sample.status==="valid"&&sample.trackingAccepted!==false?"#67d9b8":"#e8b86d"} strokeDasharray={sample.source==="predicted"||sample.source==="recovered"?"8 5":undefined} strokeWidth={3}/><circle cx={sample.xPx!} cy={sample.yPx!} r={5} fill="#67d9b8"/>
-          <LocalBodyOverlay sample={sample} width={experiment.video.width} height={experiment.video.height}/>
+          <rect {...sample.bbox} data-frame-index={sample.frameIndex} data-timestamp-sec={sample.timestampSec} fill="none" stroke={sample.status==="valid"&&sample.trackingAccepted!==false?"#67d9b8":"#e8b86d"} strokeDasharray={sample.source==="predicted"||sample.source==="recovered"?"8 5":undefined} strokeWidth={3}/><circle cx={sample.xPx!} cy={sample.yPx!} r={5} fill="#67d9b8"/>
+          <LocalBodyOverlay sample={sample} samples={boxes} width={experiment.video.width} height={experiment.video.height}/>
         </svg>}</>:<div className="details-video-empty"><span>Vídeo indisponível neste dispositivo</span><p>{artifact?.key===key?artifact.error:"Carregando vídeo salvo…"}</p></div>}
     </div>
     <p className="details-chart-note">{originalUrl?"Vídeo original · observações sincronizadas":"MP4 salvo desta execução"}</p>
   </DetailsVideoCard>}>
-    <ResultMotionChart samples={samples} width={experiment.video.width} height={experiment.video.height} time={time} onSeek={seek} reference={reference}/>
+    <ResultMotionChart samples={samples} width={experiment.video.width} height={experiment.video.height} time={time??0} onSeek={seek} reference={reference}/>
     {children}
   </AnalysisDetailsLayout>;
 }

@@ -393,10 +393,14 @@ pub async fn start_local_tracking(
             config["videoPreparation"] = json!(prepared);
         }
         let id=new_uuid_v4();let directory=folder(&app,&id)?;fs::create_dir_all(&directory).map_err(|_|"Pasta da execução indisponível")?;
-        let request=json!({"video":path,"config":config,"ffprobe":ffprobe,"ffmpeg":ffmpeg,"auditVideo":audit_video_path(&app,&id)?});
+        let mut request=json!({"video":path,"config":config,"ffprobe":ffprobe,"ffmpeg":ffmpeg,"auditVideo":audit_video_path(&app,&id)?});
+        if config["protocol"] == "open_field" {
+            request["rearingModelDirectory"] = json!(crate::local_behavior::apex_model_path(&app)?);
+        }
         fs::write(directory.join("request.json"),request.to_string()).map_err(|_|"Solicitação local indisponível")?;
         fs::write(directory.join("local_audit_video.py"), AUDIT_VIDEO_SCRIPT).map_err(|_|"Gerador de vídeo de auditoria indisponível")?;
         fs::write(directory.join("engine.py"),include_str!("../python/opencv_engine.py")).map_err(|_|"Motor local indisponível")?;
+        crate::local_behavior::materialize_tracking_quality(&directory)?;
         fs::write(directory.join("ram_color.py"), include_str!("../python/ram_color.py"))
             .map_err(|_| "Motor RAM Color indisponível")?;
         connection.execute("INSERT INTO local_tracking_jobs(job_id,experiment_id,upload_id,video_sha256,config_json,state) VALUES (?1,?2,?3,?4,?5,'queued')",params![id,experiment_id,upload_id,digest,config.to_string()]).map_err(|_|"Não foi possível registrar a execução")?;
@@ -497,6 +501,7 @@ pub async fn start_local_wistar(
         ] {
             fs::write(job_directory.join(filename), content).map_err(|_| "Motor Wistar local indisponível")?;
         }
+        crate::local_behavior::materialize_tracking_quality(&job_directory)?;
         connection.execute(
             "INSERT INTO local_tracking_jobs(job_id,experiment_id,upload_id,video_sha256,config_json,state) VALUES (?1,?2,?3,?4,?5,'queued')",
             params![id, experiment_id, original_id, source_digest, config.to_string()],
@@ -520,6 +525,7 @@ pub async fn start_local_wistar(
                 let request = json!({"video": path, "config": task_config, "preparedSha256": digest,
                     "appData": app.path().app_data_dir().map_err(|_| "Dados do app indisponíveis")?,
                     "runtime": directory.join("wistar-venv"), "models": model_dir, "modelHashes": model_hashes,
+                    "rearingModelDirectory": crate::local_behavior::apex_model_path(&app)?,
                     "ffmpeg": ffmpeg, "auditVideo": audit_video_path(&app, &task_id)?});
                 let request_file = job_directory.join("request.json");
                 fs::write(&request_file, request.to_string()).map_err(|_| "Solicitação Wistar indisponível")?;
@@ -654,6 +660,7 @@ pub async fn start_local_fst(app: AppHandle, experiment_id: String, upload_id: S
         fs::write(directory.join("fst_engine.py"), include_str!("../python/local_fst_engine.py")).map_err(|_| "Motor FST indisponível")?;
         fs::write(directory.join("fst_presence.py"), include_str!("../python/fst_presence.py")).map_err(|_| "Presença FST indisponível")?;
         fs::write(directory.join("engine.py"), include_str!("../python/opencv_engine.py")).map_err(|_| "Leitura de vídeo indisponível")?;
+        crate::local_behavior::materialize_tracking_quality(&directory)?;
         db.execute("INSERT INTO local_tracking_jobs(job_id,experiment_id,upload_id,video_sha256,config_json,state) VALUES (?1,?2,?3,?4,?5,'queued')",
             params![id, experiment_id, upload_id, digest, run_config.to_string()]).map_err(|_| "Não foi possível registrar FST local")?;
         let created_at: String = db.query_row("SELECT created_at FROM local_tracking_jobs WHERE job_id=?1", [&id], |r| r.get(0))
@@ -717,8 +724,16 @@ pub async fn get_local_audit_video(app: AppHandle, job_id: String, render: bool)
         if report["state"] != "succeeded" || !["running", "succeeded"].contains(&state.as_str()) {
             return Err("O vídeo fica disponível após a conclusão da análise local.".into());
         }
+        let config: Value = serde_json::from_str(&config).map_err(|_| "Configuração local inválida")?;
         if destination.is_file() && !render {
-            return Ok(json!({"videoPath": destination, "videoError": null}));
+            let overlay = read_json(&directory.join("video_overlay.json")).unwrap_or(Value::Null);
+            let needs_refresh = if config["strategy"] == WISTAR_STRATEGY {
+                let artifact=read_json(&directory.join("video_artifact.json")).unwrap_or(Value::Null);
+                artifact["visualization"]["version"] != "oft-layered-video-4"
+            } else {
+                overlay["version"] != "local-audit-7" || overlay["skeletonMethod"] != "body-axis-2"
+            };
+            return Ok(json!({"videoPath": destination, "videoError": null, "needsRefresh": needs_refresh}));
         }
         if !render {
             return Ok(json!({"videoPath": null, "videoError": report["videoError"]}));
@@ -727,7 +742,6 @@ pub async fn get_local_audit_video(app: AppHandle, job_id: String, render: bool)
         let _guard = OperationGuard::acquire(&RENDERING_SAVED_VIDEO)?;
         let request_file = directory.join("request.json");
         let request = read_json(&request_file).ok_or("Solicitação original da análise indisponível")?;
-        let config: Value = serde_json::from_str(&config).map_err(|_| "Configuração local inválida")?;
         let preparation = &config["videoPreparation"];
         let source_id = if preparation["status"] == "optimized" {
             preparation["uploadId"].as_str().ok_or("Cópia otimizada indisponível")?
@@ -745,15 +759,23 @@ pub async fn get_local_audit_video(app: AppHandle, job_id: String, render: bool)
             return Err("A cópia do vídeo está ausente ou foi alterada. Analise novamente com o arquivo original.".into());
         }
         let ffmpeg = video::binary("ffmpeg").ok_or("FFmpeg não encontrado")?;
+        fs::write(directory.join("body_axis.py"), include_str!("../python/body_axis.py"))
+            .map_err(|_| "Filtro de orientação indisponível")?;
         let output = if config["strategy"] == WISTAR_STRATEGY {
             if request["preparedSha256"] != digest || request["auditVideo"] != json!(destination) {
                 return Err("O vídeo preparado diverge do registro da inferência Wistar.".into());
             }
+            crate::local_behavior::materialize_tracking_quality(&directory)?;
+            fs::write(directory.join("hybrid_render.py"),include_str!("../python/hybrid_render.py"))
+                .map_err(|_| "Renderizador Wistar indisponível")?;
+            fs::write(directory.join("local_wistar.py"),include_str!("../python/local_wistar.py"))
+                .map_err(|_| "Renderizador Wistar indisponível")?;
             Command::new(wistar_python(&app)?)
                 .args(["-X", "utf8"]).arg(directory.join("local_wistar.py"))
                 .arg(request_file).arg("render").arg(ffmpeg).output()
         } else {
             Command::new(python(&app)?)
+                .current_dir(&directory)
                 .args(["-X", "utf8", "-c", AUDIT_VIDEO_SCRIPT])
                 .arg(request_file).arg(&destination).arg(ffmpeg).output()
         }.map_err(|_| "Não foi possível iniciar a renderização do vídeo")?;
@@ -799,6 +821,33 @@ pub fn get_local_tracking_updates(
     read_updates(&directory.join("samples.jsonl"), offset)
 }
 
+fn attach_layer_predictions(directory: &std::path::Path, samples: &mut [Value]) -> CommandResult<()> {
+    let path = directory.join("rearing_predictions.jsonl");
+    if !path.exists() { return Ok(()); }
+    let file = File::open(path).map_err(|_| "Propostas de rearing indisponíveis")?;
+    if file.metadata().map_err(|_| "Propostas indisponíveis")?.len() > 128*1024*1024 {
+        return Err("Propostas de rearing excedem o limite".into());
+    }
+    let mut predictions = std::collections::HashMap::new();
+    for line in BufReader::new(file).lines() {
+        let value: Value = serde_json::from_str(&line.map_err(|_| "Propostas interrompidas")?).map_err(|_| "Proposta inválida")?;
+        let index = value["frameIndex"].as_u64().ok_or("Proposta sem quadro")?;
+        if predictions.insert(index, value).is_some() { return Err("Quadros de rearing duplicados".into()); }
+    }
+    for sample in samples {
+        if sample["oftLayers"]["version"] != "oft-layers-1" { continue; }
+        if let Some(prediction) = sample["frameIndex"].as_u64().and_then(|index| predictions.get(&index)) {
+            let a=sample["timestampSec"].as_f64().ok_or("Quadro sem tempo")?;
+            let b=prediction["timestampSec"].as_f64().ok_or("Proposta sem tempo")?;
+            if (a-b).abs()>1e-6 || prediction["metricEligible"] != false || prediction["reviewStatus"] != "pending" {
+                return Err("Proposta de rearing diverge do quadro de origem".into());
+            }
+            sample["oftLayers"]["rearing"] = prediction.clone();
+        }
+    }
+    Ok(())
+}
+
 fn read_updates(path: &std::path::Path, offset: u64) -> CommandResult<Value> {
     if !path.exists() {
         return Ok(json!({"offset":0,"samples":[]}));
@@ -826,6 +875,8 @@ fn read_updates(path: &std::path::Path, offset: u64) -> CommandResult<Value> {
         samples.push(serde_json::from_str::<Value>(&line).map_err(|_| "Frame local inválido")?);
         cursor += bytes as u64;
     }
+    // Completed predictions are merged on result retrieval. Streaming frames
+    // remain UNKNOWN while the independent classifier stage is in progress.
     Ok(json!({"offset":cursor,"samples":samples}))
 }
 #[tauri::command]
@@ -839,13 +890,15 @@ pub fn get_local_tracking_result(app: AppHandle, job_id: String) -> CommandResul
     if file.metadata().map_err(|_| "Resultado indisponível")?.len() > 256 * 1024 * 1024 {
         return Err("Resultado excede 256 MiB".into());
     }
-    BufReader::new(file)
+    let mut samples: Vec<Value> = BufReader::new(file)
         .lines()
         .map(|line| {
             serde_json::from_str(&line.map_err(|_| "Resultado interrompido")?)
                 .map_err(|_| "Frame inválido".into())
         })
-        .collect()
+        .collect::<CommandResult<_>>()?;
+    attach_layer_predictions(&directory, &mut samples)?;
+    Ok(samples)
 }
 #[tauri::command]
 pub fn cancel_local_tracking(app: AppHandle, job_id: String) -> CommandResult<()> {
@@ -964,6 +1017,21 @@ pub fn append_ram_review_event(app: AppHandle, job_id: String, event: Value) -> 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn completed_layer_predictions_merge_without_promoting_metrics_or_changing_geometry() {
+        let directory=std::env::temp_dir().join(format!("layer-predictions-{}",crate::colab::new_uuid_v4()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let mut samples=vec![serde_json::json!({"frameIndex":0,"timestampSec":0.,"xPx":12,"oftLayers":{"version":"oft-layers-1"}})];
+        let prediction=serde_json::json!({"frameIndex":0,"timestampSec":0.,"classification":"REARING_UNSPECIFIED","reviewStatus":"pending","metricEligible":false});
+        std::fs::write(directory.join("rearing_predictions.jsonl"),format!("{prediction}\n")).unwrap();
+        super::attach_layer_predictions(&directory,&mut samples).unwrap();
+        assert_eq!(samples[0]["xPx"],12);
+        assert_eq!(samples[0]["oftLayers"]["rearing"]["metricEligible"],false);
+        let mut invalid=prediction.clone();invalid["timestampSec"]=serde_json::json!(1.);
+        std::fs::write(directory.join("rearing_predictions.jsonl"),format!("{invalid}\n")).unwrap();
+        assert!(super::attach_layer_predictions(&directory,&mut samples).is_err());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
     use super::*;
     #[test]
     fn rejects_unbounded_or_incomplete_requests() {

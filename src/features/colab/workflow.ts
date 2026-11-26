@@ -8,8 +8,8 @@ export const workflowSteps = [
   { title: "Conectando à GPU", description: "Alocação da GPU para análise", stages: ["runtime", "workspace", "gpu_ready"] },
   { title: "Enviando vídeo", description: "Transferência do arquivo para o ambiente de análise", stages: ["uploading"] },
   { title: "Validando arquivo", description: "Conferência do tamanho e da integridade", stages: ["verifying", "video_ready"] },
-  { title: "Preparando modelos", description: "Carregamento do detector Wistar e da HRNet na GPU", stages: ["environment_check", "installing", "environment_ready"] },
-  { title: "Detectando animal", description: "Detector Wistar localiza o animal; HRNet-W32 estima 27 pontos anatômicos", stages: ["inference", "training"] },
+  { title: "Preparando modelos", description: "Carregamento dos modelos selecionados", stages: ["environment_check", "installing", "environment_ready"] },
+  { title: "Detectando animal", description: "Localização do animal e estimativas corporais em etapas", stages: ["inference", "training"] },
   { title: "Preparando resultados", description: "Poses, trajetória e vídeo ficam disponíveis para revisão", stages: ["downloading", "rendering", "completed"] },
 ] as const;
 
@@ -38,11 +38,12 @@ const colabSteps = { open_field: workflowSteps, forced_swim: fstWorkflowSteps, r
 
 export function localCheckpoints(job: LocalJob | null, preparing: boolean, failed: boolean, protocol: WorkflowProtocol) {
   const wistar = job?.config.strategy === "wistar_hrnet";
+  const layered = wistar && job?.config.modelBundleId === "wistar_df_v2";
   const steps = wistar ? [
     { title: "Preparando vídeo", description: "Reutilização da cópia de análise do projeto" },
-    { title: "Preparando modelos", description: "Configuração do ambiente Wistar e HRNet" },
+    { title: "Preparando modelos", description: layered ? "Configuração do detector Wistar" : "Configuração do ambiente Wistar e HRNet" },
     { title: "Detectando animal", description: "Detector Wistar na área calibrada" },
-    { title: "Estimando pose", description: "HRNet estima 27 pontos anatômicos" },
+    { title: "Estimando pose", description: layered ? "Silhueta, orientação e propostas de rearing" : "HRNet estima 27 pontos anatômicos" },
     { title: "Preparando resultados", description: "Verificação das poses e vídeo anotado para auditoria" },
   ] : [
     { title: "Preparando vídeo", description: "Leitura do arquivo e preparação da cópia local" },

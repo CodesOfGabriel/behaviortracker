@@ -26,7 +26,7 @@ export function boxCenterTrajectory(samples: readonly PoseSample[], width: numbe
       || box.x+box.width > width+1 || box.y+box.height > height+1
       || sample.status === "missing" && sample.source !== "detected") continue;
     const existing = frames.get(sample.frameIndex);
-    if (!existing || priority(sample) > priority(existing)) frames.set(sample.frameIndex, {
+    if (!existing || priority(sample) > priority(existing) || priority(sample) === priority(existing) && sample.oftLayers && !existing.oftLayers) frames.set(sample.frameIndex, {
       ...sample, xPx: box.x+box.width/2, yPx: box.y+box.height/2,
     });
   }

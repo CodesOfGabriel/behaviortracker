@@ -6,13 +6,14 @@ export const resultTabs = [
   { id: "trajectory", label: "Trajetória" }, { id: "details", label: "Detalhes" },
   { id: "runs", label: "Análise" }, { id: "exports", label: "Arquivos" },
 ] as const;
-export type ResultView = typeof resultTabs[number]["id"];
+export type ResultView = typeof resultTabs[number]["id"] | "behavior";
 export type ResultPanels = Partial<Record<ResultView, ReactNode>>;
 
-export function ResultTabs({ id, label, value, onChange }: {
-  id: string; label: string; value: ResultView; onChange: (value: ResultView) => void;
+export function ResultTabs<T extends ResultView>({ id, label, value, onChange, behavior = false }: {
+  id: string; label: string; value: T; onChange: (value: T) => void; behavior?: boolean;
 }) {
-  return <EditorTabs id={id} label={label} items={[...resultTabs]} value={value} onChange={onChange} />;
+  const items = behavior ? [...resultTabs.slice(0,2), {id:"behavior",label:"Rearing"}, ...resultTabs.slice(2)] : [...resultTabs];
+  return <EditorTabs id={id} label={label} items={items} value={value} onChange={next=>onChange(next as T)} />;
 }
 
 export function ResultPanel({ id, view, active, children }: {

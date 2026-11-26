@@ -65,6 +65,8 @@ def run(video_path, output_path, config):
     spec = importlib.util.spec_from_file_location("ram_hybrid", output / "hybrid_pipeline.py")
     hybrid = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(hybrid)
+    hybrid.OFT_PRECISION = False
+    hybrid.OPEN_FIELD_TRACKING = False
     if not torch.cuda.is_available():
         raise RuntimeError("O tracking RAM requer uma GPU CUDA no Colab")
     for name, expected in (("best_detector.pth", hybrid.EXPECTED_DETECTOR_SHA256),

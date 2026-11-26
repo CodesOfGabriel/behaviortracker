@@ -110,6 +110,7 @@ export interface OpenFieldExperiment {
   corrections: CorrectionEvent[];
   behaviorReviewed?: Partial<Record<BehaviorLabel, boolean>>;
   trackingSelection?: TrackingSelection;
+  behaviorSelections?: Record<string, {jobId: string; videoSha256: string}>;
   trackingReviews?: Record<string, { referencePoint: string }>;
   legacyReviewSource?: string;
 }
@@ -195,7 +196,20 @@ export interface SilhouetteMotionFeatures {
   observationUsable?: boolean;
 }
 
+export type BodyAxisObservation={schemaVersion:"body-axis-2";frameIndex:number;timestampSec:number;
+  points:Point[];state:"reliable"|"ambiguous"|"outlier"|"missing";reason:string;
+  rawAngleRad:number|null;angleRad:number|null;anisotropy:number|null;filtered:boolean;anatomicalPose:false};
+
 export interface PoseSample {
+  oftLayers?: {
+    version: "oft-layers-1";
+    orientation: {state:"estimated"|"ambiguous"|"missing";reason:string;head:Point|null;tailBase:Point|null;tailTip:Point|null;headRegion?:"floor"|"wall_projection"|"unknown";
+      confidence:number;source:"tail_silhouette"|"temporal_estimate"|null;metricEligible:false};
+    rearing:{classification:string;reviewStatus:"pending";metricEligible:false;score?:number|null;scoreKind?:"model_score"};
+  };
+  bodyAxis?: BodyAxisObservation;
+  bodyAxisContour?: Point[];
+  bodyAxisEvidence?: {method:"frozen_body_color_v1";supported:boolean;supportFraction:number};
   frameIndex: number;
   normalizedFrameIndex?: number;
   sourceFrameIndex?: number;
@@ -221,6 +235,7 @@ export interface PoseSample {
     reasons: string[];
   };
   features?: SilhouetteMotionFeatures | null;
+  behaviorObservation?: "OBSERVED" | "UNCERTAIN" | "UNOBSERVED";
   bbox?: BoundingBox;
   contour?: Point[];
   reason?: string;

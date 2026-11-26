@@ -1,0 +1,272 @@
+[
+  {
+    "browser": "chromium",
+    "viewport": 1440,
+    "overflow": false,
+    "images": [
+      {
+        "alt": "Universidade Federal de Pelotas (UFPel)",
+        "loaded": true,
+        "width": 72,
+        "height": 72
+      },
+      {
+        "alt": "NeuroCell",
+        "loaded": true,
+        "width": 168,
+        "height": 56
+      },
+      {
+        "alt": "NeuroLab",
+        "loaded": true,
+        "width": 192,
+        "height": 192
+      }
+    ],
+    "frames": [
+      {
+        "x": 476,
+        "y": 828.015625,
+        "width": 72,
+        "height": 72
+      },
+      {
+        "x": 588,
+        "y": 828.015625,
+        "width": 168,
+        "height": 72
+      },
+      {
+        "x": 796,
+        "y": 828.015625,
+        "width": 168,
+        "height": 72
+      }
+    ]
+  },
+  {
+    "browser": "chromium",
+    "viewport": 390,
+    "overflow": false,
+    "images": [
+      {
+        "alt": "Universidade Federal de Pelotas (UFPel)",
+        "loaded": true,
+        "width": 60,
+        "height": 60
+      },
+      {
+        "alt": "NeuroCell",
+        "loaded": true,
+        "width": 140,
+        "height": 46.65625
+      },
+      {
+        "alt": "NeuroLab",
+        "loaded": true,
+        "width": 160,
+        "height": 160
+      }
+    ],
+    "frames": [
+      {
+        "x": 81,
+        "y": 637,
+        "width": 60,
+        "height": 60
+      },
+      {
+        "x": 169,
+        "y": 637,
+        "width": 140,
+        "height": 60
+      },
+      {
+        "x": 125,
+        "y": 717,
+        "width": 140,
+        "height": 60
+      }
+    ]
+  },
+  {
+    "browser": "chromium",
+    "viewport": 320,
+    "overflow": false,
+    "images": [
+      {
+        "alt": "Universidade Federal de Pelotas (UFPel)",
+        "loaded": true,
+        "width": 56,
+        "height": 56
+      },
+      {
+        "alt": "NeuroCell",
+        "loaded": true,
+        "width": 120,
+        "height": 40
+      },
+      {
+        "alt": "NeuroLab",
+        "loaded": true,
+        "width": 152,
+        "height": 152
+      }
+    ],
+    "frames": [
+      {
+        "x": 63,
+        "y": 647.375,
+        "width": 56,
+        "height": 56
+      },
+      {
+        "x": 137,
+        "y": 647.375,
+        "width": 120,
+        "height": 56
+      },
+      {
+        "x": 100,
+        "y": 721.375,
+        "width": 120,
+        "height": 56
+      }
+    ]
+  },
+  {
+    "browser": "webkit",
+    "viewport": 1440,
+    "overflow": false,
+    "images": [
+      {
+        "alt": "Universidade Federal de Pelotas (UFPel)",
+        "loaded": true,
+        "width": 72,
+        "height": 72
+      },
+      {
+        "alt": "NeuroCell",
+        "loaded": true,
+        "width": 168,
+        "height": 56
+      },
+      {
+        "alt": "NeuroLab",
+        "loaded": true,
+        "width": 192,
+        "height": 192
+      }
+    ],
+    "frames": [
+      {
+        "x": 476,
+        "y": 827.015625,
+        "width": 72,
+        "height": 72
+      },
+      {
+        "x": 588,
+        "y": 827.015625,
+        "width": 168,
+        "height": 72
+      },
+      {
+        "x": 796,
+        "y": 827.015625,
+        "width": 168,
+        "height": 72
+      }
+    ]
+  },
+  {
+    "browser": "webkit",
+    "viewport": 390,
+    "overflow": false,
+    "images": [
+      {
+        "alt": "Universidade Federal de Pelotas (UFPel)",
+        "loaded": true,
+        "width": 60,
+        "height": 60
+      },
+      {
+        "alt": "NeuroCell",
+        "loaded": true,
+        "width": 140,
+        "height": 46.65625
+      },
+      {
+        "alt": "NeuroLab",
+        "loaded": true,
+        "width": 160,
+        "height": 160
+      }
+    ],
+    "frames": [
+      {
+        "x": 81,
+        "y": 637,
+        "width": 60,
+        "height": 60
+      },
+      {
+        "x": 169,
+        "y": 637,
+        "width": 140,
+        "height": 60
+      },
+      {
+        "x": 125,
+        "y": 717,
+        "width": 140,
+        "height": 60
+      }
+    ]
+  },
+  {
+    "browser": "webkit",
+    "viewport": 320,
+    "overflow": false,
+    "images": [
+      {
+        "alt": "Universidade Federal de Pelotas (UFPel)",
+        "loaded": true,
+        "width": 56,
+        "height": 56
+      },
+      {
+        "alt": "NeuroCell",
+        "loaded": true,
+        "width": 120,
+        "height": 40
+      },
+      {
+        "alt": "NeuroLab",
+        "loaded": true,
+        "width": 152,
+        "height": 152
+      }
+    ],
+    "frames": [
+      {
+        "x": 63,
+        "y": 647.375,
+        "width": 56,
+        "height": 56
+      },
+      {
+        "x": 137,
+        "y": 647.375,
+        "width": 120,
+        "height": 56
+      },
+      {
+        "x": 100,
+        "y": 721.375,
+        "width": 120,
+        "height": 56
+      }
+    ]
+  }
+]

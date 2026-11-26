@@ -34,6 +34,8 @@ import { LocalAnalysisPanel } from "../local/LocalAnalysisPanel";
 import { ExperimentVideos } from "./ExperimentVideos";
 import { ExperimentRunSummary } from "./ExperimentRunSummary";
 import { listLocalJobs } from "../local/api";
+import { BehaviorAnalysisPanel } from "../behavior/BehaviorAnalysisPanel";
+import { BehaviorExperimentSummary } from "../behavior/BehaviorExperimentSummary";
 import { RunTrajectory } from "./RunTrajectory";
 import type { OftMetrics, OpenFieldExperiment } from "../../types";
 
@@ -60,7 +62,7 @@ export function Results({ experimentId }: { experimentId: string }) {
   const { getExperiment, navigate, trackingData, updateExperiment } = useAppStore();
   const analysis = useAnalysis(experimentId);
   const experiment = getExperiment(experimentId) as OpenFieldExperiment | undefined;
-  const [resultView, setResultView] = useState<"summary" | "video" | "trajectory" | "details" | "exports" | "runs">(
+  const [resultView, setResultView] = useState<"summary" | "video" | "trajectory" | "details" | "exports" | "runs" | "behavior">(
     experiment?.status === "processing" ? "runs" : "summary",
   );
   const [metricChoice,setMetricChoice]=useState<{source:string;mode:MetricReferenceMode}|null>(null);
@@ -155,14 +157,15 @@ export function Results({ experimentId }: { experimentId: string }) {
         <section className="page-heading results-heading">
           <div><div className="eyebrow">Análise Completa · Open Field Test</div><h1>{experiment.title}</h1><p>{experiment.subjectId} · Aguardando resultado do tracking</p></div>
         </section>
-        <ResultTabs id="oft-result" label="Áreas dos resultados de Campo Aberto" value={resultView} onChange={setResultView}/>
+        <ResultTabs id="oft-result" label="Áreas dos resultados de Campo Aberto" value={resultView} onChange={setResultView} behavior/>
+        {resultView === "behavior" && <div role="tabpanel" id="oft-result-behavior-panel" aria-labelledby="oft-result-behavior-tab"><BehaviorAnalysisPanel experiment={experiment} onSelect={analysis.selectSource}/></div>}
         {workspace}
         {resultView === "trajectory" && <div role="tabpanel" id="oft-result-trajectory-panel" aria-labelledby="oft-result-trajectory-tab">
           <RunZoneOccupancy experiment={experiment} samples={inputSamples} colabJobs={analysis.history} loading={analysis.loadingResult} onSelect={analysis.selectSource}/>
         </div>}
-        {resultView === "summary" && <ExperimentRunSummary experiment={experiment} onSelect={analysis.selectSource}/>}
+        {resultView === "summary" && <><ExperimentRunSummary experiment={experiment} onSelect={analysis.selectSource}/><BehaviorExperimentSummary key={`${metricSource}:${experiment.video.sha256}`} experiment={experiment} onOpen={()=>setResultView("behavior")}/></>}
         {resultView === "video" && <ExperimentVideos experiment={experiment}/>}
-        {resultView !== "runs" && resultView !== "trajectory" && resultView !== "summary" && resultView !== "video" && <section className="panel"><p>Selecione uma execução concluída na aba Análise ou em Ocupação por zona, na aba Trajetória.</p><Button onClick={()=>setResultView("runs")}>Abrir análise</Button></section>}
+        {resultView !== "behavior" && resultView !== "runs" && resultView !== "trajectory" && resultView !== "summary" && resultView !== "video" && <section className="panel results-empty-state"><p>Selecione uma execução concluída na aba Análise ou em Ocupação por zona, na aba Trajetória.</p><Button onClick={()=>setResultView("runs")}>Abrir análise</Button></section>}
         {analysis.loadingResult && <p role="status">Carregando resultado salvo…</p>}
       </div>
     );
@@ -237,7 +240,8 @@ export function Results({ experimentId }: { experimentId: string }) {
         </div>
       </section>
       {analysis.error && resultView !== "runs" && <div className="validation-box invalid"><AlertTriangle size={16} />{analysis.error}</div>}
-      <ResultTabs id="oft-result" label="Áreas dos resultados de Campo Aberto" value={resultView} onChange={setResultView}/>
+      <ResultTabs id="oft-result" label="Áreas dos resultados de Campo Aberto" value={resultView} onChange={setResultView} behavior/>
+      {resultView === "behavior" && <div role="tabpanel" id="oft-result-behavior-panel" aria-labelledby="oft-result-behavior-tab"><BehaviorAnalysisPanel experiment={experiment} onSelect={analysis.selectSource}/></div>}
       {workspace}
 
       <div role="tabpanel" id="oft-result-exports-panel" aria-labelledby="oft-result-exports-tab" hidden={resultView !== "exports"}>
@@ -277,7 +281,8 @@ export function Results({ experimentId }: { experimentId: string }) {
 
       {hasDetectorTrack && <p className="results-detector-note">A cobertura da caixa mede frames com detecção observada ({detectorTrack.observedFrames.toLocaleString("pt-BR")}/{detectorTrack.totalFrames.toLocaleString("pt-BR")}); não mede acurácia anatômica. Os indicadores abaixo usam a referência selecionada e somente pares consecutivos no piso.</p>}
       <OpenFieldMetricSummary metrics={shownMetrics??metrics} mode={metricMode} onModeChange={mode=>setMetricChoice({source:metricSource,mode})}
-        hasBoxes={Boolean(boxEstimates?.boxFrames)} hasPendingReference={Boolean(boxEstimates?.pendingReferenceFrames)} onExport={exportBoxEstimates}/>
+        hasBoxes={Boolean(boxEstimates?.boxFrames)} hasPendingReference={Boolean(boxEstimates?.pendingReferenceFrames)} onExport={exportBoxEstimates}
+        behavior={resultView==="summary"?<BehaviorExperimentSummary key={`${metricSource}:${experiment.video.sha256}`} experiment={experiment} onOpen={()=>setResultView("behavior")}/>:undefined}/>
 
       </div>
 

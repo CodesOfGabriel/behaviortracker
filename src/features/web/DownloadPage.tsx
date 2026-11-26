@@ -89,9 +89,9 @@ export function DownloadPage() {
       </div>
       <p className="download-release">Versão {desktopRelease.version}<span aria-hidden="true">·</span><a href={desktopReleaseUrl} target="_blank" rel="noopener noreferrer">Notas da versão</a></p>
       <div className="download-institutions" role="group" aria-label="Instituições">
-        <span className="download-institution download-institution-ufpel"><img src="/ufpel.png" alt="Universidade Federal de Pelotas (UFPel)" width="48" height="48" /></span>
-        <span className="download-institution"><img src="/neurocell.png" alt="NeuroCell" width="112" height="38" /></span>
-        <span className="download-institution download-institution-neurolab"><img src="/neurolab.png" alt="NeuroLab" width="128" height="128" /></span>
+        <span className="download-institution download-institution-ufpel"><img src="/ufpel.png" alt="Universidade Federal de Pelotas (UFPel)" width="72" height="72" /></span>
+        <span className="download-institution"><img src="/neurocell.png" alt="NeuroCell" width="168" height="56" /></span>
+        <span className="download-institution download-institution-neurolab"><img src="/neurolab.png" alt="NeuroLab" width="192" height="192" /></span>
       </div>
     </main>
     <footer className="download-footer">

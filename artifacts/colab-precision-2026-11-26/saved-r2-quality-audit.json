@@ -1,0 +1,65 @@
+{
+  "jobId": "86a0ac49-483b-4f99-8554-94b169cb9e5c",
+  "frameCount": 4438,
+  "keypointCount": 27,
+  "scope": "geometry_and_temporal_checks_on_saved_raw_predictions_only",
+  "neuralInferenceExecuted": false,
+  "viewConsensusExecuted": false,
+  "accuracyMeasured": false,
+  "rawFileUnchanged": true,
+  "rawCsvSha256": "2c3abe2f758456f67d64f14edc50e0dc4be75d047b16fb7355602dc3c8a375f0",
+  "before": {
+    "keypointsAboveLikelihoodThreshold": 12018,
+    "centerAboveLikelihoodThresholdFrames": 289
+  },
+  "afterQualityChecks": {
+    "acceptedKeypointCount": 12005,
+    "acceptedCenterFrames": 289,
+    "rejectedAboveThresholdByReason": {
+      "temporal_spike": 11,
+      "low_confidence_or_outside_box": 2
+    }
+  },
+  "outlierExamples": [
+    {
+      "frame": 119,
+      "keypoint": "tail_base",
+      "reason": "temporal_spike"
+    },
+    {
+      "frame": 415,
+      "keypoint": "tail_base",
+      "reason": "temporal_spike"
+    },
+    {
+      "frame": 2140,
+      "keypoint": "tail_base",
+      "reason": "temporal_spike"
+    },
+    {
+      "frame": 2170,
+      "keypoint": "tail_base",
+      "reason": "temporal_spike"
+    },
+    {
+      "frame": 2171,
+      "keypoint": "tail_base",
+      "reason": "temporal_spike"
+    },
+    {
+      "frame": 2174,
+      "keypoint": "tail_base",
+      "reason": "temporal_spike"
+    },
+    {
+      "frame": 2550,
+      "keypoint": "tail_base",
+      "reason": "temporal_spike"
+    },
+    {
+      "frame": 2618,
+      "keypoint": "tail_base",
+      "reason": "temporal_spike"
+    }
+  ]
+}

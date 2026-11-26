@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   AlertTriangle,
@@ -7,7 +7,6 @@ import {
   KeyRound,
   RefreshCw,
   Save,
-  Trash2,
   UserRound,
 } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
@@ -21,12 +20,10 @@ import {
   isTauriRuntime,
   loadColabSummary,
   publishColabSummary,
-  type GoogleDesktopCredentials,
   type OAuthProfileSummary,
 } from "./connection";
-import { GoogleCredentialsImport } from "./GoogleCredentialsImport";
 
-type ActiveAction = "load" | "save" | "connect" | "restore" | "check" | "delete" | null;
+type ActiveAction = "load" | "connect" | "check" | null;
 
 function errorMessage(error: unknown) {
   return typeof error === "string" ? error : error instanceof Error ? error.message : "A operação não pôde ser concluída.";
@@ -39,13 +36,9 @@ export function ColabGate() {
   const [settingsView, setSettingsView] = useState<"colab" | "researcher">("researcher");
   const desktopRuntime = useMemo(isTauriRuntime, []);
   const [summary, setSummary] = useState<OAuthProfileSummary>(emptyColabSummary);
-  const [clientId, setClientId] = useState("");
-  const clientIdEditedRef = useRef(false);
   const [activeAction, setActiveAction] = useState<ActiveAction>(desktopRuntime ? "load" : null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-
-  const configured = Boolean(summary.clientId && summary.hasClientSecret);
 
   function saveResearcher(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -69,14 +62,12 @@ export function ColabGate() {
       receivedUpdate = true;
       const configuration = (event as CustomEvent<OAuthProfileSummary>).detail;
       setSummary(configuration);
-      if (!clientIdEditedRef.current) setClientId(configuration.clientId);
     };
     window.addEventListener(COLAB_STATUS_EVENT, updateStatus);
     void loadColabSummary()
       .then((configuration) => {
         if (disposed || receivedUpdate) return;
         setSummary(configuration);
-        setClientId(configuration.clientId);
         publishColabSummary(configuration);
       })
       .catch((loadError) => !disposed && setError(errorMessage(loadError)))
@@ -100,11 +91,7 @@ export function ColabGate() {
       const updated = await invoke<OAuthProfileSummary>(command, args);
       setSummary(updated);
       publishColabSummary(updated);
-      clientIdEditedRef.current = false;
-      setClientId(updated.clientId);
-      setNotice(action === "restore" && !updated.connected
-        ? "Configuração anterior consultada. Clique em Conectar conta Google para autorizar novamente."
-        : successMessage);
+      setNotice(successMessage);
       return true;
     } catch (actionError) {
       setError(errorMessage(actionError));
@@ -118,41 +105,9 @@ export function ColabGate() {
     }
   }
 
-  async function saveCredentials(credentials: GoogleDesktopCredentials) {
-    return runAction("save", "save_google_oauth_config", { profileId: COLAB_PROFILE_ID, ...credentials },
-      "Credenciais salvas para este perfil local.");
-  }
-
-  async function saveFromForm(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const clientSecret = String(new FormData(form).get("clientSecret") ?? "").trim();
-    if (await saveCredentials({ clientId: clientId.trim(), clientSecret })) form.reset();
-  }
-
-  async function deleteConfiguration() {
-    if (!window.confirm("Remover o Client ID, o segredo e a autorização Google deste perfil?")) return;
-    setActiveAction("delete");
-    setError(null);
-    setNotice(null);
-    try {
-      await invoke("delete_google_oauth_config", { profileId: COLAB_PROFILE_ID });
-      setSummary(emptyColabSummary);
-      publishColabSummary(emptyColabSummary);
-      setClientId("");
-      setNotice("Configuração OAuth removida deste perfil local.");
-    } catch (deleteError) {
-      setError(errorMessage(deleteError));
-    } finally {
-      setActiveAction(null);
-    }
-  }
-
   const headingBadge = summary.connected
     ? <Badge tone="success" dot>Conta conectada</Badge>
-    : configured
-      ? <Badge tone="info" dot>Pronto para conectar</Badge>
-      : <Badge tone="warning" dot>Configuração necessária</Badge>;
+    : <Badge tone="info" dot>Conectar conta Google</Badge>;
 
   return (
     <div className="page narrow-page settings-page">
@@ -210,22 +165,13 @@ export function ColabGate() {
             {!summary.connected ? (
               <>
                 <Button
-                  disabled={!desktopRuntime || !configured || activeAction !== null}
+                  disabled={!desktopRuntime || activeAction !== null}
                   icon={<KeyRound size={17} />}
                   loading={activeAction === "connect"}
                   onClick={() => void runAction("connect", "start_google_auth", { profileId: COLAB_PROFILE_ID }, "Conta Google conectada.")}
                 >
                   Conectar conta Google
                 </Button>
-                {!summary.managedClient && <Button
-                  disabled={!desktopRuntime || !summary.clientId || activeAction !== null}
-                  icon={<RefreshCw size={16} />}
-                  loading={activeAction === "restore"}
-                  onClick={() => void runAction("restore", "restore_legacy_google_session", { profileId: COLAB_PROFILE_ID }, "Conexão anterior recuperada neste dispositivo.")}
-                  variant="secondary"
-                >
-                  Recuperar conexão anterior
-                </Button>}
               </>
             ) : (
               <>
@@ -242,28 +188,11 @@ export function ColabGate() {
             )}
           </div>
           {activeAction === "connect" && <p role="status">Conclua a autorização no navegador. A conexão será confirmada após salvar a sessão.</p>}
-          {!summary.connected && !configured && <small>Configure o acesso Google em “Configuração avançada” para habilitar a conexão.</small>}
           {error && <div className="colab-feedback error" role="alert"><AlertTriangle size={15} /><span>{error}</span></div>}
           {notice && <div className="colab-feedback success" role="status"><Check size={15} /><span>{notice}</span></div>}
         </div>
       </section>
 
-      {(!summary.managedClient || !configured) && <details className="panel colab-advanced" open={!configured || undefined}>
-        <summary>Configuração avançada do acesso Google</summary>
-        <p>Importe o JSON do cliente OAuth do tipo Aplicativo para computador ou preencha os campos abaixo.</p>
-        <GoogleCredentialsImport disabled={!desktopRuntime || activeAction !== null}
-          managedClientId={summary.managedClient ? summary.clientId : undefined}
-          onImport={async credentials => { await saveCredentials(credentials); }}
-          onError={reason => { setError(errorMessage(reason)); setNotice(null); }} />
-        <form className="colab-credentials-form" onSubmit={event => void saveFromForm(event)}>
-          <label><span>Client ID</span><input autoComplete="off" disabled={!desktopRuntime || activeAction !== null} readOnly={summary.managedClient} required onChange={(event) => { clientIdEditedRef.current = true; setClientId(event.target.value); }} placeholder="…apps.googleusercontent.com" spellCheck={false} value={clientId} /></label>
-          <label><span>Client Secret</span><input type="password" name="clientSecret" autoComplete="new-password" required disabled={!desktopRuntime || activeAction !== null} /></label>
-          <div className="credential-actions">
-            <Button disabled={!desktopRuntime || !clientId.trim() || activeAction !== null} icon={<Save size={16} />} loading={activeAction === "save"} type="submit">Salvar acesso</Button>
-            {summary.clientId && !summary.managedClient && <Button disabled={!desktopRuntime || activeAction !== null} icon={<Trash2 size={15} />} onClick={() => void deleteConfiguration()} type="button" variant="ghost">Remover configuração</Button>}
-          </div>
-        </form>
-      </details>}
       </div>
     </div>
   );

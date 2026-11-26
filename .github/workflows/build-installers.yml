@@ -7,7 +7,11 @@ permissions:
   contents: read
 
 jobs:
+  quality:
+    uses: ./.github/workflows/quality.yml
+
   build:
+    needs: quality
     strategy:
       fail-fast: false
       matrix:
@@ -57,6 +61,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Verify Google OAuth build credentials
+        run: node scripts/check-google-oauth-env.mjs
       - run: npm ci
 
       - name: Prepare bundled FFmpeg and ffprobe

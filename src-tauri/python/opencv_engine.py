@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "opencv-box-10"
+VERSION = "opencv-box-15"
 
 
 def write_json(path, value):
@@ -461,10 +461,17 @@ class Segmenter:
         self.scale = min(1., config.get("maxWidth", 1280)/self.width)
         self.size = (round(self.width*self.scale), round(self.height*self.scale))
         self.floor = np.array([[p["x"], p["y"]] for p in config.get("walkablePolygonPx", config["arena"]["cornersPx"])], np.float32)
+        self.open_field = (config.get("protocol", "open_field") == "open_field"
+                           and not config.get("walkablePolygonPx") and config.get("strategy") != "ram_color_geometry_v2")
         rim = config.get("walkablePolygonPx") or config["arena"].get("rimCornersPx") or config["arena"]["cornersPx"]
         self.enclosure = np.array([[p["x"], p["y"]] for p in rim], np.float32)
         self.roi = np.zeros((self.size[1], self.size[0]), np.uint8)
-        cv2.fillPoly(self.roi, [np.round(self.enclosure*self.scale).astype(np.int32)], 255)
+        if self.open_field:
+            from arena import open_field_tracking_polygon, open_field_tracking_mask
+            self.enclosure = np.asarray(open_field_tracking_polygon(config["arena"], self.width, self.height), np.float32)
+            self.roi = cv2.resize(open_field_tracking_mask(config["arena"], self.width, self.height), self.size, interpolation=cv2.INTER_NEAREST)
+        else:
+            cv2.fillPoly(self.roi, [np.round(self.enclosure*self.scale).astype(np.int32)], 255)
         self.roi_area = cv2.countNonZero(self.roi)
         if self.roi_area < 16:
             raise ValueError("Arena inválida para segmentação")
@@ -725,6 +732,74 @@ class RobustSegmenter(Segmenter):
         self.area_history = []
         self.body_flow = BodyFlow(self.tracker.max_gap)
 
+    def extend_on_wall(self, chosen, residual, delta_a, delta_b, shift, chroma_shift, lab):
+        """Recover low-contrast head/neck pixels connected to the current body.
+
+        The strong, opened mask establishes identity. A bounded weak mask may
+        extend that same component across the floor boundary; floor pixels,
+        distant wall blobs and thin appendages cannot seed a new animal.
+        """
+        cv, np = self.cv, self.np
+        rx, ry, rw, rh = self.roi_rect
+        contour=chosen["contour"]
+        x,y,w,h=cv.boundingRect(contour)
+        reference_area=float(np.median(self.area_history)) if self.area_history else self.last_area
+        body_area=max(chosen["area"],reference_area or 0)
+        pad=max(6,round(max(max(w,h)*.65,1.5*math.sqrt(body_area))))
+        left,top=max(0,x-rx-pad),max(0,y-ry-pad)
+        right,bottom=min(rw,x-rx+w+pad),min(rh,y-ry+h+pad)
+        seed=np.zeros((bottom-top,right-left),np.uint8)
+        cv.drawContours(seed,[contour],-1,255,-1,offset=(-rx-left,-ry-top))
+        outside=self.floor_mask[ry+top:ry+bottom,rx+left:rx+right]==0
+        if not np.any(outside):return chosen,0
+        luminance=np.abs(residual[top:bottom,left:right]-shift)
+        chroma=cv.magnitude(delta_a[top:bottom,left:right],delta_b[top:bottom,left:right])
+        weak=((luminance>np.maximum(7.,self.threshold[top:bottom,left:right]*.35)) |
+              (chroma>np.maximum(5.,self.chroma_threshold[top:bottom,left:right]*.5)))
+        # Keep a narrow connected band on both sides of the calibration line:
+        # discarding weak floor pixels here would cut the neck at that line.
+        near_seed=cv.distanceTransform(np.uint8(seed==0),cv.DIST_L2,3)<=4
+        weak &= self.active_roi[top:bottom,left:right] & (outside|near_seed)
+        weak=np.uint8(weak)*255
+        weak=cv.morphologyEx(cv.bitwise_or(weak,seed),cv.MORPH_CLOSE,np.ones((5,5),np.uint8))
+        weak=cv.morphologyEx(weak,cv.MORPH_OPEN,self.kernel)
+        weak=cv.bitwise_or(weak,seed)
+        _,labels=cv.connectedComponents(weak)
+        ids,counts=np.unique(labels[seed>0],return_counts=True)
+        connected=labels==int(ids[np.argmax(counts)])
+        extra=np.uint8(connected & (seed==0))
+        count,parts,stats,_=cv.connectedComponentsWithStats(extra)
+        radius=float(cv.distanceTransform(seed,cv.DIST_L2,3).max())
+        reference=self.appearance if self.appearance is not None else chosen["appearance"]
+        recovered=np.zeros_like(seed)
+        for i in range(1,count):
+            area=stats[i,cv.CC_STAT_AREA]
+            component=np.uint8(parts==i)
+            wall_area=np.count_nonzero((component>0)&outside)
+            if not max(6,body_area*.015)<=wall_area<=body_area*.7 or area>body_area*1.2:continue
+            if float(cv.distanceTransform(component,cv.DIST_L2,3).max())<max(2.,radius*.28):continue
+            appearance=np.median(lab[top:bottom,left:right][component>0],axis=0).astype(float)
+            appearance[0]-=shift
+            appearance[1:]-=chroma_shift
+            if float(np.linalg.norm((appearance-reference)*[.5,1,1]))>35:continue
+            recovered[component>0]=255
+        added=cv.countNonZero(recovered)
+        if not added or added>body_area*1.2:return chosen,0
+        merged=cv.bitwise_or(seed,recovered)
+        contours=cv.findContours(merged,cv.RETR_EXTERNAL,cv.CHAIN_APPROX_SIMPLE,offset=(rx+left,ry+top))[0]
+        if len(contours)!=1:return chosen,0
+        contour=contours[0];area=float(cv.contourArea(contour))
+        if not self.min_area<=area<=self.max_area:return chosen,0
+        x,y,w,h=cv.boundingRect(contour)
+        # Do not silently publish a head truncated by this bounded search.
+        if x<=rx+left or y<=ry+top or x+w>=rx+right or y+h>=ry+bottom:return chosen,0
+        body=np.zeros((h,w),np.uint8);cv.drawContours(body,[contour],-1,255,-1,offset=(-x,-y))
+        floor_fraction=float(np.count_nonzero((body>0)&(self.floor_mask[y:y+h,x:x+w]>0))/max(1,cv.countNonZero(body)))
+        return {**chosen,"contour":contour,"area":area,"center":((x+w/2)/self.scale,(y+h/2)/self.scale),
+            "bbox":dict(x=x/self.scale,y=y/self.scale,width=w/self.scale,height=h/self.scale),
+            "density":area/max(1,w*h),"aspect":max(w,h)/max(1,min(w,h)),"floor_fraction":floor_fraction,
+            "area_ratio":area/reference_area if reference_area else 1.},added
+
     def process(self, frame, timestamp, guide_box=None):
         cv, np = self.cv, self.np
         rx, ry, rw, rh = self.roi_rect
@@ -749,6 +824,9 @@ class RobustSegmenter(Segmenter):
         recent = self.tracker.last and 0 <= timestamp-self.tracker.last[2] <= self.tracker.max_gap
         target = ((guide_box["x"]+guide_box["width"]/2, guide_box["y"]+guide_box["height"]/2)
                   if guide_box else prediction or (self.tracker.last if recent else None))
+        # Floor support helps initialize identity, but cannot constrain the
+        # silhouette of an already associated animal as it rises on a wall.
+        wall_association = self.open_field and bool(recent or guide_box or self.config.get("initialBox"))
         visual_box = self.body_flow.predict(gray, timestamp)
         if visual_box:
             target = ((visual_box["x"]+visual_box["width"]/2+rx)/self.scale,
@@ -789,7 +867,7 @@ class RobustSegmenter(Segmenter):
             # Rotação e mudança de postura alteram aspecto sem trocar identidade.
             shape_cost = max(0., math.log(aspect/4))
             size_support = min(3., math.log(max(1., area/self.min_area)))
-            score = (density+2*floor_fraction+.45*size_support-distance_cost
+            score = (density+(.25 if wall_association else 2)*floor_fraction+.45*size_support-distance_cost
                      -color_delta/40-.5*abs(math.log(area_ratio))-shape_cost*.5)
             if target and displacement > math.hypot(self.width, self.height)*.2:
                 continue
@@ -813,6 +891,9 @@ class RobustSegmenter(Segmenter):
             return {"xPx": None, "yPx": None, "source": "segmented", "status": "missing", "reason": "no_contour",
                     "trackingAccepted": False, "localQuality": {"tracking": "missing", "geometry": "unknown", "reasons": ["no_contour"]}, **diagnostics}
         chosen = candidates[0]
+        wall_pixels=0
+        if self.open_field and (wall_association or chosen["floor_fraction"]>=.15):
+            chosen,wall_pixels=self.extend_on_wall(chosen,residual,delta_a,delta_b,shift,chroma_shift,lab)
         contour, area, center = chosen["contour"], chosen["area"], chosen["center"]
         original = [(float(p[0][0]/self.scale), float(p[0][1]/self.scale)) for p in cv.approxPolyDP(contour, 2, True)]
         margin = math.hypot(self.width, self.height)*.012
@@ -829,7 +910,7 @@ class RobustSegmenter(Segmenter):
             reasons.append("appearance_changed")
         if not .5 <= chosen["area_ratio"] <= 2:
             reasons.append("area_changed")
-        if chosen["floor_fraction"] < .15:
+        if chosen["floor_fraction"] < .15 and not wall_association:
             reasons.append("outside_floor_candidate")
         if self.ram_body_margin:
             pixels = [(round(point[0]*self.scale), round(point[1]*self.scale)) for point in original]
@@ -875,15 +956,21 @@ class RobustSegmenter(Segmenter):
             self.body_flow.observe(gray, body, {"x": x-rx, "y": y-ry, "width": w, "height": h}, timestamp)
         feature_engine = self.features if accepted else SilhouetteFeatures()
         features = feature_engine.extract(gray, body, timestamp, self.scale)
+        from body_axis import appearance_contour
+        x, y, w, h = cv.boundingRect(contour)
+        axis_contour, axis_evidence = appearance_contour(lab[y-ry:y-ry+h, x-rx:x-rx+w], body[y-ry:y-ry+h, x-rx:x-rx+w],
+            self.appearance, shift, chroma_shift, self.scale, (x, y))
         geometry_reasons = ["near_wall_or_partial"] if geometry != "floor" else []
         reason = reasons[0] if reasons else geometry_reasons[0] if geometry_reasons else "observed"
         return {"xPx": center[0], "yPx": center[1], "source": "segmented",
             "status": "valid" if accepted and geometry == "floor" else "low_confidence", "reason": reason,
             "spatialRegion": region, "bbox": chosen["bbox"], "contour": [{"x": p[0], "y": p[1]} for p in original],
             "features": features, "trackingAccepted": accepted,
+            "bodyAxisContour": axis_contour, "bodyAxisEvidence": axis_evidence,
             "localQuality": {"tracking": "observed" if accepted else "uncertain", "geometry": geometry,
                              "identity": identity, "reasons": reasons+geometry_reasons},
             "candidateScore": chosen["score"], "candidateMargin": score_margin,
+            "wallExtension": {"method":"connected_wall_foreground_v2","addedAreaPx":wall_pixels/self.scale**2},
             "floorOverlapFraction": chosen["floor_fraction"], **diagnostics}
 
 
@@ -1079,7 +1166,17 @@ def run(request_path):
     template_frames = {anchors[round(i*(len(anchors)-1)/min(7,len(anchors)-1))]["frameIndex"]
                        for i in range(min(8,len(anchors)))} if anchors else set()
     anchor_cursor = 0
+    from body_axis import BodyAxisFilter
+    body_axis_filter = BodyAxisFilter()
+    layered = None
+    if config.get("protocol") == "open_field":
+        from oft_layers import LayeredTracker, POLICY
+        layered = LayeredTracker(config["width"], config["height"], config.get("arena"))
     clock = timestamps(video, request["ffprobe"])
+    intervention = None
+    if is_classical and config.get("protocol") == "open_field":
+        from behavior.intervention import InterventionGuard
+        intervention = InterventionGuard(config, background)
     report = {"version": VERSION, "state": "running", "phase": "tracking", "framesProcessed": 0, "totalFrames": total, "counts": counts,
               "reasonCounts": {}, "qualityReasonCounts": {}, "trackingObservedFrames": 0,
               "geometryRejectedFrames": 0, "kalmanUpdateCount": 0,
@@ -1101,7 +1198,7 @@ def run(request_path):
 
             def publish_pending(current_drift=False):
                 write_started = time.perf_counter() if profile else 0.
-                for sample, flagged, measured_px in pending:
+                for sample, flagged, measured_px, source_frame in pending:
                     flagged = flagged or current_drift
                     if flagged and sample["status"] != "missing":
                         sample.update(status="low_confidence", spatialRegion="unknown",
@@ -1115,6 +1212,14 @@ def run(request_path):
                         sample["observationState"] = "missing" if sample["status"] == "missing" else "observed" if sample["status"] == "valid" and sample["source"] != "predicted" else "uncertain"
                     if sample.get("features"):
                         sample["features"]["observationUsable"] = sample["status"] == "valid" and sample["source"] == "segmented"
+                    if config.get("protocol") == "open_field":
+                        from behavior.observation_quality import behavior_observation_quality
+                        sample["behaviorObservation"] = behavior_observation_quality(sample)
+                    sample["bodyAxis"] = body_axis_filter.update(sample)
+                    if layered:
+                        sample["oftLayers"] = layered.update(source_frame, sample)
+                    axis_reason = sample["bodyAxis"]["reason"]
+                    report.setdefault("bodyAxisQualityCounts", {})[axis_reason] = report.get("bodyAxisQualityCounts", {}).get(axis_reason, 0)+1
                     output.write(json.dumps(sample, allow_nan=False) + "\n")
                     bucket = "missing" if sample["status"] == "missing" else "manual" if sample["source"] == "manual" else "visual" if sample["source"] == "recovered" else "predicted" if sample["source"] == "predicted" else "observed"
                     if is_ram_color and sample["status"] == "low_confidence": bucket = "uncertain"
@@ -1148,7 +1253,9 @@ def run(request_path):
                 if timestamp is None:
                     raise ValueError("Frames e timestamps divergiram; resultado não publicado")
                 tracking_started = time.perf_counter() if profile else 0.
-                if index in by_frame:
+                if intervention and intervention.stopped is not None:
+                    result = intervention.suppress({})
+                elif index in by_frame:
                     anchor = by_frame[index]
                     box = anchor["box"]
                     if index in template_frames: visual.add_anchor(frame, box)
@@ -1193,13 +1300,18 @@ def run(request_path):
                     result = hybrid.process(frame, timestamp)
                 else:
                     result = segmenter.process(frame, timestamp)
+                if intervention:
+                    termination = intervention.update(frame, timestamp, result)
+                    if termination:
+                        report["trackingTermination"] = termination
+                    result = intervention.suppress(result)
                 if profile: stage_seconds["tracking"] += time.perf_counter()-tracking_started
                 guard_started = time.perf_counter() if profile else 0.
                 camera_state = segmenter.assess_camera(frame, index, exclude_box=result.get("bbox"))
                 if profile: stage_seconds["camera_guard"] += time.perf_counter()-guard_started
                 sample = {"frameIndex": index, "timestampSec": timestamp, "keypoint": "box_center", "likelihood": 0,
                           "metricReference": "box_center", "referenceApproved": config.get("referenceApproved", False), **result}
-                pending.append((sample, camera_state == "drift", segmenter.motion_guard.motion_px))
+                pending.append((sample, camera_state == "drift", segmenter.motion_guard.motion_px, frame if layered else None))
                 if index % 6 == 0:
                     publish_pending(camera_state == "drift")
                 report["cameraMotionState"] = camera_state
@@ -1234,9 +1346,20 @@ def run(request_path):
                     "frameLatencyP95Ms": ordered[min(len(ordered)-1, int(.95*len(ordered)))],
                     "frameLatencyMaxMs": ordered[-1],
                     "frameLatencyDefinition": "read_frame_return_to_sample_and_periodic_status; ffmpeg decode and PTS run concurrently"}
+        if layered and report["state"] == "succeeded":
+            from oft_layers import finish_layers, atomic_json, digest
+            report["layers"] = POLICY
+            report["rearing"] = finish_layers(root, video, config, request.get("rearingModelDirectory"),
+                cancelled=lambda: (root/"cancel").exists() or os.getppid() != parent,
+                ffmpeg=request["ffmpeg"],ffprobe=request["ffprobe"])
+            atomic_json(root/"layer_manifest.json", dict(policy=POLICY, frameCount=index,
+                samplesSha256=digest(samples_path), sourceVideoPreserved=True))
         if request.get("auditVideo"):
             from local_audit_video import finalize
             finalize(request, root, report, parent, write_json)
+        write_json(status_path, report)
+    except InterruptedError:
+        report.update(state="cancelled", framesProcessed=index, elapsedSec=time.perf_counter()-started)
         write_json(status_path, report)
     except BaseException as error:
         elapsed = time.perf_counter()-started

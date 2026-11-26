@@ -1,3 +1,4 @@
+import { SelectMenu } from "../../components/ui/SelectMenu";
 import { useState, type MouseEvent } from "react";
 import type { ArmId, Point, RadialMazeGeometry } from "../../types";
 import { ARM_IDS, validateRamEventGeometry } from "../../lib/radial-maze/geometry";
@@ -26,12 +27,7 @@ export function RamEventGeometryEditor({ geometry, width, height, image, onChang
   const error = validateRamEventGeometry(geometry, width, height, false);
   return <div>
     <p>Marque a plataforma central, cada braço e suas linhas. B1 corresponde ao pote P1 e à recompensa já registrada. As regiões podem compartilhar bordas, sem sobreposição de área.</p>
-    <label>Referência a desenhar<select value={target} onChange={e => setTarget(e.target.value as Target)}>
-      <option value="center">Plataforma central</option>{ARM_IDS.flatMap(id => [
-        <option key={`a${id}`} value={`arm-${id}`}>B{id}: polígono</option>,
-        <option key={`e${id}`} value={`entry-${id}`}>B{id}: linha de entrada (2 pontos)</option>,
-        <option key={`d${id}`} value={`distal-${id}`}>B{id}: limite distal (2 pontos)</option>])}
-    </select></label>
+    <SelectMenu label="Referência a desenhar" value={target} onChange={value=>setTarget(value as Target)} options={[{value:"center",label:"Plataforma central"},...ARM_IDS.flatMap(id=>[{value:`arm-${id}`,label:`B${id}: polígono`},{value:`entry-${id}`,label:`B${id}: linha de entrada (2 pontos)`},{value:`distal-${id}`,label:`B${id}: limite distal (2 pontos)`}])]}/>
     <div className="results-actions"><Button variant="secondary" onClick={() => change(selected.slice(0, -1))}>Desfazer ponto</Button>
       <Button variant="secondary" onClick={() => change([])}>Refazer referência</Button></div>
     <svg className="ram-geometry-editor" viewBox={`0 0 ${width} ${height}`} onClick={click} role="img" aria-label="Editor das referências dos oito braços">

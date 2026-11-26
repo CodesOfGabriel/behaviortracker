@@ -1,3 +1,4 @@
+import { SelectMenu } from "../../components/ui/SelectMenu";
 import { useOriginalVideo } from "../results/TrackingDetails";
 import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/card";
 import type { LocalAnalysisControls } from "../results/AnalysisWorkspace";
@@ -166,8 +167,8 @@ export function RamLocalPanel({ experiment, children }: {
     <div className="local-analysis-settings"><p className="local-auto-note">{strategy === "ram_color_geometry_v2" ? "Os limiares de cor abaixo pertencem a esta sessão. Confira o contraste do animal e revise as observações após o tracking."
       : strategy === "classical_roi_v1" ? "O fundo mediano é estimado com amostras da sessão e permanece fixo. Revise as observações após o tracking."
       : "Contraste e limiar são estimados a partir do vídeo. Revise as observações após o tracking."}</p>
-      <label>Estratégia<select value={strategy} disabled={busy} onChange={e=>setStrategy(e.target.value)}><option value="classical_roi_v1">Fundo da sessão + continuidade (experimental, CPU)</option><option value="ram_color_geometry_v2">RAM Color v2 (experimental, CPU)</option><option value="classic">Contraste OpenCV existente</option></select></label>
-      <label>Largura de processamento<select value={processingWidth} disabled={busy} onChange={e=>setProcessingWidth(Number(e.target.value))}><option value={480}>480 px</option><option value={640}>640 px</option><option value={960}>960 px</option><option value={1280}>1280 px</option><option value={1920}>1920 px</option></select></label>
+      <SelectMenu label="Estratégia" value={strategy} disabled={busy} onChange={setStrategy} options={[{value:"classical_roi_v1",label:"Fundo da sessão + continuidade (experimental, CPU)"},{value:"ram_color_geometry_v2",label:"RAM Color v2 (experimental, CPU)"},{value:"classic",label:"Contraste OpenCV existente"}]}/>
+      <SelectMenu label="Largura de processamento" value={String(processingWidth)} disabled={busy} onChange={value=>setProcessingWidth(Number(value))} options={[480,640,960,1280,1920].map(value=>({value:String(value),label:`${value} px`}))}/>
       {strategy === "ram_color_geometry_v2" && <details><summary>Cor e associação desta sessão</summary>
         {([ ["valueMin", "Brilho HSV mínimo", 0, 254], ["saturationMin", "Saturação mínima", 0, 254], ["labBMin", "Canal Lab b mínimo", 0, 254], ["minAreaPx", "Área corporal mínima (px²)", 1, 10000000], ["maxAreaPx", "Área corporal máxima (px²)", 2, 10000000], ["minDensity", "Densidade mínima", .01, 1], ["maxSpeedFraction", "Velocidade máxima (diagonal/s)", .001, 10], ["reacquireSec", "Intervalo para readquirir (s)", .01, 2], ["ambiguityMargin", "Margem entre candidatos", 0, 10] ] as const).map(([key,label,min,max])=><label key={key}>{label}<input type="number" min={min} max={max} step="any" value={ramColor[key]} disabled={busy} onChange={e=>setRamColor(current=>({...current,[key]:Number(e.target.value)}))}/></label>)}
       </details>}
