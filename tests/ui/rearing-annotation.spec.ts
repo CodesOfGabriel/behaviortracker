@@ -12,6 +12,9 @@ test("the studio keeps video, timeline and save actions fixed while only proposa
   await expect(studio.getByRole("article",{name:"Sugestão em 0.000 s",exact:true})).toHaveAttribute("data-review","accept");
   for(const viewport of [{width:1440,height:900},{width:980,height:620},{width:768,height:600}]){
     await page.setViewportSize(viewport);
+    // The viewport command can return before native dialog/dvh layout updates.
+    await expect(studio).toHaveCSS("height",`${viewport.height-24}px`);
+    await expect.poll(async()=>(await studio.locator(".behavior-video-stage").boundingBox())?.height??0).toBeGreaterThan(viewport.height>=900?450:230);
     await expect(studio.getByRole("slider",{name:"Posição no vídeo para anotação",exact:true})).toBeInViewport();
     await expect(studio.getByRole("button",{name:"Exportar para treinamento",exact:true})).toBeInViewport();
     const before=await studio.locator(".behavior-video-stage").boundingBox();

@@ -4833,15 +4833,17 @@ mod tests {
         let csv = directory.join("pose.csv");
         std::fs::write(&csv, b"frame_index,x_px,y_px\n0,1,1\n").unwrap();
         std::fs::write(directory.join("pose.csv.complete"), b"ok").unwrap();
+        // Generated inference can exceed Windows' command-line length limit.
+        let script = directory.join("cached_inference.py");
+        std::fs::write(&script, inference_code(
+            "video-not-needed.mp4",
+            directory.to_str().unwrap(),
+            csv.to_str().unwrap(),
+            None,
+        )).unwrap();
         let output = std::process::Command::new(test_python())
             .arg("-B")
-            .arg("-c")
-            .arg(inference_code(
-                "video-not-needed.mp4",
-                directory.to_str().unwrap(),
-                csv.to_str().unwrap(),
-                None,
-            ))
+            .arg(&script)
             .output()
             .unwrap();
         assert!(
@@ -4850,9 +4852,7 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
         assert!(String::from_utf8_lossy(&output.stdout).contains("BEHAVETRACKER_RESULT_CACHED"));
-        std::fs::remove_file(&csv).unwrap();
-        std::fs::remove_file(directory.join("pose.csv.complete")).unwrap();
-        std::fs::remove_dir(directory).unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
