@@ -1,5 +1,10 @@
 # Eixo corporal e gráfico no vídeo local
 
+Os relatórios experimentais indicados como registros locais não integram a
+distribuição pública. Seus resumos históricos abaixo não substituem validação
+independente. Veja as [condições de acesso aos dados](../DATASET_CARD.md) e os
+[procedimentos públicos de validação](VALIDATION_GUIDE.md).
+
 O exportador `local-audit-4` reutiliza `samples.jsonl` e seus contornos. Os players de revisão dos três protocolos exibem a linha corporal e o gráfico no canto superior direito. O player usa secções do contorno rasterizado em até 64 px; o exportador pondera as secções pela distância ao fundo em até 96 px. Ambos são aproximações geométricas sem nomes anatômicos. A geração do MP4 acrescenta a visualização sem repetir o rastreamento e sem mudar as observações ou métricas salvas.
 
 ## Modo rápido
@@ -40,7 +45,7 @@ O DD2 foi renderizado a partir das observações já salvas:
 - Eixo disponível em 5.654 frames; 5.929 pares consecutivos disponíveis para o gráfico. Esses números indicam disponibilidade, não precisão anatômica.
 - Em uma amostra distribuída de 503 contornos aceitos, o cálculo isolado do eixo teve mediana de 1,94 ms e percentil 95 de 3,62 ms. Esse tempo exclui gráfico e codificação.
 
-O [relatório de verificação](reports/local-axis-displacement-validation-2026-11-24.json) registra hashes e medições. A [prévia](reports/local-axis-displacement-preview-2026-11-24.jpg) foi extraída do MP4 final.
+O relatório de verificação (registro local de desenvolvimento) registra hashes e medições. A prévia (registro local de desenvolvimento) foi extraída do MP4 final.
 
 Passaram o build TypeScript/Vite, 130 testes Vitest, 11 testes Rust locais e os 13 testes Python de renderização local/neural. As regressões cobrem PTS variáveis, posição do painel, desenho efetivo do eixo, exclusão de previsões, lacunas, causalidade e separação entre cilindros. Não houve execução de HRNet, Colab/GPU ou interação com aplicativo empacotado; estes resultados não são validação anatômica independente.
 
@@ -48,13 +53,13 @@ Passaram o build TypeScript/Vite, 130 testes Vitest, 11 testes Rust locais e os 
 
 A atualização `local-audit-3` habilita a mesma linha corporal no FST a partir do contorno da máscara corporal, armazenado nas novas execuções. O player local de Campo Aberto, a revisão RAM e o player FST também mostram um esqueleto geométrico com até sete pontos e o gráfico no canto superior direito. Os cilindros do FST usam históricos independentes. Resultados FST anteriores sem contorno exibem uma orientação para refazer a análise.
 
-As prévias abaixo vieram de MP4s efetivamente renderizados em trechos dos vídeos indicados:
+As prévias de desenvolvimento, mantidas localmente, vieram de MP4s renderizados em trechos dos vídeos indicados:
 
-- [Campo Aberto](reports/local-open_field-skeleton-motion-2026-11-24.jpg): trecho 20–24 s do DD2.
-- [Labirinto radial](reports/local-radial_arm_maze-skeleton-motion-2026-11-24.jpg): trecho 80–84 s.
-- [Nado forçado](reports/local-forced_swim-skeleton-motion-2026-11-24.jpg): trecho 37–43 s, com dois cilindros.
+- Campo Aberto (registro local de desenvolvimento): trecho 20–24 s do DD2.
+- Labirinto radial (registro local de desenvolvimento): trecho 80–84 s.
+- Nado forçado (registro local de desenvolvimento): trecho 37–43 s, com dois cilindros.
 
-O [relatório técnico](reports/local-box-trajectories-validation-2026-11-24.json) registra os processamentos completos, as verificações das trajetórias e as provas de renderização. Os trechos são cópias recodificadas para inspeção; o renderer normaliza o início dos PTS para zero e preserva os intervalos, com diferença máxima de até 2 microssegundos na verificação. Eles não substituem os jobs salvos. A análise completa de FST preservou 11.052 frames e a de RAM preservou 14.514 frames, com os mesmos índices e PTS dos respectivos baselines.
+O relatório técnico (registro local de desenvolvimento) registra os processamentos completos, as verificações das trajetórias e as provas de renderização. Os trechos são cópias recodificadas para inspeção; o renderer normaliza o início dos PTS para zero e preserva os intervalos, com diferença máxima de até 2 microssegundos na verificação. Eles não substituem os jobs salvos. A análise completa de FST preservou 11.052 frames e a de RAM preservou 14.514 frames, com os mesmos índices e PTS dos respectivos baselines.
 
 No cálculo isolado do eixo do player, 402 contornos aceitos do DD2 tiveram mediana de 0,65 ms e percentil 95 de 1,47 ms em Node. Isso exclui player, layout, decodificação e gráfico e não mede desempenho de uma aplicação instalada. A verificação final passou 138 testes Vitest, 11 testes Rust locais e 58 testes Python, com um teste específico de Windows ignorado no macOS, além do build TypeScript/Vite.
 
@@ -65,7 +70,7 @@ Campo Aberto, Nado Forçado e Labirinto Radial compartilham as abas **Resumo, V�
 
 A nova regra visual foi comparada nos 7.356 contornos/caixas salvos do DD2: a disponibilidade da linha passou de 5.654 para 7.354 observações. As duas restantes são previsões sem máscara observada. Isso mede disponibilidade visual, não precisão anatômica. Os registros de rastreamento e a elegibilidade científica não foram alterados.
 
-Trechos reais dos três protocolos foram novamente renderizados com `local-audit-4`: 96 frames no Campo Aberto, 96 no RAM e 180 no FST, este com duas observações por frame. Todos apresentaram linha corporal e painel no canto superior direito; os intervalos normalizados dos PTS foram preservados. O [relatório desta atualização](reports/local-ui-continuity-zones-2026-11-24.json) separa essas provas de vídeo da verificação de interface em Chrome com comandos Tauri simulados. Não houve validação no aplicativo instalado nem execução remota Colab/GPU.
+Trechos reais dos três protocolos foram novamente renderizados com `local-audit-4`: 96 frames no Campo Aberto, 96 no RAM e 180 no FST, este com duas observações por frame. Todos apresentaram linha corporal e painel no canto superior direito; os intervalos normalizados dos PTS foram preservados. O relatório desta atualização (registro local de desenvolvimento) separa essas provas de vídeo da verificação de interface em Chrome com comandos Tauri simulados. Não houve validação no aplicativo instalado nem execução remota Colab/GPU.
 
 Para vídeos já gerados, use **Atualizar MP4** depois de reiniciar a versão recompilada do aplicativo. Não é necessário repetir o tracking se o resultado já contém contornos.
 

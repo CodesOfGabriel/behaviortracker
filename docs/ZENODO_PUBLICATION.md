@@ -6,6 +6,13 @@ and study-material decisions are recorded in
 the release follows the maintainer's approval of that content. The
 GitHub–Zenodo integration is already enabled, as reported by the maintainer.
 
+The maintainer approved keeping exactly 62 study-derived files local and removing
+them from Git tracking, with individual `.gitignore` rules and local integrity
+checks. Commit and push of this separation are authorized; publication of v0.1.7
+is explicitly deferred. New source archives omit these files because they are
+absent from the Git tree, without `export-ignore` rules. Previous public commits,
+model assets and historical releases are unchanged.
+
 ## Metadata and consistency
 
 [`CITATION.cff`](../CITATION.cff) supplies citation metadata to GitHub and citation
@@ -112,7 +119,7 @@ original experimental videos, or complete training data.
 - Review final author metadata/order; add Thiago's ORCID only if supplied and
   confirmed. Names, affiliations and the project license are already recorded.
 - Confirm rights for the materials actually included in the source archive.
-  Review the explicit study-material list in
+  The approved local-only study-material list is in
   [the archive plan](releases/v0.1.7-archive-plan.json); retain all original
   application artwork and synthetic UI illustrations. Preserve the separate
   custom-weight, data and upstream-license limitations described in
@@ -139,14 +146,24 @@ existing workflows.
 
 All original application images, icons and audiovisual assets are retained,
 as explicitly requested by the maintainer, who states they created them. The
-archive candidate proposes individual `export-ignore` paths for study-derived
-frames, tables and mixed reports, keeping those files in Git and requiring
-approval of the selection. There is no blanket exclusion of images or all of
-`artifacts/`/`docs/reports/`. The [preparation report](releases/v0.1.7-preparation.md)
-is the historical record of the earlier review; the current exact selection
-is in [the source review](releases/v0.1.7-source-review.md). No DOI or publication
-date is assumed. The desktop publishing workflow is not used for this
-source-only release.
+62 study files are kept locally, ignored individually and removed from Git's
+index with `git rm --cached`; their sizes and SHA-256 remain unchanged. There
+is no blanket exclusion of images or all of `artifacts/`/`docs/reports/`.
+The [public validation guide](VALIDATION_GUIDE.md) preserves the reusable
+procedures without publishing the private pilot/results. The
+[preparation report](releases/v0.1.7-preparation.md) is the historical record of
+the earlier review; the current decision is in
+[the source review](releases/v0.1.7-source-review.md). No DOI or publication date
+is assumed. The desktop publishing workflow is not used for this source-only
+release.
+
+Validate a source ZIP from the reviewed index/tree before committing, then
+generate it again from the actual commit with `git archive --format=zip`.
+Check that none of the 62 paths are included, that local hashes are unchanged,
+and that application media/icons, source, training scripts, synthetic fixtures,
+lockfiles and metadata remain included. Record the archive hash and per-file
+manifest outside the source tree. A successful commit/push does not constitute
+release approval or create a Zenodo DOI.
 
 ## Metadata checks
 

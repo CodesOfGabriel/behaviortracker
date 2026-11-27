@@ -1,5 +1,10 @@
 # Processamento clássico local
 
+Os relatórios experimentais indicados como registros locais não integram a
+distribuição pública. Seus resumos históricos abaixo não substituem validação
+independente. Veja as [condições de acesso aos dados](../DATASET_CARD.md) e os
+[procedimentos públicos de validação](VALIDATION_GUIDE.md).
+
 O processamento local de Campo Aberto e RAM oferece a estratégia `classical_roi_v1`, selecionada inicialmente na interface. O fluxo usa OpenCV em CPU, sem pesos neurais. Wistar + HRNet, RAM Color e o processamento pelo Colab continuam disponíveis como alternativas independentes.
 
 ## Uso
@@ -39,7 +44,7 @@ Não foi incorporado código dos projetos citados na proposta. Esta implementaç
 
 Os testes locais cobrem fundo fixo, parede estática, corpo imóvel nas amostras, oclusão e expiração da previsão, coordenadas originais, tempo variável, cancelamento da referência, leitura limitada sem duração, independência de dois cilindros e ausência de classes comportamentais no FST. A regressão da renderização VFR também passou a preservar o último frame do MP4, desativando B frames e a edit list que o cortava no FFmpeg local.
 
-O comparativo técnico está em [benchmark-classical-local-2026-11-24.json](reports/benchmark-classical-local-2026-11-24.json). Ele compara uma configuração clássica de uma execução existente com a nova estratégia em 480, 640 e 960 px, usando o mesmo vídeo de 7.356 frames. Os hashes das implementações e as configurações são registrados. Cada variante foi executada uma vez; não houve controle de temperatura ou carga externa. O tempo inclui referência, decodificação, características e gravação dos resultados, mas exclui renderização do vídeo de auditoria.
+O comparativo técnico está em benchmark-classical-local-2026-11-24.json (registro local de desenvolvimento). Ele compara uma configuração clássica de uma execução existente com a nova estratégia em 480, 640 e 960 px, usando o mesmo vídeo de 7.356 frames. Os hashes das implementações e as configurações são registrados. Cada variante foi executada uma vez; não houve controle de temperatura ou carga externa. O tempo inclui referência, decodificação, características e gravação dos resultados, mas exclui renderização do vídeo de auditoria.
 
 | Variante | Tempo total do processo | FPS do motor | Observações sem alertas | Frames para revisão |
 | --- | ---: | ---: | ---: | ---: |
@@ -54,7 +59,7 @@ O caminho de 640 px levou aproximadamente metade do tempo do baseline, mas teve 
 
 ### Revisão de confiança: versão 7 versus versão 8
 
-O [comparativo de confiança](reports/benchmark-classical-precision-2026-11-24.json) usa a configuração idêntica de 640 px, o snapshot da versão 7 anterior a esta revisão e a versão 8. Inclui as referências, decodificação e características; exclui renderização. Os 7.356 frames e os PTS correspondem nas duas versões. Os tempos diferem do benchmark anterior, pois são execuções distintas sem controle de carga externa.
+O comparativo de confiança (registro local de desenvolvimento) usa a configuração idêntica de 640 px, o snapshot da versão 7 anterior a esta revisão e a versão 8. Inclui as referências, decodificação e características; exclui renderização. Os 7.356 frames e os PTS correspondem nas duas versões. Os tempos diferem do benchmark anterior, pois são execuções distintas sem controle de carga externa.
 
 | Indicador | Versão 7 | Versão 8 |
 | --- | ---: | ---: |
@@ -67,7 +72,7 @@ O [comparativo de confiança](reports/benchmark-classical-precision-2026-11-24.j
 
 O novo relatório contabiliza 3.149 alertas de aparência e 4.248 de área; um frame pode ter vários motivos. Não se deve interpretar o menor número de ausências como maior precisão. Inspeção visual de quatro frames desta gravação mostrou caixas que abrangem o animal, mas também uma caixa que representa somente parte do corpo. O método continua experimental, e as novas regras de consistência não resolvem sozinhas a segmentação corporal nessa sessão.
 
-A [fila de 120 frames](reports/classical-precision-review-queue-2026-11-24.json) combina cobertura temporal e tipos de alerta. Ela registra SHA-256 verificado do vídeo, frame e PTS, com caixas sugeridas separadas de `humanBox`. Todos os campos humanos permanecem vazios e `approved` é falso. Essa fila não é ground truth e não é um conjunto independente. A anotação deve delimitar a referência corporal escolhida de forma consistente, identificar anotador e revisor e incluir outras gravações para avaliar generalização.
+A fila de 120 frames (registro local de desenvolvimento) combina cobertura temporal e tipos de alerta. Ela registra SHA-256 verificado do vídeo, frame e PTS, com caixas sugeridas separadas de `humanBox`. Todos os campos humanos permanecem vazios e `approved` é falso. Essa fila não é ground truth e não é um conjunto independente. A anotação deve delimitar a referência corporal escolhida de forma consistente, identificar anotador e revisor e incluir outras gravações para avaliar generalização.
 
 Para preparar outra fila a partir de uma execução concluída cujo manifesto contenha `videoSha256`:
 
@@ -97,13 +102,13 @@ Verificações após a revisão de confiança: build TypeScript/Vite; 129 testes
 
 ### Reflexos e continuidade visual: versão 9
 
-A [pesquisa de tecnologias e decisões](reports/local-reflection-tracking-research-2026-11-24.md) documenta as fontes primárias, as alternativas locais e o teste de VitTrack que apresentou deriva. O novo caminho mantém OpenCV mínimo em CPU, combinando cromaticidade, núcleo corporal, preferência geométrica e Lucas–Kanade. No diálogo local, **Indicar o animal no primeiro frame** permite desenhar uma caixa corporal opcional no original. Essa indicação não aprova métricas.
+A pesquisa de tecnologias e decisões (registro local de desenvolvimento) documenta as fontes primárias, as alternativas locais e o teste de VitTrack que apresentou deriva. O novo caminho mantém OpenCV mínimo em CPU, combinando cromaticidade, núcleo corporal, preferência geométrica e Lucas–Kanade. No diálogo local, **Indicar o animal no primeiro frame** permite desenhar uma caixa corporal opcional no original. Essa indicação não aprova métricas.
 
-O [comparativo DD2](reports/benchmark-dd2-reflections-2026-11-24.json) usa a arena exata do experimento, o motor versão 8 preservado no job original e a versão 9, com a mesma solicitação e os mesmos 7.356 PTS. O processamento final a 640 px levou 91,35 s (80,5 FPS); o baseline levou 45,25 s (162,6 FPS). O custo adicional decorre da segmentação por cor e continuidade visual. É uma medição de processamento de arquivo, sem renderização de auditoria, sem controle térmico e com parte dos testes concorrendo com a versão 9.
+O comparativo DD2 (registro local de desenvolvimento) usa a arena exata do experimento, o motor versão 8 preservado no job original e a versão 9, com a mesma solicitação e os mesmos 7.356 PTS. O processamento final a 640 px levou 91,35 s (80,5 FPS); o baseline levou 45,25 s (162,6 FPS). O custo adicional decorre da segmentação por cor e continuidade visual. É uma medição de processamento de arquivo, sem renderização de auditoria, sem controle térmico e com parte dos testes concorrendo com a versão 9.
 
 As localizações aceitas pelo algoritmo passaram de 24,59% para 81,92%; observações sem alertas passaram de 3,11% para 8,90%. **Nenhum desses percentuais mede acurácia.** A maioria dos frames continua perto das paredes e requer revisão geométrica. Na inspeção dirigida, os frames 2 e 7.000 passaram de regiões laterais pequenas para caixas no corpo; o frame 3.000 passou de fragmento para região corporal mais completa. O frame 100 ainda tem corpo parcialmente segmentado e permanece incerto. Outros erros podem existir fora desses exemplos.
 
-As [imagens lado a lado](reports/dd2-reflections-before-after-2026-11-24.jpg) preservam os pixels do vídeo e colocam legendas abaixo, com [registros correspondentes](reports/dd2-reflections-before-after-2026-11-24.json). Verde indica apenas aceitação pelo rastreador. A [nova fila de 120 frames](reports/dd2-reflections-review-queue-2026-11-24.json) usa o SHA-256 verificado e mantém todos os campos humanos vazios. Os resultados anteriores do aplicativo não foram substituídos.
+As imagens lado a lado (registro local de desenvolvimento) preservam os pixels do vídeo e colocam legendas abaixo, com registros correspondentes (registro local de desenvolvimento). Verde indica apenas aceitação pelo rastreador. A nova fila de 120 frames (registro local de desenvolvimento) usa o SHA-256 verificado e mantém todos os campos humanos vazios. Os resultados anteriores do aplicativo não foram substituídos.
 
 Para gerar uma comparação visual de outras execuções concluídas com o mesmo vídeo, arena e relógio:
 

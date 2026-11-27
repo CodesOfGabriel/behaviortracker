@@ -327,7 +327,7 @@ Esses indicadores medem alteração visual. Iluminação, reflexos, erros de má
 | Observações sem alertas | 3,11% | 8,90% |
 | Velocidade do motor, sem renderização | 162,6 FPS | 80,5 FPS |
 
-O aumento da aceitação não demonstra aumento da acurácia. Na execução v9, a política de estimativa no piso utilizou somente 23,54 s de aproximadamente 306,46 s (7,68%). A referência revisada permaneceu sem pares elegíveis. Os números não sustentam conclusões biológicas sobre a sessão inteira. O DD2 foi utilizado durante o desenvolvimento; não é um teste independente. Consultar os [relatórios de tracking](docs/reports/benchmark-dd2-reflections-2026-11-24.json) e de [métricas geométricas](docs/local-floor-box-metrics.md).
+O aumento da aceitação não demonstra aumento da acurácia. Na execução v9, a política de estimativa no piso utilizou somente 23,54 s de aproximadamente 306,46 s (7,68%). A referência revisada permaneceu sem pares elegíveis. Os números não sustentam conclusões biológicas sobre a sessão inteira. O DD2 foi utilizado durante o desenvolvimento; não é um teste independente. Os relatórios experimentais de tracking são mantidos localmente, conforme as [condições de acesso aos dados](DATASET_CARD.md). A documentação de [métricas geométricas](docs/local-floor-box-metrics.md) permanece pública.
 
 A política `oft-0.2` preserva a referência revisada. A alternativa `oft-floor-box-estimate-1` identifica explicitamente estimativas de centro de caixa no piso, sem promover `referenceApproved` ou alterar os dados originais.
 
@@ -814,7 +814,7 @@ Os arquivos disponíveis dependem do protocolo e modo de execução. Futuros art
 | Inferência neural | PyTorch, TorchVision, DeepLabCut, HRNet |
 | Execução remota | Google Colab via MCP |
 
-Documentação técnica: [processamento local](docs/local-classical-processing.md), [overlays](docs/local-video-overlays.md), [métricas no piso](docs/local-floor-box-metrics.md), [distribuição de modelos](docs/MODEL_DELIVERY_V2.md), [estado da implementação](docs/IMPLEMENTATION_STATUS.md) e [guia de validação](docs/reports/VALIDATION_GUIDE_2026-11-18.md).
+Documentação técnica: [processamento local](docs/local-classical-processing.md), [overlays](docs/local-video-overlays.md), [métricas no piso](docs/local-floor-box-metrics.md), [distribuição de modelos](docs/MODEL_DELIVERY_V2.md), [estado da implementação](docs/IMPLEMENTATION_STATUS.md) e [guia público de validação com dados próprios](docs/VALIDATION_GUIDE.md).
 
 Para desenvolvedores, o site e o deploy são descritos em [deploy-web.yml](.github/workflows/deploy-web.yml) e [deploy-live.sh](scripts/deploy-live.sh); a distribuição desktop é independente do deploy web.
 

@@ -59,12 +59,13 @@ inventory and the distinction between authorship and asset-specific reuse
 terms are recorded in [ASSET_LICENSES.md](../ASSET_LICENSES.md). Academic
 affiliation does not itself assign rights in institutional marks.
 
-`artifacts/` and `docs/reports/` remain unchanged in the source tree. Their
-study-specific images, tables and mixed diagnostic reports are individually
-listed for an archive-only permission decision in
-[the source review](releases/v0.1.7-source-review.md). Software/synthetic UI
-illustrations and all original application images/icons are preserved. No
-blanket image exclusion, deletion or visual replacement is applied.
+The maintainer approved keeping the 62 study-specific images, tables and mixed
+diagnostic reports listed in [the source review](releases/v0.1.7-source-review.md)
+local, with individual ignore rules and removal from Git tracking. Their local
+bytes are preserved. Software/synthetic UI illustrations, methodological
+documentation and all original application images/icons remain public. Neither
+directory is excluded wholesale. Historical public copies and model/installer
+releases are unchanged.
 
 The source scan checks tracked text for private-key blocks and known token
 patterns without printing matched secrets, plus sensitive file extensions,

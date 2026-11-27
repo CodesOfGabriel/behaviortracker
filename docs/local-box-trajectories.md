@@ -1,5 +1,10 @@
 # Trajetórias locais pelo centro da caixa
 
+Os relatórios experimentais indicados como registros locais não integram a
+distribuição pública. Seus resumos históricos abaixo não substituem validação
+independente. Veja as [condições de acesso aos dados](../DATASET_CARD.md) e os
+[procedimentos públicos de validação](VALIDATION_GUIDE.md).
+
 As trajetórias visuais de Campo Aberto e RAM usam o centro geométrico de cada caixa exibida: `x + width/2`, `y + height/2`. O FST aplica a mesma regra separadamente a cada cilindro, apenas quando há presença e caixa. O ponto desenhado no frame e o caminho usam a mesma referência.
 
 O gráfico anterior de Campo Aberto filtrava `status: valid`. Esse estado também depende das restrições geométricas para métricas no piso; por isso, uma caixa acompanhando o animal junto à parede desaparecia da trajetória. O editor também usava a referência filtrada por elegibilidade científica. A nova função `boxCenterTrajectory` é exclusivamente visual: conserva os campos originais, deduplica as caixas por frame e não altera `metricEligible`, `referenceApproved` ou o cálculo das métricas.
@@ -29,7 +34,7 @@ A alteração se aplica somente ao RAM clássico com máscara caminhável. Campo
 
 No DD2 já salvo, havia 7.356 caixas e somente 655 frames com `status: valid`. A trajetória nova conserva os 7.356 centros e as 7.355 ligações consecutivas, incluindo duas previsões/recuperações diferenciadas. Os 6.699 frames incertos continuam identificados. Isso corrige a apresentação; não transforma cobertura visual em precisão científica.
 
-Os vídeos de Downloads indicados pelo usuário foram examinados com as calibrações salvas e saídas temporárias, sem substituir jobs do aplicativo. O relatório técnico e as prévias estão em `docs/reports/local-box-trajectories-validation-2026-11-24.json`. A revisão dirigida do FST inclui 37–43 s e a falha observada por volta de 40 s no cilindro B. A revisão do RAM usa a máscara poligonal calibrada; braços, plataforma e gates ainda precisam ser completados para métricas de escolhas.
+Os vídeos de Downloads indicados pelo usuário foram examinados com as calibrações salvas e saídas temporárias, sem substituir jobs do aplicativo. O relatório técnico e as prévias são materiais locais de desenvolvimento, fora da distribuição pública. A revisão dirigida do FST inclui 37–43 s e a falha observada por volta de 40 s no cilindro B. A revisão do RAM usa a máscara poligonal calibrada; braços, plataforma e gates ainda precisam ser completados para métricas de escolhas.
 
 As mudanças de visualização se aplicam também a resultados locais anteriores. Os motores FST e RAM atualizados precisam de uma nova execução, após reiniciar o aplicativo compilado com o Python incorporado. Nenhum resultado antigo é migrado ou regravado automaticamente.
 
@@ -40,4 +45,4 @@ Na aba Trajetória de Campo Aberto, o cartão Ocupação por zona permite seleci
 
 O cartão estima a distribuição visual do centro das caixas observadas na calibração da arena. Na ausência de caixa, usa uma referência de pose elegível disponível. Frames omitidos, previsões, recuperações, saltos, alertas de câmera e intervalos acima de 0,5 s são desconhecidos. A distribuição centro/periferia usa o tempo observado e informa separadamente sua cobertura e o tempo desconhecido. Sem intervalos observados, mostra “—”, distinguindo ausência de dados de 0% no centro.
 
-Esse cálculo visual não altera `metricEligible`, aprovações, métricas científicas ou arquivos exportados de tracking. O [relatório de interface e continuidade](reports/local-ui-continuity-zones-2026-11-24.json) registra a troca entre duas execuções sintéticas com distribuições distintas, no aplicativo renderizado pelo Chrome com a API nativa simulada.
+Esse cálculo visual não altera `metricEligible`, aprovações, métricas científicas ou arquivos exportados de tracking. O relatório de interface e continuidade (registro local de desenvolvimento) registra a troca entre duas execuções sintéticas com distribuições distintas, no aplicativo renderizado pelo Chrome com a API nativa simulada.

@@ -71,12 +71,13 @@ or generated SVG was adopted.
 
 ## Other visual material
 
-Development screenshots and study-derived images under `artifacts/` and
-`docs/reports/` are retained. Study data and derived images have a different
-rights/provenance review from authored application artwork; see
-[DATASET_CARD.md](DATASET_CARD.md). Any approved omission of study-derived files
-from the source archive is separate from these preserved application assets;
-see [the exact archive plan](docs/releases/v0.1.7-archive-plan.json).
+Software/synthetic screenshots under `artifacts/` and `docs/reports/` remain
+public. The maintainer approved keeping 62 individually identified study-derived
+files local and removing them from Git tracking; all local copies are preserved.
+This includes experimental overlays, not the authored application artwork above.
+Study data have a separate rights/provenance review; see
+[DATASET_CARD.md](DATASET_CARD.md) and
+[the exact selection](docs/releases/v0.1.7-archive-plan.json).
 
 The inline Google sign-in mark and operating-system symbols are functional
 vendor identifiers in application code; this inventory does not claim their

@@ -1,5 +1,10 @@
 # Campo Aberto · rearing local V1
 
+Os relatórios experimentais indicados como registros locais não integram a
+distribuição pública. Seus resumos históricos abaixo não substituem validação
+independente. Veja as [condições de acesso aos dados](../DATASET_CARD.md) e os
+[procedimentos públicos de validação](VALIDATION_GUIDE.md).
+
 A implementação acrescenta uma camada comportamental independente do tracking OpenCV. O manifesto incluído está explicitamente **sem treinamento**. Não há pesos de rearing, precisão medida nem resultados científicos produzidos por esta alteração. Os checkpoints Wistar/HRNet existentes são detectores/pose e não substituem um classificador supervisionado de rearing.
 
 ## Uso no aplicativo
@@ -96,6 +101,6 @@ A especificação científica ainda depende de: anotações humanas, treinamento
 
 ## Verificação desta implementação
 
-O [relatório de 25/11/2026](reports/oft-rearing-v1-2026-11-25.json) registra os testes, o pipeline sintético completo, a interface em navegador simulado e a extração de features no DD2. O [preview do estúdio](reports/oft-rearing-studio-2026-11-25.png) usa vídeo e comandos Tauri simulados. A interface reutiliza os componentes existentes de shadcn/ui/Radix e os diálogos locais do projeto.
+O relatório de 25/11/2026 (registro local de desenvolvimento) registra os testes, o pipeline sintético completo, a interface em navegador simulado e a extração de features no DD2. O [preview do estúdio](reports/oft-rearing-studio-2026-11-25.png) usa vídeo e comandos Tauri simulados. A interface reutiliza os componentes existentes de shadcn/ui/Radix e os diálogos locais do projeto.
 
 A [auditoria item por item](OFT_REARING_IMPLEMENTATION_AUDIT.md) preserva o escopo completo e identifica os critérios ainda sem evidência. Os resultados de exemplo do [resumo](reports/oft-rearing-summary-2026-11-25.png) são simulados.

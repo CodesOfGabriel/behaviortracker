@@ -1,7 +1,7 @@
 {
   "version": "0.1.7",
   "baseCommit": "77eef2bff01330d3843d52c829dbfb2b88b50f63",
-  "purpose": "Proposed source archive selection for final maintainer review. No file is deleted, replaced or removed from Git by this plan.",
+  "purpose": "Approved separation of 62 study files into ignored local-only materials. Local bytes and original hashes are preserved; new Git trees and source archives exclude them. Historical public copies remain.",
   "protectedPaths": [
     "public/",
     "src-tauri/icons/"
@@ -13,7 +13,9 @@
       "sha256": "45efd1f52c8bec21bd30a10734aa28aeab7d7c020e59fc33b6dbf2273db374bf",
       "classification": "study_material",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Saved Colab R2 diagnostics and study-derived quality data."
+      "reason": "Saved Colab R2 diagnostics and study-derived quality data.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "artifacts/colab-r2-diagnosis-2026-11-26/audit.json",
@@ -21,7 +23,9 @@
       "sha256": "75cdccb3875939868f20e835f0eeef471ccad043e67cb14d2ffc607a31ef3114",
       "classification": "study_material",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Saved Colab R2 diagnostics and study-derived quality data."
+      "reason": "Saved Colab R2 diagnostics and study-derived quality data.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "artifacts/colab-r2-diagnosis-2026-11-26/saved-colab-overlay.png",
@@ -29,7 +33,9 @@
       "sha256": "c48e637eddd24f427b25ebbcbc09ea92f349d52fb63c277370481176078095bd",
       "classification": "study_material",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection."
+      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "artifacts/google-login-bundled-2026-11-25/chromium-1440x900.png",
@@ -261,7 +267,9 @@
       "sha256": "af2279d197adf2da9f310a785949fc16940cb8e6c8594975d1ce1e6353a278de",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/VALIDATION_GUIDE_2026-11-18.md",
@@ -269,7 +277,9 @@
       "sha256": "8e3edddd05f126ce0f856336e82d1688eaa5a394cc5b303d575290e08bea5439",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/benchmark-classical-local-2026-11-24.json",
@@ -277,7 +287,9 @@
       "sha256": "f89bf1328b3622fdc64db74882ff3601fea60673b3ff9dc006498e329aeb4eeb",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/benchmark-classical-precision-2026-11-24.json",
@@ -285,7 +297,9 @@
       "sha256": "805001b7bbfa6b3887afa4ca882921a7c2d552fb4e192d0802daa414943b4d17",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/benchmark-configs/oft03.json",
@@ -293,7 +307,9 @@
       "sha256": "20cdaf6d5cc9285820c1f05da2ad266b6e4baa7bf27ff1e727d5731ea3f3f58e",
       "classification": "study_material",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration."
+      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/benchmark-configs/openfield01.json",
@@ -301,7 +317,9 @@
       "sha256": "59168294eb86c88443cbbef748f01d3e39ae04014410773767f93260672d5251",
       "classification": "study_material",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration."
+      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/benchmark-configs/openfield02.json",
@@ -309,7 +327,9 @@
       "sha256": "20b43d2750d1d853655666a51a2fe2091e65f450cec6b692a0513ecb7503de55",
       "classification": "study_material",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration."
+      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/benchmark-dd2-reflections-2026-11-24.json",
@@ -317,7 +337,9 @@
       "sha256": "3250a0778c462f85b56a33d0929fd2c73b04f4607aadc61b1fd87f84d184d1f0",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/classical-precision-review-queue-2026-11-24.json",
@@ -325,7 +347,9 @@
       "sha256": "bdc4c7d0d085f1194f1dda66e813745ed8b704df93c42663d3c5a424b576d2f9",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/colab-continuity-2026-11-26.md",
@@ -333,7 +357,9 @@
       "sha256": "5e1433c51586bbc955b45c49b8e453199a9fe35da63898c8283d5011efbacf79",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/colab-precision-2026-11-26.md",
@@ -341,7 +367,9 @@
       "sha256": "216e2929ccf0e9907a0b6639bf0c09e8fdb83a0cef1e3eb3a5ab0653b953c375",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/colab-r2-diagnosis-2026-11-26.md",
@@ -349,7 +377,9 @@
       "sha256": "ad2fc4962f626b8634c22fc94e9e910ccb5799d4a742231abd52a23bccd2c6f2",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/dd2-box-center-trajectory-2026-11-24.svg",
@@ -357,7 +387,9 @@
       "sha256": "d25ed2448aa9c7241d95d47518b9ae6146742a7c413d85f4bc8c6cdc89e8050d",
       "classification": "study_material",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection."
+      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/dd2-reflections-before-after-2026-11-24.jpg",
@@ -365,7 +397,9 @@
       "sha256": "f26533a53640375aae725d10d1064445778fde86d2b13e5c5d40f33efa101958",
       "classification": "study_material",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection."
+      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/dd2-reflections-before-after-2026-11-24.json",
@@ -373,7 +407,9 @@
       "sha256": "80b584b5e3da2b3aeffb3a97de8631f0ba62bcf0bf1cd3482a7f8959781c0e2f",
       "classification": "study_material",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection."
+      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/dd2-reflections-review-queue-2026-11-24.json",
@@ -381,7 +417,9 @@
       "sha256": "834a693c1ca013db8f4e39cbc5b9b30c5c8bce7b4ed5b80a154b19d39ec5351b",
       "classification": "study_material",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection."
+      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/google-login-dev-2026-11-26.md",
@@ -413,7 +451,9 @@
       "sha256": "1bdea98f937658547257dc5bd01c8e6e4695cb44997bfae1023943653df27729",
       "classification": "study_material",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection."
+      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/local-axis-displacement-validation-2026-11-24.json",
@@ -421,7 +461,9 @@
       "sha256": "4af6f7c9d37140b9ff1aa8ba6dde2f5beafada38ddb5123775b0543d7ef32952",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/local-box-trajectories-validation-2026-11-24.json",
@@ -429,7 +471,9 @@
       "sha256": "affc59fa98fcbffb097a1f1d3c832ffac71bf5afe6c10417eb9b1b9bca7349f1",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/local-engine-controlled-occlusion-2026-11-18.json",
@@ -437,7 +481,9 @@
       "sha256": "8c58afa8d4268bd0558d43b1b9071eba78101509498943c91236d9d168ddd7ab",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/local-engine-controlled-shift-2026-11-18.json",
@@ -445,7 +491,9 @@
       "sha256": "7ae0fa0de9e84af92ccbfa36d3942ea668cf7cbf2129189919b399f65d9170e0",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/local-engine-real-20s-2026-11-18.json",
@@ -453,7 +501,9 @@
       "sha256": "6ca7278d96cd3cb9620e9b7393fbe4436dceece68450e95a3a7d0b82f13cd5ee",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/local-engine-real-full-2026-11-18.json",
@@ -461,7 +511,9 @@
       "sha256": "9d130eafc91ae8242ecf102b8bd8667c1475f6d9d0a99f5e4d8bcc3af90fa113",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/local-engine-real-full-before-guard-fix-2026-11-18.json",
@@ -469,7 +521,9 @@
       "sha256": "0507dd1fc4c983688a40f62db2ad1ebcef3a388f36f49128b5e8035fea55ba09",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/local-engine-real-tail-2026-11-18.json",
@@ -477,7 +531,9 @@
       "sha256": "b1f435d94da0d7e8613c783554dbd444868d7bb3769336bcdb5bffdc8a2fc92e",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/local-filter-comparison-2026-11-18.json",
@@ -485,7 +541,9 @@
       "sha256": "7dd11fcda28555a0a0718d64032bf70b70f141af2c05b49488d15891fcb71d37",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/local-filter-comparison-beta-0.01-2026-11-18.json",
@@ -493,7 +551,9 @@
       "sha256": "0bb872203f7f7f54b419b902891878a41d2e89ad0629f2107eb6ad6ef23b58e4",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/local-floor-box-metrics-2026-11-24.json",
@@ -501,7 +561,9 @@
       "sha256": "dc7929a193be976c14a4c002d68e37d33b8e9d69099d3f1bc8dc68198d478dc5",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/local-floor-box-metrics-2026-11-24.png",
@@ -517,7 +579,9 @@
       "sha256": "3cbb4d82e3a4366de383b28fb36486ada76c5baae12b6890c0a5567a9ea01393",
       "classification": "study_material",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection."
+      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/local-open_field-skeleton-motion-2026-11-24.jpg",
@@ -525,7 +589,9 @@
       "sha256": "658a3ffdff36e4338d4f69d1420f156e6a67280780585c89039963e3fd20b214",
       "classification": "study_material",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection."
+      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/local-radial_arm_maze-skeleton-motion-2026-11-24.jpg",
@@ -533,7 +599,9 @@
       "sha256": "52efb8db1fb2cd5490372047a92c1a385254a15bf2bf12fc80f5998d93068e9f",
       "classification": "study_material",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection."
+      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/local-reflection-tracking-research-2026-11-24.md",
@@ -541,7 +609,9 @@
       "sha256": "dcc803d0d806fbd66d5d851366e660fe7ffbb2c26f00bd33f20f6a11d66120aa",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/local-results-analysis-2026-11-24.png",
@@ -597,7 +667,9 @@
       "sha256": "f01015a15e1b09582c600698144771f7ea0bbe546aaf9f2b9effaf62e6bd42ee",
       "classification": "study_material",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection."
+      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/local-tabs-fst-2026-11-24.png",
@@ -613,7 +685,9 @@
       "sha256": "38dd8731358140b740d015e4c14554f9bf0c139a88eec1798e3342af62298310",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/local-zone-source-selection-2026-11-24.png",
@@ -629,7 +703,9 @@
       "sha256": "c1ae7b59548b37767685c006ec5e74bd7abf607feb07343a428961fc7f7b15a8",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/oft-rearing-studio-2026-11-25.png",
@@ -653,7 +729,9 @@
       "sha256": "b275021fe706aa6a916ed4c8d99dd1d6e6438b9dfa5816f7714d3b60e40eeecf",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/oft-reflections-2026-11-26.md",
@@ -661,7 +739,9 @@
       "sha256": "7ed90228ee5dc578e958411d53c5f93c2b1fc0e6d755e4bfa1985727fbd44f46",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/oft-visual-continuity-2026-11-26.md",
@@ -669,7 +749,9 @@
       "sha256": "74f356e5279262217d4ccc8e8be16fc67ca0e8e612360a1a3626ae262c3dbeef",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/oft-wall-projection-2026-11-26.md",
@@ -677,7 +759,9 @@
       "sha256": "e5d171b5e6e5ed64f76d5b41246e9e416eae01839a4c6a3127b252b5f0394a25",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/pose-filters-synthetic-2026-11-18.json",
@@ -709,7 +793,9 @@
       "sha256": "319a6a7604582880c770c170625ea42228b104c7374673f3111f40b5df840fc3",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Manual text review: study-linked pose tables, recording/split manifest or retrospective real-video results."
+      "reason": "Manual text review: study-linked pose tables, recording/split manifest or retrospective real-video results.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/rearing-export-local-training-2026-11-25.json",
@@ -717,7 +803,9 @@
       "sha256": "9b23e2042e44947eae3d759024831effa0b65e2130607b87e97c4483275c4f33",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/rearing-openfield-downloads-2026-11-25.md",
@@ -725,7 +813,9 @@
       "sha256": "271081d39053c3c610860426049a6b8c9fc075c3c9c8258d9c635c87d8b168c3",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/rearing-preload-2026-11-27.md",
@@ -805,7 +895,9 @@
       "sha256": "5aad67e98a706a8bed13011834392191a7e36513e570b26998f327d05d697462",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Manual text review: study-linked pose tables, recording/split manifest or retrospective real-video results."
+      "reason": "Manual text review: study-linked pose tables, recording/split manifest or retrospective real-video results.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/ui-selects-gpu-fallback-2026-11-26.md",
@@ -821,7 +913,9 @@
       "sha256": "879df65b637d406d601e9935852ff39aff9a35400ae544562cc715fb44eb7f91",
       "classification": "study_material",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration."
+      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/validation-engine-opencl-2026-11-18.json",
@@ -829,7 +923,9 @@
       "sha256": "46623e105c75d5ef47dc1c2ce1ab8bf2ad6ef499e204fad23ba830a2e4284e5c",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/validation-engine-opencl-2026-11-18.md",
@@ -837,7 +933,9 @@
       "sha256": "4d1f64f96a9f52067ca382ded8b86d9785186314b5eba38b427bbb2718245249",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/validation-engine-opencl-2026-11-18.paired.csv",
@@ -845,7 +943,9 @@
       "sha256": "8ed904ec2fdbcc8cfbfec302f93c4580dfda10c96758ba41902ff0091fdefe5c",
       "classification": "study_material",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration."
+      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/validation-filter-comparison-2026-11-18.json",
@@ -853,7 +953,9 @@
       "sha256": "6fa57ca2db18383697e971618aec43656b870ba459264af20d9e0ba234e33f39",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/validation-filter-comparison-2026-11-18.md",
@@ -861,7 +963,9 @@
       "sha256": "27d37566f33545109557f76d80142f0b2c83fdaa197367dc4a9aa19b57d41869",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Manual text review: study-linked pose tables, recording/split manifest or retrospective real-video results."
+      "reason": "Manual text review: study-linked pose tables, recording/split manifest or retrospective real-video results.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/validation-filter-comparison-2026-11-18.paired.csv",
@@ -869,7 +973,9 @@
       "sha256": "710b95ddf86dbc81ac074a7c93542e69437cd893c4a8bef6980654b641098b64",
       "classification": "study_material",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration."
+      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/validation-filter-comparison-2026-11-18.summary.csv",
@@ -877,7 +983,9 @@
       "sha256": "c992fd302b23328c9497b55daf7d7eb02fe79df3288519ca50e2f145a7ae75f1",
       "classification": "study_material",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration."
+      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/validation-filter-comparison-beta-0.01-2026-11-18.json",
@@ -885,7 +993,9 @@
       "sha256": "2ae11db667b4d7f36bc7ef2a332231bc88686c8662189624bd575f41122144c7",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/validation-filter-comparison-beta-0.01-2026-11-18.md",
@@ -893,7 +1003,9 @@
       "sha256": "7f4bbe9873083bf35306ad1b9eee346eabd14c0e73f26431320dcf3b68f95fce",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Manual text review: study-linked pose tables, recording/split manifest or retrospective real-video results."
+      "reason": "Manual text review: study-linked pose tables, recording/split manifest or retrospective real-video results.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/validation-filter-comparison-beta-0.01-2026-11-18.paired.csv",
@@ -901,7 +1013,9 @@
       "sha256": "710b95ddf86dbc81ac074a7c93542e69437cd893c4a8bef6980654b641098b64",
       "classification": "study_material",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration."
+      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/validation-filter-comparison-beta-0.01-2026-11-18.summary.csv",
@@ -909,7 +1023,9 @@
       "sha256": "ea0f093775b18df972a032dfd47bd2c5b86329bd7ae26ff7d885f452a4e40c0f",
       "classification": "study_material",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration."
+      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/validation-pilot-2026-11-18.csv",
@@ -917,7 +1033,9 @@
       "sha256": "b56d24f486c8e799ce9e7eb4f9974fef2f33e6215369480dfb4474f014ed1161",
       "classification": "study_material",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration."
+      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/validation-pilot-2026-11-18.json",
@@ -925,7 +1043,9 @@
       "sha256": "7e85a7e38eab7b5ca027c33ecb190a5020203a66f75f6fa306c77217535c4ca7",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/validation-pilot-2026-11-18.md",
@@ -933,7 +1053,9 @@
       "sha256": "461640b4433e9710b05f8bdcf4a3a795b39237620afed60bfe341bdd7f001342",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Manual text review: study-linked pose tables, recording/split manifest or retrospective real-video results."
+      "reason": "Manual text review: study-linked pose tables, recording/split manifest or retrospective real-video results.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/video-sync-rearing-apex-2026-11-25.md",
@@ -941,7 +1063,9 @@
       "sha256": "baa9a60ede9f9239f87255bc380437ebe3eed2d8666b5b4529dbdb7bea6a71c0",
       "classification": "study_or_mixed",
       "proposedArchiveAction": "omit_pending_data_permission",
-      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit.",
+      "trackingAction": "untracked_local_copy_preserved",
+      "archiveAction": "excluded_from_new_git_tree"
     },
     {
       "path": "docs/reports/web-downloads-desktop-2026-11-24.png",
@@ -967,5 +1091,18 @@
       "proposedArchiveAction": "retain",
       "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
     }
-  ]
+  ],
+  "trackingDecision": {
+    "status": "approved_local_only",
+    "operationBaseCommit": "8fa711880986428ebc4d00a11dbb14169d294d89",
+    "selectedFileCount": 62,
+    "selectionMarker": {
+      "field": "proposedArchiveAction",
+      "value": "omit_pending_data_permission"
+    },
+    "action": "git_rm_cached_keep_local",
+    "ignoreRules": "exact_root_anchored_paths",
+    "historyRewrite": false,
+    "releasePublicationAuthorized": false
+  }
 }

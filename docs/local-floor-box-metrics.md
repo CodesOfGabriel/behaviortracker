@@ -1,5 +1,10 @@
 # Indicadores geométricos do Campo Aberto local
 
+Os relatórios experimentais indicados como registros locais não integram a
+distribuição pública. Seus resumos históricos abaixo não substituem validação
+independente. Veja as [condições de acesso aos dados](../DATASET_CARD.md) e os
+[procedimentos públicos de validação](VALIDATION_GUIDE.md).
+
 O modo rápido salva caixas segmentadas com `referenceApproved: false`. A referência usada pelos indicadores anteriores exigia aprovação e, por isso, podia descartar todos os pontos mesmo quando havia caixas observadas no piso. Os cards mostravam “Não mensurável” sem explicar essa distinção.
 
 O Resumo agora oferece duas referências:
@@ -25,4 +30,4 @@ Nos 7.356 registros já salvos do DD2, a referência revisada permaneceu sem par
 
 Foram excluídos 6.631 registros por geometria insuficiente, 68 por rastreamento incerto e 2 por previsão/recuperação. Os hashes dos dados salvos e os resultados da referência revisada permaneceram iguais antes e depois da conferência.
 
-O [relatório de verificação](reports/local-floor-box-metrics-2026-11-24.json) separa essa leitura dos dados reais dos testes de interface com fontes fictícias. Passaram 156 testes em 25 arquivos e o build TypeScript/Vite. O navegador conferiu estimativas automáticas, exportação identificada, troca de referência, exclusão de caixas na borda e retorno ao resultado Colab elegível, com comandos Tauri simulados. Não houve nova análise local, execução Colab/GPU ou interação com o aplicativo instalado.
+O relatório de verificação (registro local de desenvolvimento) separa essa leitura dos dados reais dos testes de interface com fontes fictícias. Passaram 156 testes em 25 arquivos e o build TypeScript/Vite. O navegador conferiu estimativas automáticas, exportação identificada, troca de referência, exclusão de caixas na borda e retorno ao resultado Colab elegível, com comandos Tauri simulados. Não houve nova análise local, execução Colab/GPU ou interação com o aplicativo instalado.

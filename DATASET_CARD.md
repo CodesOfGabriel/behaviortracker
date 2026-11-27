@@ -52,12 +52,21 @@ examples. They are not a scientific benchmark or substitutes for a validation
 cohort. Original experimental training videos and model checkpoint files were
 not found in the current tracked source list.
 
-`docs/reports/` and some `artifacts/` contain development results, selected
-study-derived images, tables, paths or diagnostics. They remain present, as
-requested; no imagery is removed by this review. Before archiving, determine
-the permissible scope of these derived materials independently of authorship
-of the application's visual assets. The review does not certify all retained
-study-derived content as publicly redistributable.
+The maintainer approved removing 62 individually identified development reports,
+study-derived images, tables and diagnostics from Git tracking. Exact paths and
+original hashes are in [the selection inventory](docs/releases/v0.1.7-archive-plan.json).
+They remain unchanged on the maintainer's workstation, with individual ignore
+rules, and are absent from new source archives. Historical public commits and
+releases retain their copies. No history rewrite is performed. Software/synthetic
+examples, reusable training/validation scripts, methodological documentation and
+authored application artwork remain public. General validation procedures are
+preserved in [the public guide](docs/VALIDATION_GUIDE.md), without the private
+pilot manifest or study-result files.
+
+Store new private inputs/outputs under the ignored root directories `private/`,
+`datasets/`, `training-runs/` or `checkpoints/`. Keep a separate private backup:
+ignored local files are not preserved by cloning the public repository. Neither
+this separation nor the code license grants permission to redistribute study data.
 
 ## Access, limitations and next steps
 
