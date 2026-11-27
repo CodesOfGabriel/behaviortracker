@@ -27,22 +27,40 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "Invalid run ID" >&2; exit 1; }
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "::error::source_run_id deve conter apenas o número de uma execução de Build desktop installers."; exit 1; }
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" > source-run.json
-          jq -e --arg sha "$GITHUB_SHA" '
+          if ! jq -e --arg sha "$GITHUB_SHA" '
             .status == "completed" and
             .conclusion == "success" and
             .event == "workflow_dispatch" and
             .head_branch == "main" and
             .head_sha == $sha and
             .path == ".github/workflows/build-installers.yml"
-          ' source-run.json > /dev/null
+          ' source-run.json > /dev/null; then
+            jq -r --arg sha "$GITHUB_SHA" '
+              [
+                if .status != "completed" or .conclusion != "success" then
+                  "A execução de origem precisa estar concluída com sucesso (estado: \(.status), resultado: \(.conclusion))." else empty end,
+                if .path != ".github/workflows/build-installers.yml" then
+                  "O ID informado pertence a \(.name) (\(.path)). Informe o ID de Build desktop installers; uma execução isolada de qualidade não é aceita neste campo." else empty end,
+                if .event != "workflow_dispatch" or .head_branch != "main" then
+                  "A build de origem precisa ter sido acionada manualmente na main (evento: \(.event), branch: \(.head_branch))." else empty end,
+                if .head_sha != $sha then
+                  "Commits diferentes: a origem validou \(.head_sha), mas esta execução usa \($sha). A validação anterior não cobre este commit." else empty end
+              ] | .[] | "::error::" + .
+            ' source-run.json
+            echo "::error::Inicie uma nova execução do website com source_run_id vazio para validar este commit, ou informe uma build de instaladores aprovada deste mesmo commit. Reexecutar este job mantém o ID incompatível."
+            exit 1
+          fi
           gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/jobs?per_page=100" > source-jobs.json
-          jq -e '
+          if ! jq -e '
             [.[].jobs[] | select(.status == "completed" and .conclusion == "success") | .name] as $passed |
             all(["Quality (ubuntu-22.04)", "Quality (macos-15-intel)", "Quality (windows-latest)"][];
               . as $required | any($passed[]; endswith($required)))
-          ' source-jobs.json > /dev/null
+          ' source-jobs.json > /dev/null; then
+            echo "::error::A build de origem não comprova qualidade aprovada nos três sistemas (Linux, macOS Intel e Windows). A reutilização foi bloqueada."
+            exit 1
+          fi
           echo "Reusing quality from installer build $SOURCE_RUN_ID for $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
 
   quality:

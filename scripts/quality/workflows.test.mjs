@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { parseEnv } from "node:util";
 import { spawnSync } from "node:child_process";
 import { parse } from "yaml";
@@ -89,6 +91,58 @@ test("reusing quality rejects failed builds, different commits and incomplete OS
       assert.equal(acceptsJobs([{ jobs: jobs.map((job, j) => i === j ? { ...job, conclusion } : job) }]), false, `${conclusion} must block reuse`);
     }
   }
+});
+
+test("the actual reuse step explains incompatible inputs and only approves a verified build", {
+  skip: ["jq", "bash"].some(tool => spawnSync(tool, ["--version"]).status !== 0) ? "requires the Linux reuse job's jq and bash tools" : false,
+}, () => {
+  const sha = "a".repeat(40);
+  const sourceSha = "b".repeat(40);
+  const build = { name: "Build desktop installers", status: "completed", conclusion: "success", event: "workflow_dispatch", head_branch: "main", head_sha: sha, path: ".github/workflows/build-installers.yml" };
+  const jobs = ["ubuntu-22.04", "macos-15-intel", "windows-latest"].map(os => ({ name: `quality / Quality (${os})`, status: "completed", conclusion: "success" }));
+  const script = read("quality.yml").jobs.reuse.steps[0].run;
+  const execute = (run, entries = jobs, id = "123") => {
+    const root = mkdtempSync(join(tmpdir(), "behavetracker-reuse-test-"));
+    try {
+      // Stub only the GitHub API; execute the workflow's Bash and jq unchanged.
+      const result = spawnSync("bash", ["-c", `
+        gh() {
+          printf '%s\\n' "$*" >> api-calls.txt
+          case "$*" in
+            *'/jobs?'*) printf '%s\\n' "$FIXTURE_JOBS" ;;
+            *) printf '%s\\n' "$FIXTURE_RUN" ;;
+          esac
+        }
+        ${script}
+      `], {
+        cwd: root,
+        encoding: "utf8",
+        env: { ...process.env, SOURCE_RUN_ID: id, GITHUB_REPOSITORY: "fixture/project", GITHUB_SHA: sha, GITHUB_STEP_SUMMARY: join(root, "summary.txt"), FIXTURE_RUN: JSON.stringify(run), FIXTURE_JOBS: JSON.stringify([{ jobs: entries }]) },
+      });
+      return { ...result, calls: existsSync(join(root, "api-calls.txt")) ? readFileSync(join(root, "api-calls.txt"), "utf8") : "", approved: existsSync(join(root, "summary.txt")) };
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  };
+  const incompatible = execute({ ...build, name: "Required quality checks", path: ".github/workflows/quality.yml", event: "push", head_sha: sourceSha });
+  assert.equal(incompatible.status, 1, incompatible.stderr);
+  for (const detail of ["::error::", "Required quality checks", "Build desktop installers", sourceSha, sha, "source_run_id vazio", "Reexecutar este job mantém o ID incompatível"]) {
+    assert.ok(incompatible.stdout.includes(detail), `missing diagnostic: ${detail}`);
+  }
+  assert.doesNotMatch(incompatible.calls, /\/jobs\?/);
+  assert.equal(incompatible.approved, false);
+
+  const invalid = execute(build, jobs, "not-a-run-id");
+  assert.equal(invalid.status, 1);
+  assert.match(invalid.stdout, /::error::source_run_id/);
+  assert.equal(invalid.calls, "");
+
+  const incomplete = execute(build, jobs.slice(0, 2));
+  assert.equal(incomplete.status, 1, incomplete.stderr);
+  assert.match(incomplete.stdout, /::error::.*três sistemas/);
+  assert.equal(incomplete.approved, false);
+
+  const approved = execute(build);
+  assert.equal(approved.status, 0, approved.stderr);
+  assert.equal(approved.approved, true);
 });
 
 test("every installer inherits the repository Google secret and validates it before building", () => {
