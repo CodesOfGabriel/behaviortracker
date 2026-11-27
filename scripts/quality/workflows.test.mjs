@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import { parseEnv } from "node:util";
 import { spawnSync } from "node:child_process";
 import { parse } from "yaml";
@@ -29,11 +29,40 @@ for (const [file, job] of [["build-installers.yml", "build"], ["deploy-web.yml",
   });
 }
 
-test("quality is only called by builds, never triggered by commits or pull requests", () => {
+test("standalone quality and desktop distribution do not run on pushes or pull requests", () => {
   assert.deepEqual(Object.keys(read("quality.yml").on), ["workflow_call"]);
-  for (const file of ["build-installers.yml", "deploy-web.yml", "publish-desktop-release.yml"]) {
+  for (const file of ["build-installers.yml", "publish-desktop-release.yml"]) {
     assert.deepEqual(Object.keys(read(file).on), ["workflow_dispatch"], `${file}: distribution must be explicitly requested`);
   }
+});
+
+test("website pushes match site sources and shared dependencies while unrelated changes stay excluded", () => {
+  const { on, concurrency } = read("deploy-web.yml");
+  assert.deepEqual(Object.keys(on), ["push", "workflow_dispatch"]);
+  assert.deepEqual(on.push.branches, ["main"]);
+  assert.equal(on.push["paths-ignore"], undefined);
+  const matches = path => on.push.paths.reduce((included, pattern) => {
+    const exclude = pattern.startsWith("!");
+    return posix.matchesGlob(path, exclude ? pattern.slice(1) : pattern) ? !exclude : included;
+  }, false);
+  for (const path of [
+    "src/features/web/DownloadPage.tsx", "src/features/web/downloads.ts", "src/features/web/nested/NewSection.tsx",
+    "src/features/auth/LoginPage.tsx", "src/features/colab/connection.ts", "src/components/ui/card.tsx", "src/components/ui/tabs.tsx",
+    "src/store/AppStore.tsx", "src/lib/utils.ts", "src/lib/format.ts", "src/lib/demo-data.ts", "src/lib/geometry.ts", "src/lib/session-cache.ts",
+    "src/main.tsx", "src/App.tsx", "src/styles.css", "src/types.ts", "src/vite-env.d.ts",
+    "public/ufpel.png", "public/privacy/index.html", "public/terms/index.html", "public/legal.css", "index.html",
+    "package.json", "package-lock.json", "vite.config.ts", "tsconfig.app.json", "tsconfig.node.json", "tsconfig.json",
+    "docker-compose.live.yml", "scripts/deploy-live.sh", ".github/workflows/deploy-web.yml", ".github/workflows/quality.yml",
+  ]) assert.equal(matches(path), true, `${path}: website change must trigger deployment`);
+  for (const path of [
+    "README.md", "docs/web-downloads.md", "tsconfig.tests.json", "src-tauri/python/opencv_engine.py", "src-tauri/src/lib.rs", "src-tauri/Cargo.toml",
+    "models/oft_rearing_v1/decoder_config.json", "src/features/behavior/BehaviorAnnotationEditor.tsx", "src/features/local/LocalAnalysisPanel.tsx",
+    "src/features/web/DownloadPage.test.tsx", "src/features/auth/LoginPage.test.tsx", "src/components/ui/Button.test.tsx",
+    "src/store/AppStore.test.ts", "tests/rearing.spec.ts", ".github/workflows/build-installers.yml", ".github/workflows/publish-desktop-release.yml",
+  ]) assert.equal(matches(path), false, `${path}: unrelated change must not trigger deployment`);
+  assert.equal(["README.md", "src/features/web/downloads.ts"].some(matches), true, "mixed pushes must still deploy website changes");
+  assert.equal(concurrency.group, "behaviortracker-web-production");
+  assert.equal(concurrency["cancel-in-progress"], false, "an active server update must not be interrupted");
 });
 
 test("quality checks run the full gate on every supported desktop OS unless an installer build is verified", () => {
@@ -54,7 +83,7 @@ test("quality checks run the full gate on every supported desktop OS unless an i
 test("website can reuse installer quality and does not repeat the unit suite", () => {
   const web = read("deploy-web.yml");
   assert.equal(web.on.workflow_dispatch.inputs.source_run_id.default, "");
-  assert.equal(web.jobs.quality.with.source_run_id, "${{ inputs.source_run_id }}");
+  assert.equal(web.jobs.quality.with.source_run_id, "${{ inputs.source_run_id || '' }}", "push events have no manual input and must run quality normally");
   assert.equal(read("build-installers.yml").jobs.quality.with?.source_run_id, undefined, "installer builds always run quality");
   for (const step of web.jobs.deploy.steps) {
     assert.doesNotMatch(step.run ?? "", /npm (?:test|run (?:test|verify))/);

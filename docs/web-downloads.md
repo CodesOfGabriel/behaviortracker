@@ -20,11 +20,13 @@ O link de login abre a página de autenticação existente. A autorização Goog
 
 ## Qualidade, builds e publicação
 
-Commits, pushes e pull requests não disparam workflows. O hook local verifica apenas espaços em branco e marcadores de conflito nos arquivos preparados, sem executar testes da aplicação. A suíte completa permanece disponível por `npm run verify`; `npm run verify:staged` verifica manualmente o conteúdo preparado para commit.
+Um push na `main` inicia automaticamente **Deploy Behavior Tracker website** quando altera páginas web, login, componentes de UI compartilhados, estilos, arquivos públicos ou dependências e configuração da build e do deploy web. O filtro completo está em `.github/workflows/deploy-web.yml`. Alterações apenas no backend Python/Rust, nos modelos, nos testes ou na documentação não iniciam o deploy web. Um push misto, com alterações do website e de outras áreas, inicia o fluxo normalmente.
+
+Pull requests não disparam esses workflows, e as builds e publicações desktop continuam manuais. A qualidade não tem um workflow independente por push: ela roda dentro do fluxo de build acionado. O hook local verifica apenas espaços em branco e marcadores de conflito nos arquivos preparados, sem executar testes da aplicação. A suíte completa permanece disponível por `npm run verify`; `npm run verify:staged` verifica manualmente o conteúdo preparado para commit.
 
 No GitHub Actions, acione **Build desktop installers** quando quiser gerar instaladores. O workflow executa a qualidade em Linux, macOS Intel e Windows antes de liberar as builds. **Publish desktop release** recebe o `source_run_id` dessa execução aprovada e publica os artefatos existentes, sem repetir a suíte nem recompilar os instaladores.
 
-Para o site, acione **Deploy Behavior Tracker website**. Se já houver uma build desktop aprovada para o mesmo commit, informe seu ID em `source_run_id`: a aplicação confere o SHA, o resultado da build e a aprovação da qualidade nos três sistemas antes de reutilizá-la. Uma execução de outro commit, incompleta ou reprovada bloqueia o deploy. Deixe o campo vazio para executar a qualidade antes da build web. A etapa de deploy não repete os testes unitários já executados pela qualidade.
+O deploy automático do site executa a qualidade antes da build web e só publica após a aprovação. Também é possível acionar **Deploy Behavior Tracker website** manualmente. Nesse caso, se já houver uma build desktop aprovada para o mesmo commit, informe seu ID em `source_run_id`: a aplicação confere o SHA, o resultado da build e a aprovação da qualidade nos três sistemas antes de reutilizá-la. Uma execução de outro commit, incompleta ou reprovada bloqueia o deploy. Deixe o campo vazio para executar a qualidade antes da build web. A etapa de deploy não repete os testes unitários já executados pela qualidade.
 
 Selecione a mesma revisão usada na build ao reutilizar uma execução; apenas ter os mesmos arquivos ou a mesma versão não substitui a igualdade do SHA. Uma nova alteração exige nova validação. Para retomar uma publicação que falhou, use **Re-run failed jobs**, preservando os jobs já aprovados.
 

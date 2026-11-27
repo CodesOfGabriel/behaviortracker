@@ -1,6 +1,38 @@
 name: Deploy Behavior Tracker website
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/features/web/**'
+      - 'src/features/auth/**'
+      - 'src/features/colab/connection.ts'
+      - 'src/components/ui/**'
+      - 'src/store/**'
+      - 'src/lib/utils.ts'
+      - 'src/lib/format.ts'
+      - 'src/lib/demo-data.ts'
+      - 'src/lib/geometry.ts'
+      - 'src/lib/session-cache.ts'
+      - 'src/main.tsx'
+      - 'src/App.tsx'
+      - 'src/styles.css'
+      - 'src/types.ts'
+      - 'src/vite-env.d.ts'
+      - 'public/**'
+      - 'index.html'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vite.config.ts'
+      - 'tsconfig.json'
+      - 'tsconfig.app.json'
+      - 'tsconfig.node.json'
+      - 'docker-compose.live.yml'
+      - 'scripts/deploy-live.sh'
+      - '.github/workflows/deploy-web.yml'
+      - '.github/workflows/quality.yml'
+      - '!src/**/*.test.ts'
+      - '!src/**/*.test.tsx'
   workflow_dispatch:
     inputs:
       source_run_id:
@@ -21,7 +53,7 @@ jobs:
   quality:
     uses: ./.github/workflows/quality.yml
     with:
-      source_run_id: ${{ inputs.source_run_id }}
+      source_run_id: ${{ inputs.source_run_id || '' }}
 
   deploy:
     needs: quality
