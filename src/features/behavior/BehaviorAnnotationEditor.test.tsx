@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BehaviorAnnotationEditor } from "./BehaviorAnnotationEditor";
 import { appendAnnotation, annotationContext, cachedAnnotationContext, exportBehaviorAnnotations, exportBehaviorDataset, listAnnotations, revealBehaviorExport, reviewBehaviorProposal } from "./api";
@@ -32,19 +32,25 @@ it("quick confirmation requires the current annotator and updates the timeline o
     <button disabled={disabled} onClick={()=>void onReview({frameIndex:1,timestampSec:.2,decision:"accept",label:"REARING_UNSPECIFIED"})}>Confirmar sugestão</button>
     <span>{reviews[1]?.decision??"pending"}</span>
   </>}/>);
-  await user.click(await screen.findByRole("tab",{name:"Detecção automática"}));
-  await user.click(screen.getByRole("button",{name:"Confirmar sugestão"}));
+  // Query the proposal panel instead of recalculating every button's accessible
+  // name in the editor (including the hidden annotation/export forms).
+  const detection=within(await screen.findByRole("tabpanel",{name:"Detecção automática"}));
+  const confirm=detection.getByRole("button",{name:"Confirmar sugestão"});
+  await user.click(confirm);
   expect(screen.getByRole("alert").textContent).toContain("Informe seu identificador");
   expect(reviewBehaviorProposal).not.toHaveBeenCalled();
-  await user.type(screen.getByRole("textbox",{name:"Anotador"}),"reviewer");
-  await user.click(screen.getByRole("button",{name:"Confirmar sugestão"}));
+  // Identifier setup is not a keyboard test; browser regressions cover typing.
+  fireEvent.change(screen.getByLabelText("Anotador"),{target:{value:"reviewer"}});
+  await user.click(confirm);
   expect(reviewBehaviorProposal).toHaveBeenCalledWith(props.experimentId,props.trackingJobId,props.videoSha256,{frameIndex:1,timestampSec:.2,decision:"accept",label:"REARING_UNSPECIFIED",annotatorId:"reviewer"});
-  expect(screen.getByText("pending")).toBeTruthy();
-  expect((screen.getByRole("button",{name:"Confirmar sugestão"}) as HTMLButtonElement).disabled).toBe(true);
+  expect(detection.getByText("pending")).toBeTruthy();
+  expect((confirm as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.queryByLabelText(/^Ápice em/)).toBeNull();
   finish([{...peak,id:"confirmed",annotatorId:"reviewer",label:"REARING_UNSPECIFIED"}]);
-  expect(await screen.findByText("accept")).toBeTruthy();
-  expect(screen.getByRole("button",{name:/^Ápice em/})).toBeTruthy();
-  expect(screen.getByRole("button",{name:/2. Completar episódios/}).getAttribute("aria-label")).toContain("1 pendente");
+  expect(await detection.findByText("accept")).toBeTruthy();
+  expect(screen.getByLabelText(/^Ápice em/)).toBeTruthy();
+  expect(screen.getByLabelText(/^2\. Completar episódios/).getAttribute("aria-label")).toContain("1 pendente");
+  expect((confirm as HTMLButtonElement).disabled).toBe(false);
 });
 
 it("quick review preserves drafts and a failed save leaves the proposal pending for retry",async()=>{
@@ -54,22 +60,24 @@ it("quick review preserves drafts and a failed save leaves the proposal pending 
     <button onClick={()=>void onReview({frameIndex:2,timestampSec:.4,decision:"reject"})}>Rejeitar sugestão</button>
     <span>{reviews[2]?.decision??"pending"}</span>
   </>}/>);
-  await user.type(await screen.findByRole("textbox",{name:"Anotador"}),"reviewer");
+  fireEvent.change(await screen.findByLabelText("Anotador"),{target:{value:"reviewer"}});
   await user.click(screen.getByRole("button",{name:"Marcar ápice agora (R)"}));
   await user.click(screen.getByRole("tab",{name:"Detecção automática"}));
-  await user.click(screen.getByRole("button",{name:"Rejeitar sugestão"}));
+  const detection=within(screen.getByRole("tabpanel",{name:"Detecção automática"}));
+  const reject=detection.getByRole("button",{name:"Rejeitar sugestão"});
+  await user.click(reject);
   expect(screen.getByRole("alert").textContent).toContain("Salve ou descarte");
   expect(reviewBehaviorProposal).not.toHaveBeenCalled();
   await user.click(screen.getByRole("tab",{name:/^Anotação$/}));
   await user.click(screen.getByRole("button",{name:"Descartar marcação"}));
   await user.click(screen.getByRole("tab",{name:"Detecção automática"}));
-  await user.click(screen.getByRole("button",{name:"Rejeitar sugestão"}));
+  await user.click(reject);
   expect((await screen.findByRole("alert")).textContent).toContain("Disco indisponível");
-  expect(screen.getByText("pending")).toBeTruthy();
+  expect(detection.getByText("pending")).toBeTruthy();
   vi.mocked(reviewBehaviorProposal).mockResolvedValue([{...peak,id:"review",type:"PROPOSAL_REVIEW",frameIndex:2,timestampSec:.4,decision:"reject",label:undefined}]);
-  await user.click(screen.getByRole("button",{name:"Rejeitar sugestão"}));
-  expect(await screen.findByText("reject")).toBeTruthy();
-  expect(screen.queryByRole("button",{name:/^Ápice em/})).toBeNull();
+  await user.click(reject);
+  expect(await detection.findByText("reject")).toBeTruthy();
+  expect(screen.queryByLabelText(/^Ápice em/)).toBeNull();
 });
 
 it("preserves unsaved edits to an existing human peak when an automatic proposal is selected",async()=>{
