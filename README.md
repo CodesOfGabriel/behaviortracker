@@ -3,10 +3,13 @@
 </p>
 
 <h1 align="center">Behavior Tracker</h1>
+<p align="center">
+  <a href="https://doi.org/10.5281/zenodo.24612625"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.24612625.svg" alt="DOI da versão científica 0.1.7"></a>
+</p>
 <p align="center"><strong>Computational neuroethology · Markerless tracking · Quantitative behavioral analysis</strong></p>
 <p align="center">Plataforma de análise de experimentos comportamentais em roedores, com processamento local em CPU e inferência neural opcional no Google Colab.</p>
 <p align="center">
-  <a href="https://github.com/CodesOfGabriel/behaviortracker/releases">Downloads</a> ·
+  <a href="https://github.com/CodesOfGabriel/behaviortracker/releases/latest">Downloads</a> ·
   <a href="#protocolos-experimentais">Protocolos</a> ·
   <a href="#fundamentação-matemática">Metodologia</a> ·
   <a href="#rearing-top-down--linha-de-desenvolvimento">Pesquisa em rearing</a> ·
@@ -56,7 +59,14 @@ Consultar o [contrato RAM](docs/RAM_CONTRACT.md).
 
 ## Instalação e fluxo de trabalho
 
-1. Baixe o instalador correspondente ao sistema em [GitHub Releases](https://github.com/CodesOfGabriel/behaviortracker/releases), quando disponível. Os bundles de pesos não são instaladores. Windows x64, macOS Intel/Apple Silicon e Linux x64 possuem formatos de distribuição próprios.
+| Distribuição | Versão | Acesso |
+| --- | --- | --- |
+| Código-fonte científico arquivado em 27/11/2026 | 0.1.7 | [Zenodo · DOI 10.5281/zenodo.24612625](https://doi.org/10.5281/zenodo.24612625) |
+| Instaladores desktop atualmente disponíveis | 0.1.6 | [Windows, macOS e Linux](https://github.com/CodesOfGabriel/behaviortracker/releases/tag/v0.1.6) |
+
+A publicação científica 0.1.7 preserva o código-fonte; ela não contém novos instaladores. A documentação na branch `main` recebe atualizações de citação posteriores ao depósito. A tag `v0.1.7` e o conteúdo arquivado permanecem inalterados.
+
+1. Baixe o instalador correspondente ao sistema na [release desktop v0.1.6](https://github.com/CodesOfGabriel/behaviortracker/releases/tag/v0.1.6). Os bundles de pesos não são instaladores. Windows x64, macOS Intel/Apple Silicon e Linux x64 possuem formatos de distribuição próprios.
 2. Crie um experimento, identifique sujeito(s), protocolo e vídeo original.
 3. Defina a geometria correspondente: piso e borda no OFT, cilindro(s) no FST ou área transitável e potes no RAM.
 4. Escolha a análise local ou, quando aplicável, conecte a conta Google e selecione o Colab. A execução local não exige autenticação Google; a remota exige autorização e runtime compatível com CUDA.
@@ -834,9 +844,13 @@ O código próprio do projeto adota a [Apache License 2.0](LICENSE), com autoriz
 
 A documentação modular está em [MODEL_CARD.md](MODEL_CARD.md), [DATASET_CARD.md](DATASET_CARD.md) e [ASSET_LICENSES.md](ASSET_LICENSES.md). O responsável declara a autoria das imagens e ícones da aplicação, que foram preservados integralmente. A autorização para redistribuir os vídeos experimentais e a linhagem exata dos checkpoints Wistar ainda estão em revisão; a licença do código não se estende automaticamente a esses materiais.
 
-Enquanto não houver DOI de software confirmado, cite o repositório e a versão/commit efetivamente utilizados, incluindo a data de acesso. Exemplo de referência sem DOI:
+Referência científica definitiva da versão arquivada, publicada em **27 de novembro de 2026**:
 
-> Santos, Gabriel Silva; Vargas, Thiago Alves. *Behavior Tracker: An Open-Source Computational Platform for Automated Behavioral Analysis in Rodent Experiments*. Version 0.1.7 [Software]. https://github.com/CodesOfGabriel/behaviortracker
+> Santos, Gabriel Silva; Vargas, Thiago Alves. (2026). *Behavior Tracker: An Open-Source Computational Platform for Automated Behavioral Analysis in Rodent Experiments* (Version 0.1.7) [Software]. Zenodo. https://doi.org/10.5281/zenodo.24612625
+
+A data acima e `date-released` no CFF correspondem à release no GitHub (27/11/2026). O campo `publication_date` do registro Zenodo informa 28/11/2026; essa diferença está registrada na [documentação de publicação](docs/ZENODO_PUBLICATION.md), sem alteração do depósito.
+
+Este DOI identifica o código-fonte da versão 0.1.7. Informe também a versão efetivamente utilizada na análise; os instaladores atualmente disponíveis são da versão 0.1.6. O DOI do software não identifica um dataset, modelo treinado ou artigo e não estabelece validação científica independente.
 
 ## Referências
 

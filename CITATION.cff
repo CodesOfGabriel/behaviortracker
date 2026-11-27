@@ -17,6 +17,9 @@ authors:
     affiliation: "Department of Physiology and Pharmacology, Institute of Biology, Universidade Federal de Pelotas (UFPel), Brazil"
     website: "https://www.researchgate.net/profile/Thiago-Vargas-5"
 version: "0.1.7"
+doi: "10.5281/zenodo.24612625"
+# GitHub release date; the Zenodo metadata date differs (see publication docs).
+date-released: "2026-11-27"
 license: Apache-2.0
 repository-code: "https://github.com/CodesOfGabriel/behaviortracker"
 url: "https://github.com/CodesOfGabriel/behaviortracker"

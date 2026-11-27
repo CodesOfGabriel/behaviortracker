@@ -1,8 +1,17 @@
 # Reproducing Behavior Tracker analyses
 
-This inventory describes the source prepared for application version **0.1.7**, reviewed
-on 2026-11-27. It records implemented dependency choices and known gaps; it does
-not certify scientific accuracy or successful execution on every platform.
+This inventory describes scientific source version **0.1.7**, published on
+**2026-11-27** as [10.5281/zenodo.24612625](https://doi.org/10.5281/zenodo.24612625).
+It records implemented dependency choices and known gaps; it does not certify
+scientific accuracy or successful execution on every platform.
+
+The archived source is tag `v0.1.7`, commit
+`8b1ffb02b1d51c57291a669a35f0c5170d8c305c`. The available desktop installers
+are [version 0.1.6](https://github.com/CodesOfGabriel/behaviortracker/releases/tag/v0.1.6),
+a separate distribution. Record the version actually used for an analysis.
+Citation/documentation updates on `main` after publication do not alter the tag
+or the deposited archive. Use the DOI/tag for the archived source and record the
+exact commit when working from `main`.
 
 ## Source and application dependencies
 
@@ -152,5 +161,7 @@ reproducibility claim.
 Before a scientific archive, resolve those licensing decisions, preserve the
 required model assets through an approved archival route, capture the actual
 runtime environments, and document any data that cannot be shared. No model
-DOI, dataset DOI, funding, or validation result is asserted here. Metadata
-approval remains tracked in [ZENODO_PUBLICATION.md](ZENODO_PUBLICATION.md).
+DOI, dataset DOI, funding, or validation result is asserted here. The software DOI
+above identifies the source only. Publication details, the final citation and
+future-release metadata handling are documented in
+[ZENODO_PUBLICATION.md](ZENODO_PUBLICATION.md).

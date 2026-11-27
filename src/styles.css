@@ -748,6 +748,8 @@ body, .tracking-page { background: #090a0b; }
 .about-intro-copy > p { max-width: 47ch; margin: 0; color: #b9bdbb; font-size: 14px; line-height: 1.7; }
 .about-version { display: flex; align-items: baseline; gap: 12px; width: fit-content; margin-top: 29px; }
 .about-version strong { color: #ebe9e3; font-size: 12px; font-weight: 550; letter-spacing: .04em; }
+.about-intro-copy > .about-distribution { margin-top: 14px; font-size: 12px; }
+.about-distribution a { text-decoration: underline; text-underline-offset: 3px; }
 .about-intro-mark { display: grid; place-items: center; }
 .about-intro-mark img { display: block; width: 245px; height: 245px; max-width: 100%; object-fit: contain; }
 .about-authorship, .about-partnership { display: grid; grid-template-columns: 190px minmax(0, 1fr); align-items: center; gap: 28px; }
@@ -1056,6 +1058,15 @@ body, .tracking-page { background: #090a0b; }
 .download-card-note a { color: #b7c8d8; text-decoration: underline; text-underline-offset: 3px; }
 .download-release { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 24px 0 0; color: #a0aab5; font-size: 13px; }
 .download-release a:hover, .download-footer a:hover { color: #edf0f3; text-decoration: underline; text-underline-offset: 4px; }
+.software-citation { min-width: 0; padding: 24px 0; border-top: 1px solid #ffffff1a; }
+.software-citation h2 { margin: 0; font-size: 17px; font-weight: 600; }
+.software-citation-meta { margin: 10px 0 0; color: #a5afba; font-size: 13px; line-height: 1.6; }
+.software-citation blockquote { margin: 14px 0 0; padding: 0; font-size: 13px; line-height: 1.7; }
+.software-citation blockquote p { margin: 0; overflow-wrap: anywhere; }
+.software-citation a, .download-page .software-citation a { color: #b7c8d8; text-decoration: underline; text-underline-offset: 3px; }
+.software-citation-note { margin: 12px 0 0; color: #a5afba; font-size: 12px; line-height: 1.6; }
+.download-page .software-citation { margin-top: 28px; }
+.download-release { flex-wrap: wrap; }
 .download-institutions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 24px 40px; margin: 36px auto 0; }
 .download-institution { display: grid; place-items: center; width: 168px; height: 72px; overflow: hidden; opacity: .72; }
 .download-institution img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }

@@ -4,6 +4,10 @@ Review date: 2026-11-27. **No public training dataset is released by this card.*
 The Apache-2.0 code license is not a grant to experimental videos, annotations,
 pseudoannotations, model weights or third-party datasets.
 
+The software source release is [Behavior Tracker 0.1.7](https://doi.org/10.5281/zenodo.24612625),
+published on 2026-11-27. This is a software DOI, not a dataset DOI; the available
+desktop installers remain version 0.1.6.
+
 ## Origin and purpose
 
 The maintainer reports creating custom datasets during development from

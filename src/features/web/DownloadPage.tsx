@@ -3,6 +3,7 @@ import { Download, LogIn } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { fallbackDesktopRelease, fetchLatestDesktopRelease } from "./downloads";
+import { SoftwareCitation } from "../../components/SoftwareCitation";
 
 function SystemIcon({ system }: { system: "mac" | "windows" | "linux" }) {
   if (system === "mac") return <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -113,7 +114,8 @@ export function DownloadPage() {
           </CardContent>
         </Card>
       </div>
-      <p className="download-release">{latestVerified ? "Versão" : "Última versão verificada:"} {release.version}<span aria-hidden="true">·</span><a href={release.releaseUrl} target="_blank" rel="noopener noreferrer">Notas da versão</a></p>
+      <p className="download-release"><span>{latestVerified ? "Instaladores:" : "Últimos instaladores verificados:"} {release.version}</span><span aria-hidden="true">·</span><a href={release.releaseUrl} target="_blank" rel="noopener noreferrer">Notas da versão</a></p>
+      <SoftwareCitation />
       <div className="download-institutions" role="group" aria-label="Instituições">
         <span className="download-institution download-institution-ufpel"><img src="/ufpel.png" alt="Universidade Federal de Pelotas (UFPel)" width="72" height="72" /></span>
         <span className="download-institution"><img src="/neurocell.png" alt="NeuroCell" width="168" height="56" /></span>

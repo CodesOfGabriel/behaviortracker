@@ -1,6 +1,8 @@
 # Behavior Tracker model card
 
-Software version: **0.1.7, unreleased**. Review date: 2026-11-27. This card
+Software source version: **0.1.7**, published on **2026-11-27**:
+[10.5281/zenodo.24612625](https://doi.org/10.5281/zenodo.24612625).
+The desktop installers currently available are **0.1.6**. This card
 distinguishes evidence in the repository/checkpoints from the maintainer's
 development history and from unresolved provenance. It does not license model
 weights under Apache-2.0 or certify behavioral accuracy.

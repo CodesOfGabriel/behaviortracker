@@ -1,6 +1,20 @@
 # Changelog
 
-## 0.1.7
+## Documentation after the 0.1.7 publication
+
+- Add the confirmed version DOI, publication date, official DOI badge and final
+  citation to the README, CFF, scientific documentation, institutional website
+  and application About page.
+- Distinguish archived source version 0.1.7 from the available 0.1.6 installers
+  and the running application version. Preserve DOI-free `.zenodo.json` metadata
+  for automatic DOI assignment in future releases.
+- Update `main` only; the published tag and deposited source are unchanged. No
+  additional software release is created for these documentation changes.
+
+## 0.1.7 — 2026-11-27
+
+Scientific source release: [10.5281/zenodo.24612625](https://doi.org/10.5281/zenodo.24612625).
+The desktop installers currently available remain at 0.1.6.
 
 - Add synchronized GitHub/Zenodo software citation metadata, the scientific
   description, confirmed author affiliations, and Gabriel Silva Santos's ORCID.
@@ -26,7 +40,7 @@ described in the scientific metadata and technical documentation.
 The source archive's file selection is recorded in
 [the source review](docs/releases/v0.1.7-source-review.md). The 62 local-only files
 are absent from new Git trees and source archives; their local copies and public
-history are preserved. Release publication still requires separate approval.
+history are preserved. The approved source release is published on GitHub and Zenodo.
 
 The earlier release notes available in this repository are preserved in
 [docs/releases/v0.1.5.md](docs/releases/v0.1.5.md). A complete historical changelog

@@ -1,15 +1,27 @@
 # Zenodo publication metadata
 
-Edition: **0.1.7 software source release**. The exact source-archive candidate
-and study-material decisions are recorded in
-[the source review](releases/v0.1.7-source-review.md). Creating or publishing
-the release follows the maintainer's approval of that content. The
-GitHub–Zenodo integration is already enabled, as reported by the maintainer.
+Published edition: **0.1.7 software source release**, **2026-11-27**.
+
+| Distribution | Identifier |
+| --- | --- |
+| Version DOI: archived source 0.1.7 | [10.5281/zenodo.24612625](https://doi.org/10.5281/zenodo.24612625) |
+| Zenodo record | [24612625](https://zenodo.org/records/24612625) |
+| Source tag and commit | `v0.1.7` / `8b1ffb02b1d51c57291a669a35f0c5170d8c305c` |
+| Desktop installers currently available | [0.1.6](https://github.com/CodesOfGabriel/behaviortracker/releases/tag/v0.1.6) |
+
+Final scientific reference:
+
+> Santos, Gabriel Silva; Vargas, Thiago Alves. (2026). *Behavior Tracker: An Open-Source Computational Platform for Automated Behavioral Analysis in Rodent Experiments* (Version 0.1.7) [Software]. Zenodo. https://doi.org/10.5281/zenodo.24612625
+
+The public DOI resolves to the deposited source. The version DOI identifies this
+edition, not a dataset, pretrained model or journal article. The GitHub–Zenodo
+release webhook remains enabled. Post-publication citation changes on `main`
+leave the existing tag and archive untouched; no new release is needed for them.
 
 The maintainer approved keeping exactly 62 study-derived files local and removing
 them from Git tracking, with individual `.gitignore` rules and local integrity
-checks. Commit and push of this separation are authorized; publication of v0.1.7
-is explicitly deferred. New source archives omit these files because they are
+checks. After review, the maintainer authorized publication of v0.1.7. Its source
+archive omits these files because they are
 absent from the Git tree, without `export-ignore` rules. Previous public commits,
 model assets and historical releases are unchanged.
 
@@ -27,7 +39,9 @@ Approval and subsequent corrections must therefore cover both files.
 | Software resource | `type: software` | `upload_type: software` |
 | Ordered authors | `authors` | `creators` in the same order |
 | Scientific description | `abstract` | Identical text in `description` |
-| Prepared repository version | `version: "0.1.7"` | `version: "0.1.7"` |
+| Scientific source version | `version: "0.1.7"` | `version: "0.1.7"` |
+| Published version DOI | `doi: "10.5281/zenodo.24612625"` | Deliberately not pinned; Zenodo assigns each release's DOI |
+| Publication date of 0.1.7 | `date-released: "2026-11-27"` | Deposit date assigned by Zenodo, not fixed for future releases |
 | Repository | `repository-code` and `url` | `related_identifiers` |
 | English | English text and a language comment | `language: eng` |
 | Nine supplied keywords | `keywords` | Identical ordered `keywords` |
@@ -42,16 +56,28 @@ English is recorded in the text/comment in that file and explicitly encoded as
 
 The version matches `package.json`, `package-lock.json`,
 `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and
-`src-tauri/tauri.conf.json`. The application was incremented from 0.1.6 to 0.1.7
-after confirming that tag `v0.1.7` was absent locally and remotely. No tag or
-release was created. The public download fallback intentionally remains at
-the verified 0.1.6 assets until new installers are actually published and
-verified. See [CHANGELOG.md](../CHANGELOG.md).
+`src-tauri/tauri.conf.json`. These source-version fields do not identify the
+currently distributed installers or replace the actual installed application
+version. The public download fallback and GitHub Latest reference remain at the
+verified 0.1.6 installers. The institutional page displays the installer version
+separately from the archived source citation. The About page also shows the
+running application's own version. See [CHANGELOG.md](../CHANGELOG.md).
 
-Neither a DOI nor a publication date is invented. GitHub release archiving will
-provide the actual publication context. Once Zenodo assigns identifiers, record
-the version DOI and concept DOI with their respective meanings. No article,
-funding award, rights holder, or institutional publisher has been asserted.
+The DOI, metadata and deposited files were checked against the public Zenodo
+record. The requested CFF `date-released`, **2026-11-27**, is the GitHub release
+date (`2026-11-27T23:14:03Z`, also 27 November in America/Sao_Paulo). Zenodo's
+API separately reports `publication_date: 2026-11-28`; its record creation time
+is `2026-11-27T23:14:09.663794+00:00`. This documentation records that difference
+without guessing its cause or editing the deposited record. The site's/software's
+date is explicitly labeled as the release date. The record's concept DOI is
+[10.5281/zenodo.24612624](https://doi.org/10.5281/zenodo.24612624); use the version
+DOI above when citing 0.1.7. No article, funding award, rights holder, or
+institutional publisher has been asserted.
+
+The official version badge used in the README is
+`https://zenodo.org/badge/DOI/10.5281/zenodo.24612625.svg`, linked to the version DOI.
+The website and software share the final citation in
+`src/lib/scientific-publication.ts`, independently of installer/runtime versions.
 
 ## Author confirmation
 
@@ -114,7 +140,16 @@ identifiers, checksums, reproduction commands, and documented gaps. In
 particular, a source archive alone does not contain the neural checkpoints,
 original experimental videos, or complete training data.
 
-## Required before an approved release
+## Future releases and automatic DOI assignment
+
+Keep `.zenodo.json` without a top-level `doi` or fixed `publication_date`. Copying
+the 0.1.7 DOI/date into that reusable file would carry an old version's identifiers
+into a later release. Zenodo uses `.zenodo.json` instead of CFF for this integration,
+so the version-specific DOI/date can remain in the CFF citation for 0.1.7.
+Before archiving a different source version, update the source/metadata version
+fields and remove the previous edition's `doi` and `date-released` from CFF; after
+Zenodo publishes it, record the newly confirmed version DOI/date and update the
+shared citation and badge. Never retag a published source snapshot.
 
 - Review final author metadata/order; add Thiago's ORCID only if supplied and
   confirmed. Names, affiliations and the project license are already recorded.
@@ -131,15 +166,15 @@ original experimental videos, or complete training data.
 - Match the application version, both metadata files, and the source snapshot
   selected for the release; run the repository's existing release checks.
 - Keep neural checkpoints, datasets and installers as independent components;
-  do not attach them to this source release or assume existing GitHub release
+  do not attach them to a source-only release or assume existing GitHub release
   assets are included in Zenodo's code archive. Their unresolved rights and
   incomplete lineage remain documented; no unrestricted grant is inferred.
 - Address the remaining FST weight pinning and Python environment capture gaps
   before claiming complete inference reproducibility. No scientific runtime
   was silently changed to make an archival claim.
-- Obtain the maintainer's explicit approval before creating or publishing a
-  release. Review the resulting Zenodo record and its actual identifiers after
-  an authorized publication.
+- Obtain the maintainer's explicit approval before creating or publishing each
+  future release. Review the resulting Zenodo record and its actual identifiers
+  after an authorized publication. The 0.1.7 publication is already complete.
 
 These are review steps; no automatic publication barrier has been added to the
 existing workflows.
@@ -153,17 +188,18 @@ The [public validation guide](VALIDATION_GUIDE.md) preserves the reusable
 procedures without publishing the private pilot/results. The
 [preparation report](releases/v0.1.7-preparation.md) is the historical record of
 the earlier review; the current decision is in
-[the source review](releases/v0.1.7-source-review.md). No DOI or publication date
-is assumed. The desktop publishing workflow is not used for this source-only
-release.
+[the source review](releases/v0.1.7-source-review.md). The desktop publishing
+workflow was not used for this source-only release.
 
 Validate a source ZIP from the reviewed index/tree before committing, then
 generate it again from the actual commit with `git archive --format=zip`.
 Check that none of the 62 paths are included, that local hashes are unchanged,
 and that application media/icons, source, training scripts, synthetic fixtures,
 lockfiles and metadata remain included. Record the archive hash and per-file
-manifest outside the source tree. A successful commit/push does not constitute
-release approval or create a Zenodo DOI.
+manifest outside the source tree. The 0.1.7 checks confirmed 490 deposited files,
+matching the approved content with all 62 study files absent. Future citation-only
+commits do not create a new Zenodo record; a separately authorized release is the
+archiving trigger.
 
 ## Metadata checks
 

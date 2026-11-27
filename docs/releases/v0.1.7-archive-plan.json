@@ -1103,6 +1103,18 @@
     "action": "git_rm_cached_keep_local",
     "ignoreRules": "exact_root_anchored_paths",
     "historyRewrite": false,
-    "releasePublicationAuthorized": false
+    "releasePublicationAuthorizedAtTrackingChange": false
+  },
+  "publication": {
+    "status": "published",
+    "version": "0.1.7",
+    "doi": "10.5281/zenodo.24612625",
+    "publicationDate": "2026-11-27",
+    "publicationDateSource": "github_release",
+    "zenodoPublicationDate": "2026-11-28",
+    "recordUrl": "https://zenodo.org/records/24612625",
+    "tag": "v0.1.7",
+    "sourceCommit": "8b1ffb02b1d51c57291a669a35f0c5170d8c305c",
+    "installerVersion": "0.1.6"
   }
 }

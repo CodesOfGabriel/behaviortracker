@@ -11,7 +11,12 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 
     await page.setViewportSize(viewport);
     await page.goto("/");
     await expect(page.getByRole("heading", { name: "Software para pesquisa" })).toBeVisible();
-    await expect(page.locator(".download-release")).toContainText("Versão 9.8.7");
+    await expect(page.locator(".download-release")).toContainText("Instaladores: 9.8.7");
+    const citation = page.getByRole("region", { name: "Publicação científica" });
+    await expect(citation).toContainText("Versão científica arquivada: 0.1.7");
+    await expect(citation).toContainText("Santos, Gabriel Silva; Vargas, Thiago Alves. (2026).");
+    await expect(citation.getByRole("link", { name: "https://doi.org/10.5281/zenodo.24612625" })).toHaveAttribute("href", "https://doi.org/10.5281/zenodo.24612625");
+    await expect(citation.locator("time")).toHaveAttribute("datetime", "2026-11-27");
     await expect(page.getByRole("link", { name: "Notas da versão" })).toHaveAttribute("href", "https://github.com/CodesOfGabriel/behaviortracker/releases/tag/v9.8.7");
 
     const checkInstaller = async (name: string, suffix: string) => {
@@ -62,13 +67,13 @@ test("returning to the page refreshes the published version without rebuilding t
   await page.unroute(releaseApi);
   await page.route(releaseApi, route => route.fulfill({ json: publishedDesktopRelease(version) }));
   await page.goto("/");
-  await expect(page.locator(".download-release")).toContainText("Versão 9.8.7");
+  await expect(page.locator(".download-release")).toContainText("Instaladores: 9.8.7");
   version = "9.8.8";
   await page.evaluate(() => {
     Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
     document.dispatchEvent(new Event("visibilitychange"));
   });
-  await expect(page.locator(".download-release")).toContainText("Versão 9.8.8");
+  await expect(page.locator(".download-release")).toContainText("Instaladores: 9.8.8");
   await expect(page.getByRole("link", { name: "Notas da versão" })).toHaveAttribute("href", /\/tag\/v9\.8\.8$/);
   await expect(page.getByRole("link", { name: "Baixar para Windows x64" })).toHaveAttribute("href", /\/v9\.8\.8\/BehaviorTracker-v9\.8\.8-Windows-x64\.exe$/);
 });
@@ -78,9 +83,10 @@ for (const scenario of ["unavailable", "incomplete"] as const) {
     await page.unroute(releaseApi);
     await page.route(releaseApi, route => route.fulfill(scenario === "unavailable"
       ? { status: 403, json: { message: "API rate limit exceeded" } }
-      : { json: { ...publishedDesktopRelease(), assets: [] } }));
+      : { json: { ...publishedDesktopRelease("0.1.7"), assets: [] } }));
     await page.goto("/");
-    await expect(page.locator(".download-release")).toContainText("Última versão verificada: 0.1.6");
+    await expect(page.locator(".download-release")).toContainText("Últimos instaladores verificados: 0.1.6");
+    await expect(page.getByRole("region", { name: "Publicação científica" })).toContainText("Versão científica arquivada: 0.1.7");
     await expect(page.getByRole("link", { name: "Baixar para Windows x64" })).toHaveAttribute("href", /\/v0\.1\.6\/BehaviorTracker-v0\.1\.6-Windows-x64\.exe$/);
     await page.getByRole("link", { name: "Entrar", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Entre na sua conta" })).toBeVisible();
