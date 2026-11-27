@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { parseEnv } from "node:util";
+import { spawnSync } from "node:child_process";
 import { parse } from "yaml";
 
 const directory = new URL("../../.github/workflows/", import.meta.url);
@@ -26,9 +27,19 @@ for (const [file, job] of [["build-installers.yml", "build"], ["deploy-web.yml",
   });
 }
 
-test("quality checks run the full gate on every supported desktop OS", () => {
+test("quality is only called by builds, never triggered by commits or pull requests", () => {
+  assert.deepEqual(Object.keys(read("quality.yml").on), ["workflow_call"]);
+  for (const file of ["build-installers.yml", "deploy-web.yml", "publish-desktop-release.yml"]) {
+    assert.deepEqual(Object.keys(read(file).on), ["workflow_dispatch"], `${file}: distribution must be explicitly requested`);
+  }
+});
+
+test("quality checks run the full gate on every supported desktop OS unless an installer build is verified", () => {
   const { on, jobs } = read("quality.yml");
-  assert.ok("pull_request" in on && "push" in on && "workflow_call" in on);
+  assert.equal(on.workflow_call.inputs.source_run_id.default, "");
+  assert.equal(jobs.quality.if, "inputs.source_run_id == ''");
+  assert.equal(jobs.reuse.if, "inputs.source_run_id != ''");
+  assert.equal(jobs.reuse["continue-on-error"], undefined);
   assert.deepEqual(new Set(jobs.quality.strategy.matrix.os), new Set(["ubuntu-22.04", "macos-15-intel", "windows-latest"]));
   const verify = jobs.quality.steps.find(step => step.run === "npm run verify");
   assert.ok(verify, "full gate missing from CI");
@@ -36,6 +47,48 @@ test("quality checks run the full gate on every supported desktop OS", () => {
   assert.equal(jobs.quality["continue-on-error"], undefined);
   assert.equal(verify.env.BEHAVETRACKER_GOOGLE_CLIENT_ID, "fixture-desktop.apps.googleusercontent.com");
   assert.equal(verify.env.BEHAVETRACKER_GOOGLE_CLIENT_SECRET, "fixture-google-client-secret");
+});
+
+test("website can reuse installer quality and does not repeat the unit suite", () => {
+  const web = read("deploy-web.yml");
+  assert.equal(web.on.workflow_dispatch.inputs.source_run_id.default, "");
+  assert.equal(web.jobs.quality.with.source_run_id, "${{ inputs.source_run_id }}");
+  assert.equal(read("build-installers.yml").jobs.quality.with?.source_run_id, undefined, "installer builds always run quality");
+  for (const step of web.jobs.deploy.steps) {
+    assert.doesNotMatch(step.run ?? "", /npm (?:test|run (?:test|verify))/);
+  }
+  assert.ok(web.jobs.deploy.steps.some(step => step.run === "npm run build"));
+  for (const file of ["quality.yml", "build-installers.yml", "deploy-web.yml"]) {
+    assert.equal(read(file).permissions.actions, "read", `${file}: run verification requires Actions read access`);
+  }
+});
+
+test("reusing quality rejects failed builds, different commits and incomplete OS coverage", {
+  skip: spawnSync("jq", ["--version"]).status !== 0 ? "jq is required only on the Linux distribution runners" : false,
+}, () => {
+  const script = read("quality.yml").jobs.reuse.steps[0].run;
+  assert.ok(script.includes('[[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]'));
+  assert.ok(script.includes('gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID"'));
+  assert.ok(script.includes('--paginate --slurp'));
+  const runQuery = script.match(/jq -e --arg sha "\$GITHUB_SHA" '([\s\S]*?)' source-run\.json/)[1];
+  const jobsQuery = script.match(/jq -e '([\s\S]*?)' source-jobs\.json/)[1];
+  const sha = "a".repeat(40);
+  const run = { status: "completed", conclusion: "success", event: "workflow_dispatch", head_branch: "main", head_sha: sha, path: ".github/workflows/build-installers.yml" };
+  const acceptsRun = value => spawnSync("jq", ["-e", "--arg", "sha", sha, runQuery], { input: JSON.stringify(value), encoding: "utf8" }).status === 0;
+  assert.equal(acceptsRun(run), true);
+  for (const [field, value] of Object.entries({ status: "in_progress", conclusion: "failure", event: "pull_request", head_branch: "feature", head_sha: "b".repeat(40), path: ".github/workflows/deploy-web.yml" })) {
+    assert.equal(acceptsRun({ ...run, [field]: value }), false, `must reject ${field}=${value}`);
+  }
+  const jobs = ["ubuntu-22.04", "macos-15-intel", "windows-latest"].map(os => ({ name: `quality / Quality (${os})`, status: "completed", conclusion: "success" }));
+  const acceptsJobs = pages => spawnSync("jq", ["-e", jobsQuery], { input: JSON.stringify(pages), encoding: "utf8" }).status === 0;
+  assert.equal(acceptsJobs([{ jobs: jobs.slice(0, 1) }, { jobs: jobs.slice(1) }]), true, "all API pages count");
+  assert.equal(acceptsJobs([{ jobs: [] }]), false);
+  for (let i = 0; i < jobs.length; i++) {
+    assert.equal(acceptsJobs([{ jobs: jobs.filter((_, j) => i !== j) }]), false, "missing OS must block reuse");
+    for (const conclusion of ["failure", "skipped", "cancelled"]) {
+      assert.equal(acceptsJobs([{ jobs: jobs.map((job, j) => i === j ? { ...job, conclusion } : job) }]), false, `${conclusion} must block reuse`);
+    }
+  }
 });
 
 test("every installer inherits the repository Google secret and validates it before building", () => {

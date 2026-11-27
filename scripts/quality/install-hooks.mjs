@@ -25,7 +25,7 @@ export function installHooks(root) {
   const lock = readFileSync(resolve(root, "package-lock.json"));
   verifyInstalledDependencies(root);
   writeFileSync(resolve(root, "node_modules/.behavetracker-lock.sha256"), createHash("sha256").update(lock).digest("hex") + "\n");
-  console.log("Hook pre-commit ativo: testes obrigatórios sobre os arquivos preparados para commit.");
+  console.log("Hook pre-commit ativo: checagem rápida dos arquivos preparados. A suíte completa roda antes das builds.");
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

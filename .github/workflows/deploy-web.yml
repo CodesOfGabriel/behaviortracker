@@ -1,11 +1,16 @@
 name: Deploy Behavior Tracker website
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Optional successful installer build ID for this same commit; leave empty to run quality"
+        required: false
+        default: ""
+        type: string
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -15,6 +20,8 @@ concurrency:
 jobs:
   quality:
     uses: ./.github/workflows/quality.yml
+    with:
+      source_run_id: ${{ inputs.source_run_id }}
 
   deploy:
     needs: quality
@@ -31,7 +38,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm test -- --run
       - run: npm run build
       - name: Verify website files
         shell: bash

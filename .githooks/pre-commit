@@ -2,4 +2,5 @@
 set -eu
 repository=$(git rev-parse --show-toplevel)
 cd "$repository"
-exec node scripts/quality/pre-commit.mjs
+# The full suite runs before builds. Keep commits fast and inspect only the index.
+exec git diff --cached --check

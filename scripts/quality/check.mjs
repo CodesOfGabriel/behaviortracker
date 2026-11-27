@@ -19,7 +19,7 @@ const tools = mkdtempSync(join(tmpdir(), "behavetracker-test-tools-"));
 let env = { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" };
 try {
   const steps = [
-    nodeStep("Testes da própria barreira de commit e dos workflows", "--test", "scripts/quality/core.test.mjs", "scripts/quality/workflows.test.mjs", "scripts/quality/tauri-dev.test.mjs"),
+    nodeStep("Testes das ferramentas de qualidade e dos workflows", "--test", "scripts/quality/core.test.mjs", "scripts/quality/workflows.test.mjs", "scripts/quality/tauri-dev.test.mjs"),
     nodeStep("Testes unitários e de componentes", cli("vitest"), "run"),
     nodeStep("TypeScript da aplicação", cli("typescript", "tsc"), "-b"),
     nodeStep("TypeScript dos testes de interface", cli("typescript", "tsc"), "-p", "tsconfig.tests.json"),

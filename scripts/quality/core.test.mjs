@@ -1,7 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -129,41 +128,28 @@ test("a default .git/hooks/pre-commit is not silently disabled", () => repositor
 }));
 
 for (const autocrlf of [false, true]) {
-  test(`Git hook rejects staged broken code and accepts the staged fix with core.autocrlf=${autocrlf}`, () => repository(root => {
+  test(`Git hook checks staged whitespace without running the application suite with core.autocrlf=${autocrlf}`, () => repository(root => {
     git(root, ["config", "core.autocrlf", String(autocrlf)]);
-    mkdirSync(join(root, "scripts/quality"), { recursive: true });
     mkdirSync(join(root, ".githooks"));
-    mkdirSync(join(root, "node_modules"));
-    for (const name of ["core.mjs", "pre-commit.mjs"]) {
-      copyFileSync(new URL(name, import.meta.url), join(root, "scripts/quality", name));
-    }
     copyFileSync(new URL("../../.githooks/pre-commit", import.meta.url), join(root, ".githooks/pre-commit"));
     chmodSync(join(root, ".githooks/pre-commit"), 0o755);
-    writeFileSync(join(root, ".gitignore"), "node_modules/\n");
-    // The receipt must describe the bytes that npm would see in this checkout.
-    // Windows Git commonly checks text out with CRLF, so exercise both modes.
-    const lock = '{"packages":{}}' + (autocrlf ? '\r\n' : '\n');
-    writeFileSync(join(root, "package-lock.json"), lock);
-    writeFileSync(join(root, "node_modules/.package-lock.json"), lock);
-    writeFileSync(join(root, "node_modules/.behavetracker-lock.sha256"), createHash("sha256").update(lock).digest("hex"));
-    // Small deterministic command stands in for a failing application test. This
-    // test verifies the real hook/staging boundary, without creating any commit.
-    writeFileSync(join(root, "scripts/quality/check.mjs"), "import{readFileSync,mkdirSync,writeFileSync}from'node:fs';const code=readFileSync('component.txt','utf8');mkdirSync('playwright-report');writeFileSync('playwright-report/index.html',code);process.exit(code==='fixed'?0:4)");
-    writeFileSync(join(root, "component.txt"), "broken");
+    // No Node dependencies or quality scripts are installed in this fixture.
+    const newline = autocrlf ? "\r\n" : "\n";
+    writeFileSync(join(root, "component.txt"), `broken code${newline}`);
     git(root, ["add", "."]);
     git(root, ["config", "core.hooksPath", ".githooks"]);
-    writeFileSync(join(root, "component.txt"), "fixed");
+    const fast = spawnSync("git", ["-C", root, "hook", "run", "pre-commit"], { encoding: "utf8" });
+    assert.equal(fast.status, 0, fast.stderr);
+    writeFileSync(join(root, "component.txt"), `broken code ${newline}`);
+    git(root, ["add", "component.txt"]);
+    writeFileSync(join(root, "component.txt"), `fixed${newline}`);
     const rejected = spawnSync("git", ["-C", root, "hook", "run", "pre-commit"], { encoding: "utf8" });
     assert.notEqual(rejected.status, 0);
-    assert.match(rejected.stderr, /COMMIT BLOQUEADO/);
-    assert.ok(existsSync(join(root, "playwright-report/index.html")), rejected.stdout + rejected.stderr);
-    assert.equal(readFileSync(join(root, "playwright-report/index.html"), "utf8"), "broken");
-    assert.equal(git(root, ["show", ":component.txt"]), "broken");
+    assert.match(rejected.stdout + rejected.stderr, /trailing whitespace/);
+    assert.ok(git(root, ["show", ":component.txt"]).includes("broken code"));
     git(root, ["add", "component.txt"]);
     const accepted = spawnSync("git", ["-C", root, "hook", "run", "pre-commit"], { encoding: "utf8" });
     assert.equal(accepted.status, 0, accepted.stderr);
-    assert.match(accepted.stdout + accepted.stderr, /Commit liberado/);
-    assert.equal(readFileSync(join(root, "playwright-report/index.html"), "utf8"), "fixed");
     assert.notEqual(spawnSync("git", ["-C", root, "rev-parse", "HEAD"]).status, 0);
   }));
 }
