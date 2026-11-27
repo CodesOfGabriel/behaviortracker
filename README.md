@@ -785,6 +785,8 @@ Relatar cobertura, falsos positivos em hard negatives, falsos negativos, fragmen
 
 Os resultados devem permanecer associados ao vídeo, à geometria, ao relógio, à execução e aos pesos utilizados. Os pipelines existentes registram hashes SHA-256, identificação de bundle, parâmetros e versões de runtime. O aplicativo preserva observações brutas e correções separadamente.
 
+O [inventário de reprodutibilidade](docs/REPRODUCIBILITY.md) reúne dependências, ambientes, identificadores e hashes dos modelos, além das lacunas para reproduzir inferência e treinamento. Os checkpoints neurais são distribuídos separadamente e não integram o arquivo de código-fonte enviado pelo GitHub ao Zenodo.
+
 | Artefato | Conteúdo |
 |---|---|
 | `samples.jsonl`, `motion_features.jsonl` | Observações clássicas e descritores locais |
@@ -826,9 +828,11 @@ O desempenho varia conforme arena, câmera, linhagem, coloração, reflexos e oc
 
 ## Como citar
 
-Na ausência de um artigo científico ou DOI de software estabelecido, cite o repositório e a versão/commit efetivamente utilizados, incluindo a data de acesso. Exemplo de referência provisória:
+Os metadados estão em [CITATION.cff](CITATION.cff) e [.zenodo.json](.zenodo.json), com o título científico e a versão atual `0.1.6`. Ambos aguardam aprovação dos autores. O ORCID de Gabriel Silva Santos e o nome completo de Thiago Alves Vargas foram informados pelo responsável; de Thiago, foi fornecido apenas o perfil ResearchGate. As afiliações individuais permanecem pendentes. O responsável confirmou que não existe licença do projeto; ela deve ser definida explicitamente antes da publicação. Consulte as [pendências para o Zenodo](docs/ZENODO_PUBLICATION.md).
 
-> Santos, G.; Vargas, T. *Behavior Tracker: computational behavioral analysis for rodent experiments*. Software repository. Universidade Federal de Pelotas. https://github.com/CodesOfGabriel/behaviortracker
+Enquanto não houver DOI de software confirmado, cite o repositório e a versão/commit efetivamente utilizados, incluindo a data de acesso. Referência provisória, com autoria ainda sujeita a confirmação:
+
+> Santos, Gabriel Silva; Vargas, Thiago Alves. *Behavior Tracker: An Open-Source Computational Platform for Automated Behavioral Analysis in Rodent Experiments*. Version 0.1.6 [Software]. https://github.com/CodesOfGabriel/behaviortracker
 
 ## Referências
 

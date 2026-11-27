@@ -1,0 +1,35 @@
+{
+  "title": "Behavior Tracker: An Open-Source Computational Platform for Automated Behavioral Analysis in Rodent Experiments",
+  "upload_type": "software",
+  "creators": [
+    {
+      "name": "Santos, Gabriel Silva",
+      "orcid": "0009-0005-1967-0084"
+    },
+    {
+      "name": "Vargas, Thiago Alves"
+    }
+  ],
+  "description": "Behavior Tracker is a desktop research software platform for video-based analysis of rodent experiments. It combines a React and TypeScript interface, a Tauri and Rust backend, SQLite persistence, and Python processing pipelines for Open Field Test, Forced Swim Test, and Radial Arm Maze workflows. Users configure experimental geometry, calibrate spatial measurements, process videos, inspect tracking quality, annotate observations, and export results with provenance records. Local CPU processing uses OpenCV segmentation and temporal association to estimate body silhouettes, bounding boxes, trajectories, and motion descriptors. Optional neural workflows use a Wistar Faster R-CNN detector and DeepLabCut HRNet-W32 pose estimation with 27 keypoints, locally or through Google Colab; the separate Forced Swim neural pipeline uses SuperAnimal Quadruped pose estimation. Open Field analysis includes distance, speed, center and periphery occupancy, entries, operational immobility, and spatial coverage, subject to calibration, observation quality, and temporal continuity. Forced Swim analysis provides visual presence and activity descriptors per cylinder, with behavioral categories left unclassified until human annotation. Radial Arm Maze workflows support apparatus configuration, experimental tracking, and review; arm-choice and memory-error calculations require explicit arm and gate geometry and continuous confirmed observations. Human annotations and corrections are retained separately from automated observations. Depending on the workflow, exports include frame-level detections or poses, quality indicators, review histories, metrics, audit videos, and manifests identifying inputs, parameters, and model assets. The repository also implements experimental rearing annotation, feature extraction, and model-training tools; the distributed rearing classifier manifest is untrained. These capabilities support research workflows and do not establish independent scientific validation or generalizable behavioral classification accuracy.",
+  "version": "0.1.6",
+  "language": "eng",
+  "keywords": [
+    "Behavioral Neuroscience",
+    "Computer Vision",
+    "Deep Learning",
+    "Markerless Pose Estimation",
+    "DeepLabCut",
+    "Rodent Models",
+    "Open Field Test",
+    "Forced Swim Test",
+    "Research Software"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://github.com/CodesOfGabriel/behaviortracker",
+      "relation": "isSupplementTo",
+      "resource_type": "software"
+    }
+  ],
+  "notes": "Draft metadata awaiting author approval. Author names and Gabriel Silva Santos's ORCID were supplied by the maintainer. Individual affiliations remain pending. Thiago Alves Vargas's ORCID has not been supplied; his maintainer-supplied ResearchGate profile is https://www.researchgate.net/profile/Thiago-Vargas-5. The maintainer confirms that Behavior Tracker has no project license; licensing must be established and explicitly recorded before archiving a release. See docs/ZENODO_PUBLICATION.md."
+}
