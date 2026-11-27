@@ -17,7 +17,7 @@ import { PoseAnnotationPanel } from "./PoseAnnotationPanel";
 
 const ANNOTATOR_SESSION_KEY="behavetracker.rearing.annotator.v1";
 const ANNOTATOR_REQUIRED="Informe seu identificador de anotador para salvar.";
-const compactPostureLabels:Record<OftPosture,string>={NON_REARING:"Não rearing",REARING_SUPPORTED:"Com apoio",REARING_UNSUPPORTED:"Sem apoio",REARING_UNSPECIFIED:"Apoio indeterminado",UNKNOWN:"Incerto / não observável"};
+const compactPostureLabels:Record<OftPosture,string>={NON_REARING:"Não rearing",REARING_SUPPORTED:"Com apoio",REARING_UNSUPPORTED:"Sem apoio",REARING_UNSPECIFIED:"Apoio indef.",UNKNOWN:"Incerto / não observável"};
 
 export function BehaviorAnnotationEditor({experimentId, trackingJobId, videoSha256, videoId, width, height, animalId, active, renderDetection}: {
   experimentId: string; trackingJobId: string; videoSha256: string; videoId: string; width: number; height: number; animalId:string; active:boolean;
@@ -96,7 +96,7 @@ export function BehaviorAnnotationEditor({experimentId, trackingJobId, videoSha2
   }
   function beginEpisode(peak:BehaviorAnnotation){
     dataDialog.current?.close();setSidebar("annotate");setMode("interval");setEpisodePeakId(peak.id);setSelectedId(peak.id);setStart(null);setEnd(null);setLabel(peak.label?.startsWith("REARING_")?peak.label:"REARING_UNSPECIFIED");setNote("");setError(null);seek(Math.max(0,peak.timestampSec!-.8));
-    setNotice("Marque o início antes do ápice e o fim no primeiro quadro sem rearing. Depois salve para avançar.");
+    setNotice("Início antes do ápice; fim no primeiro quadro sem rearing. Salve para avançar.");
   }
   function completeEpisode(peak?:BehaviorAnnotation){
     if(saving)return;
@@ -306,20 +306,20 @@ export function BehaviorAnnotationEditor({experimentId, trackingJobId, videoSha2
       {mode==="pose"?<div className="behavior-annotation-form">
         <PoseAnnotationPanel zoom={poseZoom} onZoom={setPoseZoom} stage={poseStage} width={width} height={height} times={context.frameTimes} samples={samples} annotations={annotations} currentFrame={presentedTime==null?null:frameAt(context.frameTimes,presentedTime)} capture={presentedFrame} onSeek={seek} onSave={savePose} onDirty={setPoseDirty} saving={saving}/>
       </div>:<form className="behavior-annotation-form" onSubmit={e=>{e.preventDefault();void save();}}>
-        {episodePeak&&<div className="behavior-selected-peak"><strong>Completar episódio · ápice {episodePeak.timestampSec!.toFixed(3)} s</strong><p>1. Marque o início · 2. Marque o fim · 3. Salve para avançar</p><Button type="button" variant="ghost" size="sm" onClick={()=>seek(episodePeak.timestampSec!)}>Ver ápice selecionado</Button></div>}
+        {episodePeak&&<div className="behavior-selected-peak"><strong>Completar episódio · ápice {episodePeak.timestampSec!.toFixed(3)} s</strong><p>1. Marque o início · 2. Marque o fim · 3. Salve para avançar</p><Button type="button" aria-label="Ver ápice selecionado" variant="ghost" size="sm" onClick={()=>seek(episodePeak.timestampSec!)}>Ver ápice</Button></div>}
         {mode==="peak"&&<div className="behavior-selected-peak"><strong>{selected?`Ápice em ${selected.timestampSec!.toFixed(3)} s · frame ${selected.frameIndex!+1}`:"Nenhum ápice selecionado"}</strong><p>{draft?"Marcação ainda não salva":selected?"Selecione o tipo e salve a alteração.":"Reproduza o vídeo e pressione R para marcar."}</p></div>}
         <fieldset disabled={saving}><legend>O que você observou?</legend>{(Object.keys(postureLabels) as OftPosture[]).filter(value=>mode==="interval"||value!=="NON_REARING").map(value=><label className="behavior-label-option" key={value}>
-          <input type="radio" aria-label={postureLabels[value]} name="behavior-label" value={value} checked={label===value} onChange={()=>setLabel(value)}/><span>{compactPostureLabels[value]}</span></label>)}</fieldset>
+          <input type="radio" aria-label={postureLabels[value]} name="behavior-label" value={value} checked={label===value} onChange={()=>setLabel(value)}/><span title={postureLabels[value]}>{compactPostureLabels[value]}</span></label>)}</fieldset>
         {mode==="interval"&&<><div className="behavior-mark-buttons"><Button type="button" variant="secondary" size="sm" disabled={saving||presentedTime==null} onClick={()=>markBoundary("start")}>Marcar início</Button>
           <Button type="button" variant="secondary" size="sm" disabled={saving||start==null||presentedTime==null} onClick={()=>markBoundary("end")}>Marcar fim</Button></div>
         <div className="behavior-interval-inputs"><label>Início (s)<input type="number" min="0" max={context.durationSec} step="0.001" value={start??""} onChange={e=>setStart(e.target.value===""?null:Number(e.target.value))}/></label>
           <label>Fim (s)<input type="number" min="0" max={context.durationSec} step="0.001" value={end??""} onChange={e=>setEnd(e.target.value===""?null:Number(e.target.value))}/></label></div></>}
         {mode==="interval"&&(label==="NON_REARING"||label==="UNKNOWN")&&<SelectMenu label="Tipo de exemplo" value={exampleKind} onChange={value=>setExampleKind(value as BehaviorExample)} options={Object.entries(exampleLabels).map(([value,label])=>({value,label}))}/>}
         <details className="behavior-note"><summary>Adicionar observação (opcional)</summary><label>Observação<input value={note} disabled={saving} maxLength={1000} onChange={e=>setNote(e.target.value)} placeholder="Ex.: grooming, rotação ou reflexo"/></label></details>
-        <Button type="submit" loading={saving} disabled={mode==="peak"?!selected:start==null||end==null} icon={<Plus size={16}/>}>{mode==="peak"?"Salvar marcação":episodePeak?"Salvar episódio e próximo":"Salvar intervalo"}</Button>
-        {mode==="interval"&&(start!=null||episodePeak)&&<Button type="button" variant="ghost" disabled={saving} onClick={()=>{setStart(null);setEnd(null);setEpisodePeakId(undefined);setError(null);setNotice("Intervalo em edição descartado. As marcações salvas foram preservadas.");}}>Descartar intervalo em edição</Button>}
+        <div className="behavior-form-actions"><Button type="submit" aria-label={episodePeak?"Salvar episódio e próximo":undefined} loading={saving} disabled={mode==="peak"?!selected:start==null||end==null} icon={mode==="peak"?<Plus size={16}/>:undefined}>{mode==="peak"?"Salvar marcação":episodePeak?"Salvar e próximo":"Salvar intervalo"}</Button>
+        {mode==="interval"&&(start!=null||episodePeak)&&<Button type="button" aria-label="Descartar intervalo em edição" variant="ghost" disabled={saving} onClick={()=>{setStart(null);setEnd(null);setEpisodePeakId(undefined);setError(null);setNotice("Intervalo em edição descartado. As marcações salvas foram preservadas.");}}>Descartar edição</Button>}
         {draft&&<Button type="button" variant="ghost" disabled={saving} onClick={()=>{setDraft(null);setSelectedId(undefined);setError(null);setNotice("Marcação descartada.");}}>Descartar marcação</Button>}
-        {mode==="peak"&&selected&&!draft&&<Button type="button" variant="ghost" disabled={saving} onClick={()=>void undo(selected.id)}>Desfazer marcação selecionada</Button>}
+        {mode==="peak"&&selected&&!draft&&<Button type="button" variant="ghost" disabled={saving} onClick={()=>void undo(selected.id)}>Desfazer marcação selecionada</Button>}</div>
       </form>}</div>
       {renderDetection&&<div hidden={sidebar!=="detect"} role="tabpanel" id={`${sidebarId}-detect-panel`} aria-labelledby={`${sidebarId}-detect-tab`}>
         {renderDetection({onSeek:seekProposal,disabled:saving,reviews,onReview:reviewProposal})}

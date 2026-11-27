@@ -341,12 +341,16 @@ test("six consecutive peaks retain the annotator across tab changes after the se
   await studio.getByRole("button",{name:"Fechar estúdio"}).click();
 });
 
-test("guided episode queue completes saved peaks without changing their authors or timestamps",async({page})=>{
+for (const viewport of [{width:1180,height:760},{width:980,height:620},{width:768,height:600}]) {
+test(`guided episode queue preserves authors and timestamps at ${viewport.width}x${viewport.height}`,async({page})=>{
+ await page.setViewportSize(viewport);
  await openExperiment(page,"idle",undefined,[.8,1.4].map((time,i)=>({schemaVersion:1,id:`peak-${i}`,type:"PEAK",source:"human",experimentId:"ui-open-field",trackingJobId:"tracking-01",videoSha256:"a".repeat(64),createdAt:"2026-01-01",timestampSec:time,frameIndex:Math.round(time*25),label:"REARING_SUPPORTED",annotatorId:"original-author"})));
  await page.getByRole("tab",{name:"Rearing",exact:true}).click();await page.getByRole("button",{name:"Abrir estúdio de anotação"}).click();
  const studio=page.getByRole("dialog",{name:"Estúdio de rearing",exact:true});
  await studio.getByLabel("Anotador",{exact:true}).fill("interval-reviewer");
  await studio.getByRole("button",{name:/2. Completar episódios/}).click();
+ const sidebar=studio.locator(".behavior-studio-sidebar");
+ expect(await sidebar.evaluate(el=>el.scrollHeight-el.clientHeight)).toBeLessThanOrEqual(1);
  await studio.getByLabel("Início (s)",{exact:true}).fill("0.4");await studio.getByLabel("Fim (s)",{exact:true}).fill("1.0");
  await studio.getByRole("button",{name:"Salvar episódio e próximo",exact:true}).click();
  await expect(studio.getByText("Completar episódio · ápice 1.400 s",{exact:true})).toBeVisible();
@@ -358,6 +362,7 @@ test("guided episode queue completes saved peaks without changing their authors 
  expect(events.filter(e=>e.type==="INTERVAL").map(e=>[e.peakId,e.startSec,e.endSec,e.annotatorId])).toEqual([["peak-0",.4,1,"interval-reviewer"],["peak-1",1.2,1.6,"interval-reviewer"]]);
  await test.info().attach("episodios-completos",{body:await studio.screenshot(),contentType:"image/png"});
 });
+}
 
 test("hard negatives record their category and unannotated time is never filled automatically",async({page})=>{
  await openExperiment(page);await page.getByRole("tab",{name:"Rearing",exact:true}).click();await page.getByRole("button",{name:"Abrir estúdio de anotação"}).click();
