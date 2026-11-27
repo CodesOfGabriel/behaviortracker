@@ -433,7 +433,7 @@ class HybridPrecisionPipelineTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 self.assertEqual(load_pipeline(Path(tmp), bundle, local)["OFT_PRECISION"], enabled)
         # RAM explicitly turns the shared OFT policy off before detector use.
-        tree = ast.parse((Path(__file__).parent / "ram_pipeline.py").read_text())
+        tree = ast.parse((Path(__file__).parent / "ram_pipeline.py").read_text(encoding="utf-8"))
         run = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "run")
         assignment = next(node for node in run.body if isinstance(node, ast.Assign)
                           and ast.unparse(node.targets[0]) == "hybrid.OFT_PRECISION")

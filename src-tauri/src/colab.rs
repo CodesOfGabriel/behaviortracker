@@ -3679,6 +3679,11 @@ mod tests {
         thread,
     };
 
+    fn test_python() -> std::ffi::OsString {
+        std::env::var_os("BEHAVETRACKER_TEST_PYTHON")
+            .unwrap_or_else(|| if cfg!(windows) { "python".into() } else { "python3".into() })
+    }
+
     #[test]
     fn fst_config_requires_distinct_full_cylinders_and_no_oft_geometry() {
         let workload = AnalysisWorkload { width: 800, height: 600, duration_sec: 20.0 };
@@ -3704,7 +3709,7 @@ mod tests {
         assert!(source.contains("detector_name=None"));
         assert!(!source.contains("wistar_df_v2"));
         use std::process::{Command, Stdio};
-        let mut child = Command::new("python3").arg("-c").arg("import ast,sys; ast.parse(sys.stdin.read())")
+        let mut child = Command::new(test_python()).arg("-c").arg("import ast,sys; ast.parse(sys.stdin.read())")
             .stdin(Stdio::piped()).spawn().unwrap();
         child.stdin.take().unwrap().write_all(source.as_bytes()).unwrap();
         assert!(child.wait().unwrap().success());
@@ -3739,7 +3744,7 @@ mod tests {
         std::fs::create_dir_all(&directory).unwrap();
         let target=directory.join("config.yaml");
         let code=super::release_model_code("pytorch_config.yaml",target.to_str().unwrap(),size,digest);
-        assert!(std::process::Command::new("python3").arg("-c").arg(code).status().unwrap().success());
+        assert!(std::process::Command::new(test_python()).arg("-c").arg(code).status().unwrap().success());
         assert_eq!(crate::video::sha256(&target).unwrap(),digest);
         std::fs::remove_dir_all(directory).unwrap();
     }
@@ -3754,7 +3759,7 @@ mod tests {
         assert_eq!(super::release_model_task(name), Some("model_detector"));
         assert_eq!(super::release_model_task("unknown"), None);
         use std::process::{Command, Stdio};
-        let mut child = Command::new("python3").arg("-c").arg("import ast,sys; ast.parse(sys.stdin.read())")
+        let mut child = Command::new(test_python()).arg("-c").arg("import ast,sys; ast.parse(sys.stdin.read())")
             .stdin(Stdio::piped()).spawn().unwrap();
         child.stdin.take().unwrap().write_all(source.as_bytes()).unwrap();
         assert!(child.wait().unwrap().success());
@@ -3775,7 +3780,7 @@ mod tests {
             // syntax-check every embedded module, including the new dependency.
             let check = "import ast,sys,runpy\nfrom pathlib import Path\nfrom unittest.mock import patch\nwith patch.object(runpy,'run_path') as run:\n    exec(compile(sys.stdin.read(),'<generated>','exec'),{})\n    run.assert_called_once()\np=Path(sys.argv[1])\nassert (p/'hybrid/pose_refinement.py').is_file()\nassert (p/'hybrid/pose_continuity.py').is_file()\nassert (p/'hybrid/temporal_estimates.py').is_file()\nassert (p/'hybrid/temporal_assets.py').is_file()\nassert (p/'hybrid/temporal_runtime.py').is_file()\nassert (p/'hybrid/temporal_image_support.py').is_file()\nfor f in p.rglob('*.py'): ast.parse(f.read_text())";
             let check=format!("{check}\nfor name in ['arena.py','engine.py','layer_video.py','oft_layers.py','oft_layered_pipeline.py','body_axis.py','behavior/peak_model.py']:\n    assert (p/name).is_file()\nmodel=p/'rearing_model/peak_model.json'\nif sys.argv[2]=='wistar_df_v2':\n    assert model.read_text()==sys.argv[3]\nelse:\n    assert not model.exists()\n");
-            let mut child = Command::new("python3").arg("-c").arg(check).arg(&directory).arg(bundle).arg(model_text)
+            let mut child = Command::new(test_python()).arg("-c").arg(check).arg(&directory).arg(bundle).arg(model_text)
                 .stdin(Stdio::piped()).spawn().unwrap();
             child.stdin.take().unwrap().write_all(source.as_bytes()).unwrap();
             assert!(child.wait().unwrap().success());
@@ -3784,7 +3789,7 @@ mod tests {
         let directory = std::env::temp_dir().join(format!("behavetracker-render-contract-{}",new_uuid_v4()));
         let render = super::hybrid_render_code("video.mp4", directory.to_str().unwrap(), None);
         let check = "import ast,sys,runpy\nfrom pathlib import Path\nfrom unittest.mock import patch\nwith patch.object(runpy,'run_path') as run:\n    exec(compile(sys.stdin.read(),'<renderer>','exec'),{})\n    run.assert_called_once()\np=Path(sys.argv[1])\nfor name in ['hybrid_render.py','arena.py','layer_video.py','local_audit_video.py','oft_layers.py','oft_layered_pipeline.py','engine.py','body_axis.py','behavior/intervention.py','behavior/peak_model.py']:\n    assert (p/name).is_file(),name\nfor f in p.rglob('*.py'): ast.parse(f.read_text())";
-        let mut child = Command::new("python3").arg("-c").arg(check).arg(&directory)
+        let mut child = Command::new(test_python()).arg("-c").arg(check).arg(&directory)
             .stdin(Stdio::piped()).spawn().unwrap();
         child.stdin.take().unwrap().write_all(render.as_bytes()).unwrap();
         assert!(child.wait().unwrap().success());
@@ -3872,7 +3877,7 @@ mod tests {
         let directory = std::env::temp_dir().join(format!("behavetracker-diagnostic-contract-{}",new_uuid_v4()));
         std::fs::create_dir_all(&directory).unwrap();
         let source = super::diagnostic_code("fake.mp4", directory.join("output").to_str().unwrap(), directory.join("canonical.csv").to_str().unwrap(), Some(&calibrated_arena()), &super::DiagnosticRange { start_sec:1.,end_sec:2. });
-        let mut child = Command::new("python3").arg("-B").arg(concat!(env!("CARGO_MANIFEST_DIR"),"/python/check_diagnostic_contract.py")).arg(&directory).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+        let mut child = Command::new(test_python()).arg("-B").arg(concat!(env!("CARGO_MANIFEST_DIR"),"/python/check_diagnostic_contract.py")).arg(&directory).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
         child.stdin.take().unwrap().write_all(source.as_bytes()).unwrap();
         let output = child.wait_with_output().unwrap();
         assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
@@ -4031,7 +4036,7 @@ mod tests {
             directory.join("canonical.csv").to_str().unwrap(),
             Some(&calibrated_arena()),
         );
-        let mut child = Command::new("python3")
+        let mut child = Command::new(test_python())
             .arg("-B")
             .arg(concat!(
                 env!("CARGO_MANIFEST_DIR"),
@@ -4725,6 +4730,8 @@ mod tests {
         );
     }
 
+    // This exercises the POSIX Colab runtime, including flock and pass_fds.
+    #[cfg(unix)]
     #[test]
     fn generated_launch_and_poll_protocol_runs_a_local_fake_task_without_ml_packages() {
         use std::process::Command;
@@ -4739,7 +4746,7 @@ mod tests {
         let poll = background_poll_code(directory.to_str().unwrap(), "inference");
         let mut report = json!({});
         for index in 0..50 {
-            let result = Command::new("python3")
+            let result = Command::new(test_python())
                 .args(["-B", "-c", if index == 0 { &launch } else { &poll }])
                 .output()
                 .unwrap();
@@ -4826,7 +4833,7 @@ mod tests {
         let csv = directory.join("pose.csv");
         std::fs::write(&csv, b"frame_index,x_px,y_px\n0,1,1\n").unwrap();
         std::fs::write(directory.join("pose.csv.complete"), b"ok").unwrap();
-        let output = std::process::Command::new("python3")
+        let output = std::process::Command::new(test_python())
             .arg("-B")
             .arg("-c")
             .arg(inference_code(
@@ -4867,7 +4874,7 @@ mod tests {
                 None,
             ),
         ] {
-            let mut child = Command::new("python3")
+            let mut child = Command::new(test_python())
                 .arg("-B")
                 .arg("-c")
                 .arg("import ast, sys; ast.parse(sys.stdin.read())")

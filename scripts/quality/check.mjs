@@ -16,7 +16,7 @@ const cli = (name, executable = name) => {
 };
 const nodeStep = (title, script, ...args) => ({ title, program: process.execPath, args: [script, ...args] });
 const tools = mkdtempSync(join(tmpdir(), "behavetracker-test-tools-"));
-let env = { ...process.env };
+let env = { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" };
 try {
   const steps = [
     nodeStep("Testes da própria barreira de commit e dos workflows", "--test", "scripts/quality/core.test.mjs", "scripts/quality/workflows.test.mjs", "scripts/quality/tauri-dev.test.mjs"),

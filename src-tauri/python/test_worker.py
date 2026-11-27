@@ -13,6 +13,11 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
+# The detached Colab runtime uses POSIX file locks and inherited descriptors.
+# Windows desktop communicates with this worker remotely; it does not run it.
+if sys.platform == "win32":
+    raise unittest.SkipTest("Worker Colab POSIX: executado em Linux e macOS")
+
 import worker
 
 
