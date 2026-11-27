@@ -1,4 +1,3 @@
-import { SelectMenu } from "../../components/ui/SelectMenu";
 import type { LocalAnalysisControls } from "../results/AnalysisWorkspace";
 import { useEffect, useId, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -6,13 +5,10 @@ import { Info } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { formatBytes } from "../../lib/format";
 import { useAppStore } from "../../store/AppStore";
-import type { BoundingBox, OpenFieldExperiment, TrackingSelection } from "../../types";
-import { LocalTargetSeed } from "./LocalTargetSeed";
-import { LATEST_HYBRID_BUNDLE_ID, loadStagedVideo, prepareColabVideo, type VideoPreparationProgress } from "../colab/analysis";
+import type { OpenFieldExperiment, TrackingSelection } from "../../types";
+import { loadStagedVideo, type VideoPreparationProgress } from "../colab/analysis";
 import { isTauriRuntime } from "../colab/connection";
-import { preparedGeometry, scaleArenaToUpload } from "../colab/videoGeometry";
-import { cancelLocalJob, getLocalEnvironment, setupLocalEnvironment, listLocalJobs, stageLocalOriginal, startLocalJob, startLocalWistar, type LocalJob } from "./api";
-import { getBehaviorModelStatus, startBehavior } from "../behavior/api";
+import { cancelLocalJob, getLocalEnvironment, setupLocalEnvironment, listLocalJobs, stageLocalOriginal, startLocalJob, type LocalJob } from "./api";
 
 const stateLabel: Record<LocalJob["state"], string> = {
   queued: "Na fila", running: "Em andamento", succeeded: "Concluída",
@@ -34,23 +30,13 @@ export function LocalAnalysisPanel({ experiment, selectSource, colabBusy, childr
   const [jobs, setJobs] = useState<LocalJob[]>([]);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [strategy, setStrategy] = useState("classical_roi_v1");
-  const [processingWidth, setProcessingWidth] = useState(640);
-  const [initialBox, setInitialBox] = useState<BoundingBox>();
-  const [detectRearing, setDetectRearing] = useState(false);
-  const [behaviorReady, setBehaviorReady] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const dialogTitleId = useId();
-  const dialogDescriptionId = useId();
   const fileRef = useRef<HTMLInputElement>(null);
   const active = jobs.find(job => job.state === "queued" || job.state === "running");
   const busy = running || Boolean(active) || colabBusy;
   const selected = jobs.find(job => experiment.trackingSelection?.engine === "opencv" && job.jobId === experiment.trackingSelection.jobId);
   const preparation = (active ?? selected)?.config.videoPreparation;
-
-  useEffect(() => {
-    setInitialBox(undefined);
-  }, [experiment.id]);
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
@@ -65,7 +51,6 @@ export function LocalAnalysisPanel({ experiment, selectSource, colabBusy, childr
     const dialog = dialogRef.current;
     if (busy || !dialog || dialog.open) return;
     dialog.showModal();
-    void getBehaviorModelStatus().then(value=>setBehaviorReady(value.installed&&value.environmentReady)).catch(()=>setBehaviorReady(false));
   }
 
   async function run(selectedFile?: File) {
@@ -82,40 +67,23 @@ export function LocalAnalysisPanel({ experiment, selectSource, colabBusy, childr
       const updateVideoProgress = (_percent: number, text: string, detail?: VideoPreparationProgress) =>
         setAnalysisActivity(experiment.id, { message: text, videoProgress: detail
           ? { phase: detail.phase, percent: detail.percent, remainingSec: detail.remainingSec } : null });
-      let job: LocalJob;
-      let originalSha256: string;
-      let preparation = experiment.video.preparation;
-      if (strategy === "classical_roi_v1") {
-        const media = await stageLocalOriginal(experiment.id, experiment.video, file, updateVideoProgress);
-        if (!media) { fileRef.current?.click(); return; }
-        originalSha256 = media.originalSha256;
-        if (!(await getLocalEnvironment()).ready) {
-          setAnalysisActivity(experiment.id, { message: "Preparando OpenCV local", videoProgress: null });
-          if (!(await setupLocalEnvironment()).ready) throw new Error("Não foi possível preparar OpenCV local.");
-        }
-        job = await startLocalJob(experiment.id, media.uploadId, {
-          protocol: "open_field", strategy, width: experiment.video.width, height: experiment.video.height,
-          arena: experiment.arena, mode: "auto", threshold: 25, minAreaFraction: .001,
-          maxAreaFraction: .12, maxWidth: processingWidth, maxPredictionSec: .25,
-          referenceApproved: false, useOpenCL: false, autorotate: true,
-          ...(initialBox ? { initialBox } : {}),
-        }, { optimizeVideo: false, expectedVideoSha256: originalSha256 });
-      } else {
-        const bundleId = experiment.modelBundleId ?? (experiment.analysisEngine === "superanimal_video_adapt_b_legacy"
-          ? LATEST_HYBRID_BUNDLE_ID : "wistar_df_v1");
-        if (bundleId !== "wistar_df_v1" && bundleId !== "wistar_df_v2") throw new Error(`Modelo desconhecido: ${bundleId}`);
-        const media = await prepareColabVideo(experiment.id, experiment.video, file, updateVideoProgress);
-        if (!media) { fileRef.current?.click(); return; }
-        ({ preparation, originalSha256 } = media);
-        const geometry = preparedGeometry(experiment.video, preparation);
-        const arena = scaleArenaToUpload(experiment.arena, experiment.video, preparation);
-        job = await startLocalWistar(experiment.id, preparation.uploadId, originalSha256, experiment.video,
-          { ...arena, videoWidth: geometry.width, videoHeight: geometry.height }, bundleId);
+      const media = await stageLocalOriginal(experiment.id, experiment.video, file, updateVideoProgress);
+      if (!media) { fileRef.current?.click(); return; }
+      const originalSha256 = media.originalSha256;
+      if (!(await getLocalEnvironment()).ready) {
+        setAnalysisActivity(experiment.id, { message: "Preparando OpenCV local", videoProgress: null });
+        if (!(await setupLocalEnvironment()).ready) throw new Error("Não foi possível preparar OpenCV local.");
       }
+      const job = await startLocalJob(experiment.id, media.uploadId, {
+        protocol: "open_field", strategy: "classical_roi_v1", width: experiment.video.width, height: experiment.video.height,
+        arena: experiment.arena, mode: "auto", threshold: 25, minAreaFraction: .001,
+        maxAreaFraction: .12, maxWidth: 640, maxPredictionSec: .25,
+        referenceApproved: false, useOpenCL: false, autorotate: true,
+      }, { optimizeVideo: false, expectedVideoSha256: originalSha256 });
       started = true;
       updateExperiment(experiment.id, current => ({
         status: "processing",
-        video: { ...current.video, sha256: originalSha256, preparation },
+        video: { ...current.video, sha256: originalSha256 },
       }));
       setJobs(current => [{ ...job, error: null, report: {} }, ...current]);
       if (selectedFile || !asset?.objectUrl) {
@@ -124,17 +92,13 @@ export function LocalAnalysisPanel({ experiment, selectSource, colabBusy, childr
           : await loadStagedVideo(experiment.id, job.uploadId).catch(() => undefined);
         setAsset(experiment.id, { ...asset, file, objectUrl });
       }
-      setAnalysisActivity(experiment.id, { message: strategy === "classical_roi_v1" ? "Construindo a referência de fundo" : "Preparando o detector Wistar e as camadas corporais", videoProgress: null });
+      setAnalysisActivity(experiment.id, { message: "Construindo a referência de fundo", videoProgress: null });
       for (;;) {
         const current = (await listLocalJobs(experiment.id)).find(item => item.jobId === job.jobId);
         if (!current) throw new Error("A execução local não foi encontrada.");
         setJobs(previous => [current, ...previous.filter(item => item.jobId !== current.jobId)]);
         if (current.state === "succeeded") {
           if (!await selectSource({ engine: "opencv", jobId: current.jobId })) throw new Error("O resultado local não pôde ser aberto.");
-          if (strategy === "classical_roi_v1" && detectRearing && behaviorReady) {
-            try { await startBehavior(experiment.id, current.jobId, originalSha256); }
-            catch (reason) { setError(`Tracking concluído. Não foi possível iniciar rearing: ${message(reason)}`); }
-          }
           break;
         }
         if (current.state === "failed" || current.state === "cancelled") throw new Error(current.error || stateLabel[current.state]);
@@ -161,27 +125,19 @@ export function LocalAnalysisPanel({ experiment, selectSource, colabBusy, childr
     {/* The panel lives inside closed history details. A modal there makes the
         page inert while remaining invisible, so mount it outside that subtree. */}
     {createPortal(<dialog ref={dialogRef} className="confirm-modal local-analysis-modal"
-      aria-labelledby={dialogTitleId} aria-describedby={dialogDescriptionId}>
+      aria-labelledby={dialogTitleId} onClick={event => {
+        if (event.target !== event.currentTarget) return;
+        const rect = event.currentTarget.getBoundingClientRect();
+        if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) event.currentTarget.close();
+      }}>
       <form onSubmit={event => {
         event.preventDefault();
         dialogRef.current?.close();
         void run();
       }}>
         <h2 id={dialogTitleId}>Analisar na máquina local</h2>
-        <p id={dialogDescriptionId}>A análise e o vídeo de revisão são processados neste computador.</p>
-        <SelectMenu label="Método" value={strategy} disabled={busy} onChange={setStrategy} options={[{value:"classical_roi_v1",label:"OpenCV rápido · CPU (experimental)"},{value:"wistar_hrnet",label:"Wistar em camadas · caixa e orientação"}]}/>
-        {strategy === "classical_roi_v1" ? <>
-          <p>Fundo fixo, diferenças de cor e continuidade visual para localizar o corpo e reduzir trocas por reflexos. O MP4 inclui um eixo geométrico e um gráfico de deslocamento. Após o tracking, a aba Rearing permite anotar os episódios e executar um classificador supervisionado instalado.</p>
-          <SelectMenu label="Largura de processamento" value={String(processingWidth)} disabled={busy} onChange={value=>setProcessingWidth(Number(value))} options={[480,640,960].map(value=>({value:String(value),label:`${value} px`}))}/>
-          <LocalTargetSeed experiment={experiment} file={asset?.file} disabled={busy} box={initialBox} onChange={setInitialBox} />
-          <p>As estimativas de cabeça e cauda são identificadas no vídeo. Se um modelo de ápices estiver selecionado na aba Rearing, as propostas serão geradas automaticamente.</p>
-          <label className="local-rearing-option"><input type="checkbox" checked={detectRearing} disabled={busy||!behaviorReady} onChange={event=>setDetectRearing(event.target.checked)}/><span>Classificar episódios completos após o tracking</span></label>
-          <p>{behaviorReady?"O classificador de episódios será executado em CPU como uma etapa independente. Acompanhe o resultado na aba Rearing.":"Para habilitar a classificação de episódios e duração, instale um modelo supervisionado de episódios na aba Rearing."}</p>
-          <p>A primeira execução requer Python 3 e pode baixar OpenCV e suas dependências. Métricas exigem revisão das observações.</p>
-        </> : <p>O detector Wistar localiza a caixa. As etapas seguintes analisam a silhueta, o eixo corporal e a orientação de cabeça e cauda. Estimativas ficam identificadas para revisão. Um modelo de ápices selecionado permite propor rearings. A primeira execução requer Python 3.10 a 3.13 de 64 bits e pode baixar dependências.</p>}
         <div className="confirm-modal-actions">
-          <Button type="button" variant="secondary" onClick={() => dialogRef.current?.close()}>Cancelar</Button>
-          <Button type="submit" disabled={busy}>Iniciar análise</Button>
+          <Button type="submit" disabled={busy}>Analisar</Button>
         </div>
       </form>
     </dialog>, document.body)}
@@ -197,8 +153,8 @@ export function LocalAnalysisPanel({ experiment, selectSource, colabBusy, childr
         {selected.report.validObservationCoveragePct != null && ` ${selected.report.validObservationCoveragePct.toFixed(1)}% de observações sem alertas.`}
         {selected.report.reviewRequiredFrames != null && ` ${selected.report.reviewRequiredFrames} frames exigem revisão.`}</p>}
       {selected?.report.rearing&&<p role="status">{selected.report.rearing.state==="model_unavailable"
-        ? "Rearing não classificado: selecione um modelo de ápices na aba Comportamento para as próximas análises."
-        : `${selected.report.rearing.candidates.length} propostas de rearing para revisão. Cabeça e cauda são estimativas; não entram nas métricas automáticas.`}</p>}
+        ? "Abra a aba Rearing para procurar propostas usando as observações deste tracking."
+        : `${selected.report.rearing.candidates.length} propostas de rearing para revisão. ${selected.report.rearing.message} Não entram nas métricas automáticas.`}</p>}
       {selected?.report.qualityReasonCounts && <details><summary>Motivos de revisão</summary>
         <p>{selected.report.geometryRejectedFrames ?? 0} localizações aceitas pelo rastreador têm geometria insuficiente para métricas no piso.</p>
         <p>Caixas recuperadas e previsões continuam fora das métricas. Os indicadores do rastreador são heurísticos.</p>

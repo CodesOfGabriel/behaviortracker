@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { LocalAnalysisPanel } from "./LocalAnalysisPanel";
 import * as local from "./api";
@@ -42,23 +42,27 @@ function mount(colabBusy = false) {
 }
 
 describe("local analysis state and command contracts", () => {
-  it("cancel does not stage a video, prepare environments or start tracking", async () => {
+  it("shows only the analysis action and stages nothing before confirmation", async () => {
     const { user } = mount();
     await user.click(screen.getByRole("button", { name: "Analisar" }));
-    await user.click(screen.getByRole("button", { name: "Cancelar" }));
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getAllByRole("button")).toHaveLength(1);
+    expect((dialog.getByRole("button", { name: "Analisar" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(dialog.queryByRole("combobox")).toBeNull();
+    expect(dialog.queryByRole("checkbox")).toBeNull();
+    expect(dialog.queryByText(/Fundo fixo|Python 3|Largura de processamento/)).toBeNull();
     expect(local.stageLocalOriginal).not.toHaveBeenCalled();
     expect(local.setupLocalEnvironment).not.toHaveBeenCalled();
     expect(local.startLocalJob).not.toHaveBeenCalled();
-    expect(document.querySelector("dialog")?.open).toBe(false);
+    expect(behavior.getBehaviorModelStatus).not.toHaveBeenCalled();
   });
 
-  it("an unavailable optional behavior model cannot prevent confirming tracking", async () => {
+  it("does not query the optional behavior model to confirm tracking", async () => {
     vi.mocked(behavior.getBehaviorModelStatus).mockReturnValue(new Promise(() => {}));
     const { user } = mount();
     await user.click(screen.getByRole("button", { name: "Analisar" }));
-    expect((screen.getByRole("button", { name: "Iniciar análise" }) as HTMLButtonElement).disabled).toBe(false);
-    expect((screen.getByRole("checkbox", { name: "Classificar episódios completos após o tracking" }) as HTMLInputElement).disabled).toBe(true);
-    await user.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect((within(screen.getByRole("dialog")).getByRole("button", { name: "Analisar" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(behavior.getBehaviorModelStatus).not.toHaveBeenCalled();
   });
 
   it("refuses opening while Colab is busy even when called directly", async () => {
@@ -77,16 +81,14 @@ describe("local analysis state and command contracts", () => {
     expect(behavior.getBehaviorModelStatus).not.toHaveBeenCalled();
   });
 
-  it("submits the selected width and original hash once, then selects the completed result", async () => {
+  it("submits the defaults and original hash once, then selects the completed result", async () => {
     vi.mocked(local.listLocalJobs).mockResolvedValue([jobFixture()]);
     const { user, selectSource } = mount();
     await user.click(screen.getByRole("button", { name: "Analisar" }));
-    fireEvent.keyDown(screen.getByRole("combobox", { name: "Largura de processamento" }), { key: "ArrowDown" });
-    await user.click(await screen.findByRole("option", { name: "480 px" }));
-    await user.click(screen.getByRole("button", { name: "Iniciar análise" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Analisar" }));
     await waitFor(() => expect(selectSource).toHaveBeenCalledWith({ engine: "opencv", jobId: "tracking-01" }));
     expect(local.startLocalJob).toHaveBeenCalledExactlyOnceWith("ui-open-field", "original-01",
-      expect.objectContaining({ protocol: "open_field", maxWidth: 480, useOpenCL: false, referenceApproved: false }),
+      expect.objectContaining({ protocol: "open_field", strategy: "classical_roi_v1", maxWidth: 640, useOpenCL: false, referenceApproved: false }),
       { optimizeVideo: false, expectedVideoSha256: "a".repeat(64) });
     expect(behavior.startBehavior).not.toHaveBeenCalled();
     expect(local.setupLocalEnvironment).not.toHaveBeenCalled();
@@ -97,7 +99,7 @@ describe("local analysis state and command contracts", () => {
     vi.mocked(local.setupLocalEnvironment).mockResolvedValue({ ready: false });
     const { user } = mount();
     await user.click(screen.getByRole("button", { name: "Analisar" }));
-    await user.click(screen.getByRole("button", { name: "Iniciar análise" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Analisar" }));
     await screen.findByText("Não foi possível preparar OpenCV local.");
     expect(local.startLocalJob).not.toHaveBeenCalled();
     expect(store.setAnalysisActivity).toHaveBeenLastCalledWith("ui-open-field", { starting: false, videoProgress: null });
@@ -109,7 +111,7 @@ describe("local analysis state and command contracts", () => {
     vi.mocked(local.stageLocalOriginal).mockRejectedValue(new Error("SHA-256 incorreto"));
     const { user } = mount();
     await user.click(screen.getByRole("button", { name: "Analisar" }));
-    await user.click(screen.getByRole("button", { name: "Iniciar análise" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Analisar" }));
     await screen.findByText("SHA-256 incorreto");
     expect(local.startLocalJob).not.toHaveBeenCalled();
     expect(store.setAnalysisActivity).toHaveBeenLastCalledWith("ui-open-field", { starting: false, videoProgress: null });
@@ -122,7 +124,7 @@ describe("local analysis state and command contracts", () => {
     const { user, selectSource } = mount();
     selectSource.mockResolvedValue(false);
     await user.click(screen.getByRole("button", { name: "Analisar" }));
-    await user.click(screen.getByRole("button", { name: "Iniciar análise" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Analisar" }));
     await screen.findByText("O resultado local não pôde ser aberto.");
     expect(behavior.startBehavior).not.toHaveBeenCalled();
     expect(store.setAnalysisActivity).toHaveBeenLastCalledWith("ui-open-field", { starting: false, videoProgress: null });

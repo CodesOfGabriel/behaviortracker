@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import type { AppRoute, Experiment, ForcedSwimExperiment, OpenFieldExperiment, PoseSample, RadialMazeExperiment, VideoAsset } from "../types";
 import { makeDemoExperiment, makeDemoPose } from "../lib/demo-data";
+import { clearAnalysisCache } from "../lib/session-cache";
 
 const STORAGE_KEY = "behavetracker.experiments.v1";
 const RESEARCHER_KEY = "behavetracker.researcher.v1";
@@ -155,6 +156,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
   const deleteExperiment = useCallback(
     (id: string) => {
+      clearAnalysisCache();
       persist(current => current.filter((experiment) => experiment.id !== id));
       setAssets((current) => {
         if (current[id]?.objectUrl) URL.revokeObjectURL(current[id].objectUrl);

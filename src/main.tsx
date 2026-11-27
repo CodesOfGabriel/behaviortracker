@@ -10,11 +10,13 @@ import "./styles.css";
 const rootElement = document.getElementById("root")!;
 const splashElement = document.getElementById("startup-splash");
 const splashImage = splashElement?.querySelector("img");
-// loading.gif tem um ciclo de 7,2 s; exiba pelo menos metade antes da transição.
-const minimumGifPlayMs = 3600;
+// The splash is presentation only; analysis reads must never gate application access.
+const minimumGifPlayMs = 600;
 let initialSessionHandled = false;
+let startupDeadline: number | undefined;
 
 function finishStartup() {
+  window.clearTimeout(startupDeadline);
   splashElement?.remove();
   rootElement.removeAttribute("inert");
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", "#171c18");
@@ -29,6 +31,7 @@ function revealApp(authenticated: boolean) {
   }
 
   rootElement.setAttribute("inert", "");
+  startupDeadline = window.setTimeout(finishStartup, 2500);
   splashElement.classList.add("startup-splash-visible");
   const splashImageReadyAt = new Promise<number | null>((resolve) => {
     let settled = false;
@@ -45,7 +48,7 @@ function revealApp(authenticated: boolean) {
     const onError = () => finish(null);
     splashImage.addEventListener("load", onLoad);
     splashImage.addEventListener("error", onError);
-    timeoutId = window.setTimeout(onError, 5000);
+    timeoutId = window.setTimeout(onError, 1500);
     splashImage.src = splashImage.dataset.src ?? "";
   });
 

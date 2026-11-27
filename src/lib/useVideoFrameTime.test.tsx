@@ -21,11 +21,14 @@ it("uses presented frames even between timeupdate events, rejects seek capture a
   act(()=>{video.dispatchEvent(new Event("timeupdate"));});
   expect(screen.getByRole("status").textContent).toBe("0.12");
   fire(.16);expect(screen.getByRole("status").textContent).toBe("0.16");
+  const queuedBeforeSeek=[...callbacks.values()][0];
   Object.defineProperty(video,"seeking",{configurable:true,value:true});
   act(()=>{video.dispatchEvent(new Event("seeking"));screen.getByRole("button").click();});
   expect(document.title).toBe("null");
-  // A decoded paused seek can be presented before the seeked event.
-  video.currentTime=.44;fire(.44);Object.defineProperty(video,"seeking",{configurable:true,value:false});
+  // Cancellation cannot retract a callback that was already queued by the browser.
+  video.currentTime=.44;act(()=>queuedBeforeSeek(0,{mediaTime:.44} as VideoFrameCallbackMetadata));
+  expect(screen.getByRole("status").textContent).toBe("pending");
+  Object.defineProperty(video,"seeking",{configurable:true,value:false});
   Object.defineProperty(video,"readyState",{configurable:true,value:2});
   act(()=>video.dispatchEvent(new Event("seeked")));
   act(()=>{screen.getByRole("button").click();});expect(document.title).toBe("0.44");
@@ -79,4 +82,41 @@ it("resolves paused same-frame seeks even when the decoder emits no new presenta
   expect(screen.getByRole("status").textContent).toBe("0.36");
   video.currentTime=.4;act(()=>video.dispatchEvent(new Event("timeupdate")));
   expect(screen.getByRole("status").textContent).toBe("0.36");
+});
+
+it("does not let a delayed pre-seek callback replace the decoded paused frame",()=>{
+  const callbacks=new Map<number,VideoFrameRequestCallback>();let next=0;
+  Object.defineProperty(HTMLVideoElement.prototype,"requestVideoFrameCallback",{configurable:true,value:(cb:VideoFrameRequestCallback)=>{callbacks.set(++next,cb);return next;}});
+  Object.defineProperty(HTMLVideoElement.prototype,"cancelVideoFrameCallback",{configurable:true,value:(id:number)=>callbacks.delete(id)});
+  const view=render(<Probe/>),video=view.container.querySelector("video")!;
+  Object.defineProperty(video,"readyState",{configurable:true,value:2});
+  act(()=>video.dispatchEvent(new Event("loadeddata")));
+  const delayed=[...callbacks.values()][0];
+  video.currentTime=1.08;
+  act(()=>video.dispatchEvent(new Event("seeking")));
+  act(()=>video.dispatchEvent(new Event("seeked")));
+  expect(screen.getByRole("status").textContent).toBe("1.08");
+  act(()=>delayed(0,{mediaTime:0} as VideoFrameCallbackMetadata));
+  act(()=>screen.getByRole("button").click());
+  expect(document.title).toBe("1.08");
+  expect(screen.getByRole("status").textContent).toBe("1.08");
+});
+
+it("keeps a paused decoded seek stable until playback resumes",()=>{
+  const callbacks=new Map<number,VideoFrameRequestCallback>();let next=0;
+  Object.defineProperty(HTMLVideoElement.prototype,"requestVideoFrameCallback",{configurable:true,value:(cb:VideoFrameRequestCallback)=>{callbacks.set(++next,cb);return next;}});
+  Object.defineProperty(HTMLVideoElement.prototype,"cancelVideoFrameCallback",{configurable:true,value:(id:number)=>callbacks.delete(id)});
+  const view=render(<Probe/>),video=view.container.querySelector("video")!;
+  Object.defineProperty(video,"readyState",{configurable:true,value:2});
+  const fire=(time:number)=>act(()=>{const [id,cb]=[...callbacks][0];callbacks.delete(id);cb(0,{mediaTime:time} as VideoFrameCallbackMetadata);});
+  video.currentTime=1.08;
+  act(()=>video.dispatchEvent(new Event("seeking")));
+  act(()=>video.dispatchEvent(new Event("seeked")));
+  fire(0);
+  expect(screen.getByRole("status").textContent).toBe("1.08");
+  Object.defineProperty(video,"paused",{configurable:true,value:false});
+  act(()=>video.dispatchEvent(new Event("playing")));
+  video.currentTime=1.3;fire(1.12);
+  // During playback the presented frame, rather than currentTime, is authoritative.
+  expect(screen.getByRole("status").textContent).toBe("1.12");
 });

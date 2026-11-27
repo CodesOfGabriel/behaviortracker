@@ -4,6 +4,18 @@ import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync } fr
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 
+/** Plain Windows env objects can contain Path instead of PATH. Emit one key so
+ * Node's case-insensitive, lexicographic selection cannot discard inherited tools. */
+export function prependPath(environment, directories, platform = process.platform) {
+  const env = { ...environment };
+  const windows = platform === "win32";
+  const keys = Object.keys(env).filter(key => windows ? key.toUpperCase() === "PATH" : key === "PATH").sort();
+  const inherited = env[keys[0]] ?? "";
+  if (windows) for (const key of keys) delete env[key];
+  env.PATH = [...directories, inherited].filter(Boolean).join(windows ? ";" : ":");
+  return env;
+}
+
 export function command(program, args, options = {}) {
   const result = spawnSync(program, args, { stdio: "inherit", ...options });
   if (result.error) throw new Error(`Não foi possível executar ${program}: ${result.error.message}`);

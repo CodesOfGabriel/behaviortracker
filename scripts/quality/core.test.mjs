@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { attachLocalDependencies, command, git, runChecks, stagedSnapshot, verifyInstalledDependencies } from "./core.mjs";
+import { attachLocalDependencies, command, git, prependPath, runChecks, stagedSnapshot, verifyInstalledDependencies } from "./core.mjs";
 import { installHooks } from "./install-hooks.mjs";
 
 function repository(run) {
@@ -13,6 +13,53 @@ function repository(run) {
   try { git(root, ["init", "--quiet"]); run(root); }
   finally { rmSync(root, { recursive: true, force: true }); }
 }
+
+for (const key of ["Path", "PATH", "path"]) {
+  test(`Windows ${key} retains inherited Git, Node and system directories`, () => {
+    const inherited = "C:\\Program Files\\Git\\cmd;C:\\Program Files\\nodejs;C:\\Windows\\System32";
+    const original = { [key]: inherited, SystemRoot: "C:\\Windows" };
+    const env = prependPath(original, ["D:\\temporary tools", "C:\\Users\\runner\\.cargo\\bin"], "win32");
+    assert.equal(env.PATH, `D:\\temporary tools;C:\\Users\\runner\\.cargo\\bin;${inherited}`);
+    assert.deepEqual(Object.keys(env).filter(name => name.toUpperCase() === "PATH"), ["PATH"]);
+    assert.equal(env.SystemRoot, original.SystemRoot);
+    assert.deepEqual(original, { [key]: inherited, SystemRoot: "C:\\Windows" }, "caller environment must not be changed");
+  });
+}
+
+test("duplicate Windows PATH aliases preserve the value Node would actually pass to children", () => {
+  const env = prependPath({ Path: "ignored alias", path: "another alias", PATH: "inherited active path" }, ["tools"], "win32");
+  assert.deepEqual(env, { PATH: "tools;inherited active path" });
+});
+
+for (const platform of ["darwin", "linux"]) {
+  test(`${platform} retains case-sensitive environment keys and colon-separated lookup`, () => {
+    assert.deepEqual(prependPath({ PATH: "/usr/local/bin:/usr/bin:/bin", Path: "unrelated value" }, ["/temporary tools", "/cargo/bin"], platform), {
+      PATH: "/temporary tools:/cargo/bin:/usr/local/bin:/usr/bin:/bin", Path: "unrelated value",
+    });
+  });
+}
+
+test("a missing inherited PATH does not introduce undefined or an empty lookup entry", () => {
+  assert.deepEqual(prependPath({}, ["tools", "cargo"], "win32"), { PATH: "tools;cargo" });
+  assert.deepEqual(prependPath({ PATH: "" }, ["/tools"], "linux"), { PATH: "/tools" });
+});
+
+test("the quality environment still resolves Git in a real native subprocess", () => {
+  const original = { ...process.env };
+  const keys = Object.keys(original).filter(key => process.platform === "win32" ? key.toUpperCase() === "PATH" : key === "PATH").sort();
+  const inherited = original[keys[0]];
+  assert.ok(inherited, "test requires the runner's command search path");
+  for (const key of keys) delete original[key];
+  original[process.platform === "win32" ? "Path" : "PATH"] = inherited;
+  const directory = mkdtempSync(join(tmpdir(), "behavetracker-path-test-"));
+  try {
+    const env = prependPath(original, [directory]);
+    const result = command(process.execPath, ["--input-type=module", "-e", "import{spawnSync}from'node:child_process';const result=spawnSync('git',['--version'],{encoding:'utf8'});if(result.error)throw result.error;process.stdout.write(result.stdout);process.exit(result.status??1);"], {
+      env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+    });
+    assert.match(result.stdout, /^git version /);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
 
 test("a failed check prevents every later check from running", () => repository(root => {
   const marker = join(root, "incorrectly-approved");

@@ -3508,7 +3508,7 @@ pub fn get_colab_job_video(app: AppHandle, job_id: String) -> CommandResult<Valu
 fn has_current_skeleton_video(directory: &Path, job_id: &str, target: &Path) -> bool {
     let Some(marker) = fs::read(directory.join(format!("{job_id}-video_artifact.json"))).ok()
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok()) else { return false; };
-    marker["available"] == true && marker["visualization"]["version"] == "oft-layered-video-4"
+    marker["available"] == true && marker["visualization"]["version"] == "oft-layered-video-8"
         && marker["filename"].as_str() == target.file_name().and_then(|name| name.to_str())
         && target.metadata().ok().is_some_and(|meta| meta.is_file() && meta.len() > 0 && Some(meta.len()) == marker["sizeBytes"].as_u64())
 }
@@ -3809,10 +3809,12 @@ mod tests {
             ("oft-layered-video-1","job-dlc-activity.mp4",5,true,false),
             ("oft-layered-video-2","job-dlc-activity.mp4",5,true,false),
             ("oft-layered-video-3","job-dlc-activity.mp4",5,true,false),
-            ("oft-layered-video-4","job-dlc.mp4",5,true,false),
-            ("oft-layered-video-4","job-dlc-activity.mp4",6,true,false),
-            ("oft-layered-video-4","job-dlc-activity.mp4",5,false,false),
-            ("oft-layered-video-4","job-dlc-activity.mp4",5,true,true),
+            ("oft-layered-video-5","job-dlc-activity.mp4",5,true,false),
+            ("oft-layered-video-6","job-dlc-activity.mp4",5,true,false),
+            ("oft-layered-video-8","job-dlc.mp4",5,true,false),
+            ("oft-layered-video-8","job-dlc-activity.mp4",6,true,false),
+            ("oft-layered-video-8","job-dlc-activity.mp4",5,false,false),
+            ("oft-layered-video-8","job-dlc-activity.mp4",5,true,true),
         ] {
             std::fs::write(&marker,json!({"available":available,"filename":name,"sizeBytes":size,"visualization":{"version":version}}).to_string()).unwrap();
             assert_eq!(super::has_current_skeleton_video(&directory,"job",&path),expected);

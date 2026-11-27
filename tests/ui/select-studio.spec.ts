@@ -7,6 +7,9 @@ test("playback selector works inside the annotation dialog without firing annota
   await page.getByRole("tab", { name: "Rearing", exact: true }).click();
   await page.getByRole("button", { name: "Abrir estúdio de anotação" }).click();
   const studio = page.getByRole("dialog", { name: "Estúdio de rearing", exact: true });
+  // The studio opens on proposals. Exercise the manual form explicitly so
+  // this test still proves that selector keystrokes cannot change its label.
+  await studio.getByRole("tab", { name: "Anotação", exact: true }).click();
   const speed = studio.getByRole("combobox", { name: "Velocidade de reprodução" });
   await speed.click();
   const menu = page.getByRole("listbox");

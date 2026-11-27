@@ -1,4 +1,16 @@
-import type { BehaviorAnnotation } from "./types";
+import type { BehaviorAnnotation, ProposalReviewState, RearingTag } from "./types";
+
+// The saved human peak is authoritative, including edits/undo made outside the detector.
+export function proposalReviews(events: BehaviorAnnotation[]) {
+  const result:Record<number,ProposalReviewState>={};
+  for(const event of events)if(event.type==="PROPOSAL_REVIEW"&&event.frameIndex!=null){
+    if(event.decision==="reject")result[event.frameIndex]={decision:"reject"};
+    else delete result[event.frameIndex];
+  }
+  for(const peak of activePeaks(events))if(peak.label?.startsWith("REARING_")&&peak.frameIndex!=null)
+    result[peak.frameIndex]={decision:"accept",label:peak.label as RearingTag};
+  return result;
+}
 
 export function activeAnnotations(events: BehaviorAnnotation[]) {
   const undone = new Set(events.filter(e => e.type === "UNDO").map(e => e.targetId));
@@ -31,6 +43,6 @@ export function frameAt(times: number[], time: number) {
 }
 export function csvCell(value: unknown) { return `"${String(value ?? "").replaceAll('"', '""')}"`; }
 export function annotationsCsv(events: BehaviorAnnotation[], videoId: string) {
-  return "video_id,start_sec,end_sec,label,annotator_id,video_sha256,tracking_job_id,annotation_id\n" + activeAnnotations(events).map(e =>
-    [videoId, e.startSec, e.endSec, e.label, e.annotatorId, e.videoSha256, e.trackingJobId, e.id].map(csvCell).join(",")).join("\n") + "\n";
+  return "video_id,start_sec,end_sec,label,annotator_id,video_sha256,tracking_job_id,annotation_id,peak_annotation_id,example_kind\n" + activeAnnotations(events).map(e =>
+    [videoId, e.startSec, e.endSec, e.label, e.annotatorId, e.videoSha256, e.trackingJobId, e.id, e.peakId, e.exampleKind].map(csvCell).join(",")).join("\n") + "\n";
 }

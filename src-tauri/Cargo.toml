@@ -1,6 +1,6 @@
 [package]
 name = "behavetracker"
-version = "0.1.5"
+version = "0.1.6"
 description = "Desktop behavioral tracking review for open field experiments"
 authors = ["BehaveTracker contributors"]
 edition = "2021"

@@ -1,13 +1,25 @@
 export type OftPosture = "NON_REARING" | "REARING_SUPPORTED" | "REARING_UNSUPPORTED" | "REARING_UNSPECIFIED" | "UNKNOWN";
+export type RearingTag = Extract<OftPosture, `REARING_${string}`>;
+export type ProposalReviewInput = {frameIndex:number;timestampSec:number;decision:"accept"|"reject";label?:RearingTag;annotatorId:string};
+export type ProposalReviewState = {decision:"accept"|"reject";label?:RearingTag};
 export const postureLabels: Record<OftPosture, string> = {
   NON_REARING: "Não rearing", REARING_SUPPORTED: "Rearing com apoio", REARING_UNSUPPORTED: "Rearing sem apoio",
   REARING_UNSPECIFIED: "Rearing · apoio indeterminado", UNKNOWN: "Incerto / não observável",
 };
+export const exampleLabels = { walking: "Caminhando / farejando", grooming: "Grooming", turning: "Giro", wall: "Junto à parede, sem rearing", reflection: "Reflexo / sombra", intervention: "Entrada do pesquisador", other: "Outro exemplo" } as const;
+export type BehaviorExample = keyof typeof exampleLabels;
+export const bodyLandmarks = { nose: "Nariz", left_ear: "Orelha esquerda", right_ear: "Orelha direita", body_center: "Centro do tronco", hip: "Centro do quadril", tail_base: "Base da cauda" } as const;
+export type BodyLandmark = keyof typeof bodyLandmarks;
+export type LandmarkPosition = { visibility: "visible"; x: number; y: number } | { visibility: "occluded" | "out_of_frame"; x: null; y: null };
+export type HumanPose = Record<BodyLandmark, LandmarkPosition>;
 export type BehaviorAnnotation = {
-  schemaVersion: 1; id: string; type: "INTERVAL" | "PEAK" | "LABEL_PEAK" | "UNDO"; source: "human";
+  schemaVersion: 1; id: string; type: "INTERVAL" | "PEAK" | "LABEL_PEAK" | "POSE_FRAME" | "UNDO" | "PROPOSAL_REVIEW"; source: "human";
   experimentId: string; trackingJobId: string; videoSha256: string; createdAt: string;
   startSec?: number; endSec?: number; label?: OftPosture; annotatorId?: string; targetId?: string; note?: string;
   timestampSec?: number; frameIndex?: number;
+  peakId?: string; exampleKind?: BehaviorExample;
+  decision?: "accept" | "reject";
+  pose?: HumanPose; imageWidth?: number; imageHeight?: number;
 };
 export type BehaviorEvent = {
   eventId: string; startSec: number; endSec: number; durationSec: number; behavior: OftPosture;

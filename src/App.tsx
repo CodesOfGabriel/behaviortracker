@@ -22,22 +22,58 @@ import { ForcedSwimResults } from "./features/results/ForcedSwimResults";
 import { RadialMazeResults } from "./features/radial-maze/RadialMazeResults";
 import { TrackingEditor } from "./features/tracking/TrackingEditor";
 import { useAppStore } from "./store/AppStore";
+import { preloadRearing, rearingSourceKey } from "./features/behavior/preload";
+import { clearAnalysisCache, currentAnalysisCacheGeneration } from "./lib/session-cache";
 
 export default function App({ onInitialSessionResolved }: { onInitialSessionResolved?: (authenticated: boolean) => void }) {
-  const { route, getExperiment, navigate, analysisActivity } = useAppStore();
+  const { route, getExperiment, navigate, analysisActivity, experiments } = useAppStore();
   const [session, setSession] = useState<OAuthProfileSummary>(emptyColabSummary);
   const [checkingSession, setCheckingSession] = useState(true);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [draftVisited, setDraftVisited] = useState(false);
   const [draftGeneration, setDraftGeneration] = useState(0);
   const initialSessionReported = useRef(false);
+  const sessionPreloaded = useRef(false);
+  const warmedSources = useRef(new Set<string>());
+  const cacheGeneration = useRef(currentAnalysisCacheGeneration());
   const sessionRevision = useRef(0);
+
+  const prepareWorkspace = useCallback(() => {
+    sessionPreloaded.current = true;
+    warmedSources.current = new Set(experiments.map(rearingSourceKey));
+    cacheGeneration.current = currentAnalysisCacheGeneration();
+    if (isTauriRuntime()) void preloadRearing(experiments);
+  }, [experiments]);
 
   useLayoutEffect(() => {
     if (checkingSession || initialSessionReported.current) return;
     initialSessionReported.current = true;
+    if (session.connected) prepareWorkspace();
     onInitialSessionResolved?.(session.connected);
-  }, [checkingSession, onInitialSessionResolved, session.connected]);
+  }, [checkingSession, onInitialSessionResolved, session.connected, prepareWorkspace]);
+
+  useEffect(() => {
+    if (checkingSession) return;
+    if (!session.connected) {
+      sessionPreloaded.current = false;
+      clearAnalysisCache();
+    } else if (!sessionPreloaded.current) {
+      void prepareWorkspace();
+    }
+  }, [checkingSession, session.connected, prepareWorkspace]);
+
+  useEffect(() => {
+    if (!session.connected || !isTauriRuntime()) return;
+    if (cacheGeneration.current !== currentAnalysisCacheGeneration()) {
+      warmedSources.current.clear();
+      cacheGeneration.current = currentAnalysisCacheGeneration();
+    }
+    const pending = experiments.filter(experiment => !warmedSources.current.has(rearingSourceKey(experiment)));
+    if (!pending.length) return;
+    for (const experiment of pending) warmedSources.current.add(rearingSourceKey(experiment));
+    // New results cannot exist at startup; warm them as soon as their source changes.
+    void preloadRearing(pending);
+  }, [experiments, session.connected]);
 
   useEffect(() => {
     if (route.name === "new-experiment") setDraftVisited(true);
@@ -104,6 +140,7 @@ export default function App({ onInitialSessionResolved }: { onInitialSessionReso
     navigate({ name: "dashboard" });
     if (session.connected) {
       const disconnected = await invoke<OAuthProfileSummary>("disconnect_google_account", { profileId: COLAB_PROFILE_ID });
+      clearAnalysisCache();
       updateSession(disconnected);
     }
   }

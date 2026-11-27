@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "opencv-box-15"
+VERSION = "opencv-box-19"
 
 
 def write_json(path, value):
@@ -732,6 +732,22 @@ class RobustSegmenter(Segmenter):
         self.area_history = []
         self.body_flow = BodyFlow(self.tracker.max_gap)
 
+    def body_support(self, lab, reference, shift, chroma_shift, background=None):
+        """Current pixels must favour body appearance over their frozen background.
+
+        Absolute background subtraction also detects shadows and mirror motion.
+        Similarity to the body alone is insufficient on a low-contrast wall.
+        The small LAB tolerance retains low-contrast head/neck pixels.
+        """
+        np=self.np
+        adjusted=lab.astype(np.float32)-np.array([shift,*chroma_shift],np.float32)
+        weights=np.array([.5,1.,1.],np.float32)
+        body_distance=np.linalg.norm((adjusted-np.asarray(reference,np.float32))*weights,axis=-1)
+        background_distance=np.linalg.norm((adjusted-(self.background_lab if background is None else background))*weights,axis=-1)
+        # A real head can resemble a nearby wall more than its brighter torso.
+        # Retain close body colours even when local background contrast is low.
+        return (body_distance<=background_distance+4.) | (body_distance<=12.)
+
     def extend_on_wall(self, chosen, residual, delta_a, delta_b, shift, chroma_shift, lab):
         """Recover low-contrast head/neck pixels connected to the current body.
 
@@ -756,6 +772,15 @@ class RobustSegmenter(Segmenter):
         chroma=cv.magnitude(delta_a[top:bottom,left:right],delta_b[top:bottom,left:right])
         weak=((luminance>np.maximum(7.,self.threshold[top:bottom,left:right]*.35)) |
               (chroma>np.maximum(5.,self.chroma_threshold[top:bottom,left:right]*.5)))
+        reference=self.appearance if self.appearance is not None else chosen["appearance"]
+        # The same animal can enter a darker part of the wall. Use the current
+        # associated torso for head shading, while the frozen reference still
+        # gates identity and rejects unrelated foreground components.
+        if self.appearance is not None and np.linalg.norm((chosen["appearance"]-self.appearance)*[.5,1.,1.])<=12.:
+            reference=chosen["appearance"]
+        support=self.body_support(lab[top:bottom,left:right],reference,shift,chroma_shift,
+            self.background_lab[top:bottom,left:right])
+        weak &= support
         # Keep a narrow connected band on both sides of the calibration line:
         # discarding weak floor pixels here would cut the neck at that line.
         near_seed=cv.distanceTransform(np.uint8(seed==0),cv.DIST_L2,3)<=4
@@ -763,6 +788,8 @@ class RobustSegmenter(Segmenter):
         weak=np.uint8(weak)*255
         weak=cv.morphologyEx(cv.bitwise_or(weak,seed),cv.MORPH_CLOSE,np.ones((5,5),np.uint8))
         weak=cv.morphologyEx(weak,cv.MORPH_OPEN,self.kernel)
+        # Closing must not recreate the unsupported bridge to a reflection.
+        weak=np.uint8((weak>0)&(support|(seed>0)))*255
         weak=cv.bitwise_or(weak,seed)
         _,labels=cv.connectedComponents(weak)
         ids,counts=np.unique(labels[seed>0],return_counts=True)
@@ -816,9 +843,25 @@ class RobustSegmenter(Segmenter):
         # Mudanças cromáticas recuperam corpo sobre piso de luminância próxima.
         # O limiar continua relativo a uma referência congelada e ao ruído local.
         foreground = (np.abs(residual-shift) > self.threshold) | (cv.magnitude(delta_a, delta_b) > self.chroma_threshold)
+        body_support=None
         mask = np.uint8(foreground & self.active_roi)*255
         mask = cv.morphologyEx(cv.morphologyEx(mask, cv.MORPH_OPEN, self.body_kernel), cv.MORPH_CLOSE, self.kernel)
         mask = cv.bitwise_and(mask, self.roi[ry:ry+rh, rx:rx+rw])
+        if self.open_field and self.appearance is not None:
+            # Evaluate only current foreground pixels, not the entire arena.
+            relevant=mask>0
+            body_support=np.zeros(mask.shape,bool)
+            body_support[relevant]=self.body_support(lab[relevant],self.appearance,shift,chroma_shift,self.background_lab[relevant])
+            # Split connected ghosts as well as rejecting separate candidates.
+            # External contours restore dark markings inside the body, without
+            # restoring an unsupported bridge outside its current outline.
+            supported=np.uint8((mask>0)&body_support)*255
+            supported=cv.morphologyEx(supported,cv.MORPH_CLOSE,self.kernel)
+            supported=cv.bitwise_and(supported,mask)
+            components=cv.findContours(supported,cv.RETR_EXTERNAL,cv.CHAIN_APPROX_SIMPLE)[0]
+            refined=np.zeros_like(mask)
+            cv.drawContours(refined,components,-1,255,-1)
+            mask=cv.bitwise_and(refined,mask)
         contours = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE, offset=(rx, ry))[0]
         prediction = self.tracker.predict(timestamp)
         recent = self.tracker.last and 0 <= timestamp-self.tracker.last[2] <= self.tracker.max_gap
@@ -853,6 +896,10 @@ class RobustSegmenter(Segmenter):
                 core &= on_floor
             if np.count_nonzero(core) < 9:
                 core = component > 0
+            support_fraction=float(np.mean(self.body_support(lab[y-ry:y-ry+h,x-rx:x-rx+w],self.appearance,shift,chroma_shift,
+                self.background_lab[y-ry:y-ry+h,x-rx:x-rx+w])[core])) if body_support is not None else None
+            if support_fraction is not None and support_fraction<.35:
+                continue
             appearance = np.median(lab[y-ry:y-ry+h, x-rx:x-rx+w][core], axis=0).astype(np.float64)
             # Luminância é comparada após compensar o brilho global, enquanto
             # os dois canais cromáticos conservam seu peso na identidade.
@@ -880,7 +927,7 @@ class RobustSegmenter(Segmenter):
             candidates.append(dict(contour=contour, area=area, center=center, appearance=appearance,
                 bbox={"x": x/self.scale, "y": y/self.scale, "width": w/self.scale, "height": h/self.scale},
                 density=density, aspect=aspect, color_delta=color_delta, area_ratio=area_ratio,
-                floor_fraction=floor_fraction, score=score))
+                floor_fraction=floor_fraction, score=score,appearance_support=support_fraction))
         candidates.sort(key=lambda value: value["score"], reverse=True)
         diagnostics = {"candidateCount": len(candidates), "illuminationShift": shift,
                        "visualContinuity": visual_box is not None,
@@ -971,6 +1018,7 @@ class RobustSegmenter(Segmenter):
                              "identity": identity, "reasons": reasons+geometry_reasons},
             "candidateScore": chosen["score"], "candidateMargin": score_margin,
             "wallExtension": {"method":"connected_wall_foreground_v2","addedAreaPx":wall_pixels/self.scale**2},
+            **({"reflectionGuard":{"method":"body_background_likelihood_v1","bodySupportFraction":chosen["appearance_support"]}} if self.open_field else {}),
             "floorOverlapFraction": chosen["floor_fraction"], **diagnostics}
 
 
@@ -1171,7 +1219,7 @@ def run(request_path):
     layered = None
     if config.get("protocol") == "open_field":
         from oft_layers import LayeredTracker, POLICY
-        layered = LayeredTracker(config["width"], config["height"], config.get("arena"))
+        layered = LayeredTracker(config["width"], config["height"], config.get("arena"), background)
     clock = timestamps(video, request["ffprobe"])
     intervention = None
     if is_classical and config.get("protocol") == "open_field":

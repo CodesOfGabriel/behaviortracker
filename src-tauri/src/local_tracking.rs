@@ -729,9 +729,9 @@ pub async fn get_local_audit_video(app: AppHandle, job_id: String, render: bool)
             let overlay = read_json(&directory.join("video_overlay.json")).unwrap_or(Value::Null);
             let needs_refresh = if config["strategy"] == WISTAR_STRATEGY {
                 let artifact=read_json(&directory.join("video_artifact.json")).unwrap_or(Value::Null);
-                artifact["visualization"]["version"] != "oft-layered-video-4"
+                artifact["visualization"]["version"] != "oft-layered-video-8"
             } else {
-                overlay["version"] != "local-audit-7" || overlay["skeletonMethod"] != "body-axis-2"
+                overlay["version"] != "local-audit-11" || overlay["skeletonMethod"] != "body-axis-2"
             };
             return Ok(json!({"videoPath": destination, "videoError": null, "needsRefresh": needs_refresh}));
         }
@@ -788,10 +788,15 @@ pub async fn get_local_audit_video(app: AppHandle, job_id: String, render: bool)
 }
 
 #[tauri::command]
-pub fn list_local_tracking_jobs(
+pub async fn list_local_tracking_jobs(
     app: AppHandle,
     experiment_id: String,
 ) -> CommandResult<Vec<Value>> {
+    tauri::async_runtime::spawn_blocking(move || read_local_tracking_jobs(app, experiment_id))
+        .await.map_err(|_| "Carregamento do histórico interrompido".to_string())?
+}
+
+fn read_local_tracking_jobs(app: AppHandle, experiment_id: String) -> CommandResult<Vec<Value>> {
     validate_local_id(&experiment_id, "Experimento")?;
     prepare_tables(&app)?;
     let db = open_database(&app)?;
@@ -880,8 +885,15 @@ fn read_updates(path: &std::path::Path, offset: u64) -> CommandResult<Value> {
     Ok(json!({"offset":cursor,"samples":samples}))
 }
 #[tauri::command]
-pub fn get_local_tracking_result(app: AppHandle, job_id: String) -> CommandResult<Vec<Value>> {
-    let directory = folder(&app, &job_id)?;
+pub async fn get_local_tracking_result(app: AppHandle, job_id: String) -> CommandResult<Vec<Value>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        read_local_tracking_result(&folder(&app, &job_id)?)
+    })
+    .await
+    .map_err(|_| "Carregamento do tracking interrompido".to_string())?
+}
+
+fn read_local_tracking_result(directory: &std::path::Path) -> CommandResult<Vec<Value>> {
     let report = read_json(&directory.join("status.json")).ok_or("Resultado ainda indisponível")?;
     if report["state"] != "succeeded" {
         return Err("Somente execuções concluídas podem ser usadas como resultado".into());
@@ -897,7 +909,7 @@ pub fn get_local_tracking_result(app: AppHandle, job_id: String) -> CommandResul
                 .map_err(|_| "Frame inválido".into())
         })
         .collect::<CommandResult<_>>()?;
-    attach_layer_predictions(&directory, &mut samples)?;
+    attach_layer_predictions(directory, &mut samples)?;
     Ok(samples)
 }
 #[tauri::command]

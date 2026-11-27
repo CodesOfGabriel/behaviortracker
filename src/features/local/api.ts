@@ -3,6 +3,7 @@ import { parseCanonicalPoseCsv } from "../../lib/csv";
 import type { ArenaConfig, CorrectionEvent, PoseSample, SilhouetteMotionFeatures, VideoMetadata, VideoPreparation } from "../../types";
 import { getStagedVideoSha256, stageVideo, type HybridBundleId, type VideoPreparationProgress } from "../colab/analysis";
 import { scalePoseToOriginal } from "../colab/videoGeometry";
+import { sessionCache, trackingResultCache } from "../../lib/session-cache";
 
 export type LocalEnvironment = { ready: boolean; version?: string; message?: string; openclAvailable?: boolean };
 export type LocalJob = {
@@ -15,7 +16,7 @@ export type LocalJob = {
   uploadId: string;
   config: Record<string, unknown> & { videoPreparation?: VideoPreparation };
   report: { elapsedSec?: number; phase?: string; referenceFrames?: number; framesProcessed?: number | null; totalFrames?: number | null; processingFps?: number | null; observationCoveragePct?: number; computeBackend?: string;
-    layers?: {version:string}; rearing?: {state:"model_unavailable"|"classified";message:string;candidates:{frameIndex:number;timestampSec:number}[]};
+    layers?: {version:string}; rearing?: {state:"model_unavailable"|"classified"|"proposed"|"insufficient_evidence";message:string;candidates:{frameIndex:number;timestampSec:number}[]};
     validObservationCoveragePct?: number; reviewRequiredFrames?: number;
     trackingObservedCoveragePct?: number; trackingObservedFrames?: number; geometryRejectedFrames?: number;
     kalmanUpdateCount?: number; reasonCounts?: Record<string, number>; qualityReasonCounts?: Record<string, number>;
@@ -24,7 +25,8 @@ export type LocalJob = {
     cameraMotionState?: "stable" | "drift" | "unavailable"; cameraUncertainFrames?: number; cameraMotionPx?: number | null };
 };
 
-export const loadLocalResult = (jobId: string) => invoke<PoseSample[]>("get_local_tracking_result", { jobId });
+export const cachedLocalResult = (jobId: string) => trackingResultCache.peek<PoseSample[]>([jobId]);
+export const loadLocalResult = (jobId: string) => trackingResultCache.read([jobId], () => invoke<PoseSample[]>("get_local_tracking_result", { jobId }));
 export async function stageLocalOriginal(experimentId: string, video: VideoMetadata, file: File | undefined,
   onProgress: (progress: number, message: string, detail?: VideoPreparationProgress) => void) {
   const cached = await invoke<{ originalUploadId: string | null; originalSha256: string } | null>("get_staged_analysis_video", {
@@ -53,7 +55,9 @@ export async function loadLocalAuditVideo(jobId: string, render = false) {
 }
 export const getLocalEnvironment = () => invoke<LocalEnvironment>("get_local_tracking_environment");
 export const setupLocalEnvironment = () => invoke<LocalEnvironment>("setup_local_tracking_environment");
-export const listLocalJobs = (experimentId: string) => invoke<LocalJob[]>("list_local_tracking_jobs", { experimentId });
+export const cachedLocalJobs = (experimentId: string) => sessionCache.peek<LocalJob[]>(["localJobs", experimentId]);
+// Tracking panels poll explicitly; the rearing workspace can reuse their latest snapshot.
+export const listLocalJobs = (experimentId: string, refresh = true) => sessionCache.read(["localJobs", experimentId], () => invoke<LocalJob[]>("list_local_tracking_jobs", { experimentId }), refresh);
 export const startLocalJob = (experimentId: string, uploadId: string, config: Record<string, unknown>,
   videoOptions?: { optimizeVideo: boolean; expectedVideoSha256?: string }) =>
   invoke<LocalJob>("start_local_tracking", { experimentId, uploadId, config, ...videoOptions });

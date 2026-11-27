@@ -1,7 +1,8 @@
 """Colab box provider -> shared CPU geometry/orientation -> temporal behavior.
 
 Detection, geometry and behavior have separate checksummed artifacts. No HRNet,
-CoTracker, anatomical templates or held coordinates are used in this path.
+CoTracker or anatomical templates are used in this path. Display recovery is
+kept separate from raw geometry and scientific eligibility.
 """
 import ast
 import csv
@@ -39,7 +40,7 @@ def geometry_code_identity():
     # Classifier thresholds/weights/descriptors can change independently of
     # geometry. Only the functions consumed by this stage invalidate its cache.
     source = Path(__file__).with_name("oft_layers.py")
-    names = {"point", "coordinates", "silhouette", "tail_evidence", "head_location", "LayeredTracker", "tracking_box"}
+    names = {"point", "coordinates", "silhouette", "tail_evidence", "head_location", "LayeredTracker", "tracking_box", "finalize_temporal_pose"}
     tree = ast.parse(source.read_text())
     code = ast.dump(ast.Module(body=[n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef))
                                     and n.name in names], type_ignores=[]), include_attributes=False)
@@ -122,6 +123,8 @@ def run(video, detections, root, arena, fps, width, height, *, model_directory=N
         axisCodeSha256=digest(Path(__file__).with_name("body_axis.py")),
         interventionCodeSha256=digest(Path(__file__).parent/"behavior/intervention.py"),
         segmenterCodeSha256=digest(__import__(RobustSegmenter.__module__).__file__))
+    identity["continuityCodeSha256"]=digest(Path(__file__).with_name("oft_continuity.py"))
+    identity["temporalCodeSha256"]={p.name:digest(p) for p in sorted(Path(__file__).with_name("temporal_pose").glob("*.py"))}
     marker = root/"layer_manifest.json"
     cached = False
     if marker.is_file():
@@ -139,7 +142,7 @@ def run(video, detections, root, arena, fps, width, height, *, model_directory=N
         del reference_samples
         if not cv.imwrite(str(root/"background-reference.png"), background):
             raise OSError("Não foi possível guardar a referência de imagem")
-        tracker = LayeredTracker(width, height, config["arena"])
+        tracker = LayeredTracker(width, height, config["arena"], background)
         axis_filter = BodyAxisFilter(); guard = InterventionGuard(config, background)
         cap = open_video(video,ffmpeg,ffprobe); temporary = root/"samples.partial.jsonl"
         try:
@@ -209,6 +212,8 @@ def run(video, detections, root, arena, fps, width, height, *, model_directory=N
             temporary.replace(root/"samples.jsonl")
         finally:
             cap.release(); temporary.unlink(missing_ok=True)
+        from oft_layers import finalize_temporal_pose
+        finalize_temporal_pose(root,video,config)
         atomic_json(marker, dict(identity=identity, frameCount=count, policy=POLICY, timing=timing,
             trackingTermination=guard.stopped, files={name:digest(root/name) for name in ["samples.jsonl","background-reference.png"]}))
     behavior = finish_layers(root, video, config, model_directory,ffmpeg=ffmpeg,ffprobe=ffprobe)
@@ -236,6 +241,12 @@ def export(samples, detections, root):
         for sample, detection in zip(samples,detections):
             orientation = sample["oftLayers"]["orientation"]
             axis = sample["bodyAxis"]["points"]
+            visual = sample["oftLayers"].get("visualization")
+            if visual:
+                # Canonical recovered points are estimates, matching the
+                # display. Original bodyAxis/orientation stay in frame metadata.
+                axis = visual["points"]
+                orientation = dict(head=visual["head"],tailBase=visual["tailBase"],confidence=visual["supportScore"])
             box = tracking_box(sample)
             valid = sample.get("trackingAccepted") is True and box is not None
             accepted = 0
@@ -263,6 +274,8 @@ def export(samples, detections, root):
                     identity_state=sample.get("localQuality",{}).get("identity","unverified"),quality_reasons="|".join(sample.get("localQuality",{}).get("reasons",[])),
                     layered_observation=json.dumps(dict(bodyAxis=sample["bodyAxis"],oftLayers={**sample["oftLayers"],"rearing":predictions[sample["frameIndex"]]})) if key=="mouse_center" else ""))
             quality.append(dict(frame_index=sample["frameIndex"],timestamp_sec=sample["timestampSec"],visual_points=accepted,
-                orientation_state=orientation["state"],quality_flags=sample["reason"]))
+                orientation_state=sample["oftLayers"]["orientation"]["state"],
+                estimated_orientation_state=(visual.get("temporal") or {}).get("orientationState", "estimated" if visual.get("head") else "unknown") if visual else "unavailable",
+                quality_flags=sample["reason"]))
     with (Path(root)/"qc_by_frame.csv").open("w",newline="") as handle:
         writer=csv.DictWriter(handle,fieldnames=list(quality[0]));writer.writeheader();writer.writerows(quality)

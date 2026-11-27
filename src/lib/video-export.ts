@@ -50,7 +50,8 @@ export function drawPose(context: CanvasRenderingContext2D, samples: PoseSample[
     .map(sample => [sample.keypoint, sample] as const));
   const stopped=samples.some(sample=>["researcher_intervention","researcher_intervention_pending"].includes(sample.reason??""));
   if(stopped) return;
-  const bbox = samples.find(sample => sample.bbox)?.bbox;
+  const visual=layered?.oftLayers?.visualization;
+  const bbox = visual?visual.box:samples.find(sample => sample.bbox)?.bbox;
   if (bbox) {
     context.strokeStyle = "#9fb8a3";
     context.lineWidth = 2;
@@ -78,12 +79,13 @@ export function drawPose(context: CanvasRenderingContext2D, samples: PoseSample[
     if (estimated) context.stroke(); else context.fill();
   }
   if(layered){
-    const path=layered.bodyAxis?.points??[];
-    context.strokeStyle="#6be7ff";context.lineWidth=2;
+    const path=visual?.points??layered.bodyAxis?.points??[];
+    const inferred=visual&&visual.source!=="observed_geometry";
+    context.strokeStyle=inferred?"#ffca70":"#6be7ff";context.lineWidth=2;
     if(path.length){context.beginPath();path.forEach((p,i)=>i?context.lineTo(p.x,p.y):context.moveTo(p.x,p.y));context.stroke();}
-    context.fillStyle="#6be7ff";
+    context.fillStyle=inferred?"#ffca70":"#6be7ff";
     for(const p of path){context.beginPath();context.arc(p.x,p.y,2,0,Math.PI*2);context.fill();}
-    const orientation=layered.oftLayers!.orientation;
+    const orientation=visual?{state:"estimated",head:visual.head,tailBase:visual.tailBase}:layered.oftLayers!.orientation;
     context.strokeStyle="#ffca70";context.fillStyle="#ffca70";context.font="12px sans-serif";
     if(orientation.state==="estimated"&&orientation.head&&orientation.tailBase){
       const triangle=headTriangle(orientation.head,orientation.tailBase,5);

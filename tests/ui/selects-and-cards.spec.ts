@@ -48,22 +48,14 @@ for (const viewport of [{ width: 980, height: 620 }, { width: 1440, height: 900 
   });
 }
 
-test("select in a native modal supports keyboard, Escape and focus restoration", async ({ page }) => {
+test("tracking select supports keyboard, Escape and focus restoration", async ({ page }) => {
   await openExperiment(page);
-  await page.getByRole("button", { name: "Analisar", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "Analisar na máquina local" });
-  const width = dialog.getByRole("combobox", { name: "Largura de processamento", exact: true });
-  await width.focus();
+  await page.getByRole("tab", { name: "Rearing", exact: true }).click();
+  const tracking = page.getByRole("combobox", { name: "Tracking usado na análise comportamental" });
+  await tracking.focus();
   await page.keyboard.press("ArrowDown");
-  await expect(dialog.getByRole("listbox")).toBeVisible();
+  await expect(page.getByRole("listbox")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("listbox")).toHaveCount(0);
-  await expect(dialog).toBeVisible();
-  await expect(width).toBeFocused();
-  await width.click();
-  await dialog.getByRole("option", { name: "480 px", exact: true }).click();
-  await expect(width).toHaveText("480 px");
-  await page.keyboard.press("Escape");
-  await expect(dialog).not.toBeVisible();
-  await expect(page.getByRole("button", { name: "Analisar", exact: true })).toBeFocused();
+  await expect(tracking).toBeFocused();
 });

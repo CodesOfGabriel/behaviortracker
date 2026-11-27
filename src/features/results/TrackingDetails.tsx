@@ -46,14 +46,16 @@ export function TrackingDetails({experiment,samples,reference="box",children}:{e
   const timeline=useMemo(()=>[...new Map(samples.map(row=>[row.frameIndex,{frameIndex:row.frameIndex,timestampSec:row.timestampSec}])).values()]
     .sort((a,b)=>a.timestampSec-b.timestampSec),[samples]);
   const boxByFrame=useMemo(()=>new Map(boxes.map(row=>[row.frameIndex,row])),[boxes]);
+  const layeredByFrame=useMemo(()=>new Map(samples.filter(row=>row.oftLayers).map(row=>[row.frameIndex,row])),[samples]);
   const current=trackingFrameAt(timeline,time,experiment.video.fps??25);
-  const sample=current?boxByFrame.get(current.frameIndex):undefined;
+  const sample=current?layeredByFrame.get(current.frameIndex)??boxByFrame.get(current.frameIndex):undefined;
+  const displayBox=sample?.oftLayers?.visualization?sample.oftLayers.visualization.box:sample?.bbox;
   function seek(value:number){if(player.current)player.current.currentTime=value;}
   return <AnalysisDetailsLayout video={<DetailsVideoCard description="Acompanhe o vídeo e consulte os gráficos ao lado.">
     <div className="tracking-details-player">
       {source?<><video ref={player} src={source} controls playsInline preload="metadata"/>
-        {originalUrl&&sample?.bbox&&<svg viewBox={`0 0 ${experiment.video.width} ${experiment.video.height}`} aria-label="Caixa e linha corporal sincronizadas">
-          <rect {...sample.bbox} data-frame-index={sample.frameIndex} data-timestamp-sec={sample.timestampSec} fill="none" stroke={sample.status==="valid"&&sample.trackingAccepted!==false?"#67d9b8":"#e8b86d"} strokeDasharray={sample.source==="predicted"||sample.source==="recovered"?"8 5":undefined} strokeWidth={3}/><circle cx={sample.xPx!} cy={sample.yPx!} r={5} fill="#67d9b8"/>
+        {originalUrl&&sample&&displayBox&&<svg viewBox={`0 0 ${experiment.video.width} ${experiment.video.height}`} aria-label="Caixa e linha corporal sincronizadas">
+          <rect {...displayBox} data-frame-index={sample.frameIndex} data-timestamp-sec={sample.timestampSec} fill="none" stroke={sample.status==="valid"&&sample.trackingAccepted!==false?"#67d9b8":"#e8b86d"} strokeDasharray={sample.source==="predicted"||sample.source==="recovered"||sample.oftLayers?.visualization?.source==="held_estimate"?"8 5":undefined} strokeWidth={3}/>{sample.xPx!=null&&sample.yPx!=null&&<circle cx={sample.xPx} cy={sample.yPx} r={5} fill="#67d9b8"/>}
           <LocalBodyOverlay sample={sample} samples={boxes} width={experiment.video.width} height={experiment.video.height}/>
         </svg>}</>:<div className="details-video-empty"><span>Vídeo indisponível neste dispositivo</span><p>{artifact?.key===key?artifact.error:"Carregando vídeo salvo…"}</p></div>}
     </div>

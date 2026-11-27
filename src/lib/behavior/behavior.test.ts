@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeAnnotations, activePeaks, peaksCsv, annotationOverlap, annotationsCsv, frameAt, intervalError } from "./validation";
+import { activeAnnotations, activePeaks, peaksCsv, annotationOverlap, annotationsCsv, frameAt, intervalError, proposalReviews } from "./validation";
 import { reviewedEvents } from "./events";
 import { reviewedSummary } from "./metrics";
 import type { BehaviorAnnotation, BehaviorEvent, BehaviorReview } from "./types";
@@ -8,6 +8,21 @@ import { assertBehaviorSource, selectedBehaviorRun } from "./selection";
 const annotation:BehaviorAnnotation={schemaVersion:1,id:"a",type:"INTERVAL",source:"human",experimentId:"experiment",trackingJobId:"tracking",videoSha256:"a".repeat(64),createdAt:"2026-01-01",startSec:1,endSec:2,label:"REARING_UNSPECIFIED",annotatorId:"A"};
 const event:BehaviorEvent={eventId:"rear_1",startSec:1,endSec:2,durationSec:1,behavior:"REARING_UNSPECIFIED",score:.9,reviewStatus:"pending",observedIntervals:[[1,2]],censored:false};
 describe("human behavior annotations",()=>{
+  it("restores proposal decisions from history and honors human edits and undo",()=>{
+    const peak:BehaviorAnnotation={...annotation,type:"PEAK",frameIndex:3,timestampSec:.12};
+    const review:BehaviorAnnotation={...peak,id:"review",type:"PROPOSAL_REVIEW",decision:"accept",peakId:peak.id};
+    const history=[peak,review];
+    expect(proposalReviews(history)[3]).toEqual({decision:"accept",label:"REARING_UNSPECIFIED"});
+    const edit:BehaviorAnnotation={...annotation,id:"edit",type:"LABEL_PEAK",targetId:peak.id,label:"REARING_SUPPORTED"};
+    expect(proposalReviews([...history,edit])[3]).toEqual({decision:"accept",label:"REARING_SUPPORTED"});
+    const undo:BehaviorAnnotation={...annotation,id:"undo",type:"UNDO",targetId:peak.id};
+    expect(proposalReviews([...history,edit,undo])[3]).toBeUndefined();
+    const rejected:BehaviorAnnotation={...review,id:"reject",decision:"reject",label:undefined};
+    expect(proposalReviews([...history,undo,rejected])[3]).toEqual({decision:"reject"});
+    expect(activeAnnotations([rejected])).toEqual([]);
+    expect(activePeaks([rejected])).toEqual([]);
+    expect(proposalReviews([...history,undo,rejected,{...peak,id:"new"}])[3]?.decision).toBe("accept");
+  });
   it("undo preserves history and removes only its target",()=>{const history=[annotation,{...annotation,id:"undo",type:"UNDO" as const,targetId:"a"}];expect(activeAnnotations(history)).toEqual([]);expect(history).toHaveLength(2);});
   it("overlap excludes adjacent half-open intervals",()=>{expect(annotationOverlap([annotation],2,3)).toBe(false);expect(annotationOverlap([annotation],1.5,3)).toBe(true);});
   it("unlabeled space is not exported as negative",()=>{const csv=annotationsCsv([annotation],"video");expect(csv.split("\n").filter(Boolean)).toHaveLength(2);expect(csv).not.toContain("NON_REARING");});

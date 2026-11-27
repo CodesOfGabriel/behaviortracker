@@ -17,7 +17,7 @@ PREDICTED = "F19DD5"
 MISSING = "A0A0A0"
 REGION = "E7A66B"
 AXIS = "FFE76B"
-VISUALIZATION_VERSION = "local-audit-7"
+VISUALIZATION_VERSION = "local-audit-11"
 
 
 def head_triangle(head, tail, radius):
@@ -223,6 +223,7 @@ def write_annotations(path, root, config, width, height, cancelled, behavior_pre
     chart = DisplacementChart(is_fst)
     skeleton_frames = 0
     uncertain_skeletons = 0
+    inferred_skeletons = 0
     axis_filters, axis_reasons = {}, {}
     predictions = []
     layer_predictions = {}
@@ -251,7 +252,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         previous = None
 
         def write_frame(row, end):
-            nonlocal skeleton_frames, uncertain_skeletons, prediction_cursor
+            nonlocal skeleton_frames, uncertain_skeletons, inferred_skeletons, prediction_cursor
             start, index, timestamp, items = row
             while prediction_cursor < len(predictions) and predictions[prediction_cursor]["endSec"] <= timestamp:
                 prediction_cursor += 1
@@ -274,17 +275,21 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if not is_open_field:
                 out.write(event(start, end, rf"AUDITORIA LOCAL  |  Frame {index + 1}  |  {timestamp:.3f} s\N{labels}", 2))
             for _, color, box, sample in items:
+                visual=(sample.get("oftLayers") or {}).get("visualization") if is_open_field else None
+                if visual:box=visual.get("box")
                 if box:
                     out.write(event(start, end, rectangle(box, color, stroke, scale), 1))
                 subject = sample.get("animalId", "body")
                 observation = axis_filters.setdefault(subject, BodyAxisFilter()).update({**sample, "frameIndex":index, "timestampSec":timestamp})
                 axis_reasons[observation["reason"]] = axis_reasons.get(observation["reason"], 0)+1
                 path = [(p["x"],p["y"]) for p in observation["points"]]
+                if visual:path=[(p["x"],p["y"]) for p in visual["points"]]
                 if path:
-                    uncertain = not accepted_body(sample, is_fst)
+                    uncertain = not accepted_body(sample, is_fst) or bool(visual and visual.get("source")!="observed_geometry")
                     axis_color = UNCERTAIN if uncertain else AXIS
                     uncertain_skeletons += int(uncertain)
                     skeleton_frames += 1
+                    inferred_skeletons += bool(visual and visual.get("source")!="observed_geometry")
                     for a, b in zip(path, path[1:]):
                         out.write(event(start, end, outline([a, b], axis_color, stroke, scale), 1))
                     for x, y in path:
@@ -296,6 +301,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                                         ("Silhueta incerta | " if uncertain else "")+
                                         "Eixo da silhueta estimado - sem identidade anatômica", 2))
                 orientation = (sample.get("oftLayers") or {}).get("orientation") or {}
+                if visual:orientation=dict(state="estimated",head=visual.get("head"),tailBase=visual.get("tailBase"))
                 if orientation.get("state") == "estimated" and orientation.get("head") and orientation.get("tailBase"):
                     head, tail = orientation["head"], orientation["tailBase"]
                     triangle = head_triangle(head,tail,max(4,height*.007)/max(scale))
@@ -337,6 +343,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 out.write(event(0, last_end, outline([(p["x"], p["y"]) for p in polygon], REGION, stroke, scale)))
     return {"version": VISUALIZATION_VERSION, "skeletonMethod": "body-axis-2", "axisQualityReasons":axis_reasons,
             "anatomicalPose": False, "skeletonFrames": skeleton_frames,
+            "inferredSkeletonFrames":inferred_skeletons,
             "textOverlay": not is_open_field, "headMarker": "hollow_triangle",
             "uncertainSkeletonObservations": uncertain_skeletons, "skeletonVisibility": "body_core_and_temporal_outlier_gate",
             "displacementChart": {"visible":not is_open_field,"position": "top_right" if not is_open_field else None, "units": "px/s", "reference": "box_center",

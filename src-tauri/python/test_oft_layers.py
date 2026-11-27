@@ -215,7 +215,8 @@ class LayerPipelineTests(unittest.TestCase):
             first=run(video,detections,output,{},20,320,240)
             self.assertEqual(first["pipelineVersion"],"oft-layers-1")
             self.assertEqual(first["keypointCount"],10)
-            self.assertEqual(first["rearing"]["state"],"model_unavailable")
+            self.assertIn(first["rearing"]["state"], {"proposed", "insufficient_evidence"})
+            self.assertFalse(first["rearing"]["scientificallyValidated"])
             rows=[json.loads(line) for line in (output/"samples.jsonl").read_text().splitlines()]
             self.assertGreater(sum(r.get("trackingAccepted",False) for r in rows),30)
             geometry=digest(output/"samples.jsonl")
@@ -238,8 +239,10 @@ class LayerPipelineTests(unittest.TestCase):
             cap=capture(output/artifact["filename"]);count=0
             while cap.read()[0]:count+=1
             cap.release();self.assertEqual(count,len(detections))
-            self.assertEqual(artifact["visualization"]["version"],"oft-layered-video-4")
-            self.assertEqual(artifact["visualization"]["skeletonFrames"],sum(r["bodyAxis"]["state"]=="reliable" for r in rows))
+            self.assertEqual(artifact["visualization"]["version"],"oft-layered-video-8")
+            self.assertEqual(artifact["visualization"]["skeletonFrames"],len(rows))
+            self.assertLess(sum(r["bodyAxis"]["state"]=="reliable" for r in rows),len(rows))
+            self.assertTrue(all(r["oftLayers"]["visualization"]["metricEligible"] is False for r in rows))
             self.assertGreater(artifact["visualization"]["skeletonFrames"],0)
             self.assertFalse(artifact["visualization"]["estimatedPointsMetricEligible"])
             with (output/"canonical_pose.csv").open() as handle: canonical=list(csv.DictReader(handle))
@@ -247,6 +250,14 @@ class LayerPipelineTests(unittest.TestCase):
             estimates=[r for r in canonical if r["source"]=="recovered" and r["x_px"]]
             self.assertTrue(estimates)
             self.assertTrue(all(r["status"]=="low_confidence" and r["raw_status"]=="missing" for r in estimates))
+            self.assertTrue(all(r['oftLayers']['visualization']['temporal']['version']=='offline_pose_v2' for r in rows))
+            for row in rows:
+                head=next(p for p in canonical if int(p['frame_index'])==row['frameIndex'] and p['keypoint']=='head_midpoint')
+                visual_head=row['oftLayers']['visualization']['head']
+                if visual_head:
+                    self.assertAlmostEqual(float(head['x_px']),visual_head['x'])
+                    self.assertAlmostEqual(float(head['y_px']),visual_head['y'])
+                else:self.assertEqual(head['status'],'missing')
 
     def test_saved_legacy_colab_video_rebuild_preserves_original_poses_and_reuses_geometry(self):
         from hybrid_render import REGIONS, render

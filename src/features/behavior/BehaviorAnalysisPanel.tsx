@@ -6,26 +6,35 @@ import { downloadText } from "../../lib/csv";
 import { reviewedEvents } from "../../lib/behavior/events";
 import type { BehaviorJob, BehaviorModelStatus, BehaviorResult, BehaviorReview } from "../../lib/behavior/types";
 import { isTauriRuntime } from "../colab/connection";
-import { listLocalJobs, type LocalJob } from "../local/api";
+import { cachedLocalJobs, listLocalJobs, type LocalJob } from "../local/api";
 import { BehaviorAnnotationEditor } from "./BehaviorAnnotationEditor";
 import { BehaviorMetricSummary } from "./BehaviorMetricSummary";
 import { BehaviorEthogram } from "./BehaviorEthogram";
 import { BehaviorEventReview } from "./BehaviorEventReview";
-import { annotationContext, appendBehaviorReview, cancelBehavior, cancelBehaviorModelDownload, downloadBehaviorModel, exportBehaviorResults, getBehaviorModelStatus, listBehaviorJobs, listBehaviorReviews, loadBehaviorResult, previewLocalRearingPeaks, renderBehaviorVideo, revealBehaviorExport, setupBehaviorEnvironment, startBehavior, type ApexPreview } from "./api";
+import { annotationContext, appendBehaviorReview, cancelBehavior, cancelBehaviorModelDownload, downloadBehaviorModel, exportBehaviorResults, getBehaviorModelStatus, listBehaviorJobs, listBehaviorReviews, loadBehaviorResult, renderBehaviorVideo, revealBehaviorExport, setupBehaviorEnvironment, startBehavior } from "./api";
 import { csvCell } from "../../lib/behavior/validation";
 import { useAppStore } from "../../store/AppStore";
 import { assertBehaviorSource, selectedBehaviorRun } from "../../lib/behavior/selection";
-import { installLocalRearingApexModel } from "./api";
+import { cachedAnnotationContext, cachedBehaviorJobs, cachedBehaviorModelStatus, cachedBehaviorResult, cachedBehaviorReviews } from "./api";
+import { rearingTrackingJobs } from "./preload";
+import { RearingDetectionPanel } from "./RearingDetectionPanel";
 
 const stateLabels:Record<BehaviorJob["state"],string>={queued:"Na fila",preparing:"Preparando",extracting:"Extraindo imagem e movimento",classifying:"Classificando",decoding:"Organizando episódios",succeeded:"Concluída",cancelled:"Cancelada",failed:"Falhou"};
 const terminal=(state:BehaviorJob["state"])=>["succeeded","cancelled","failed"].includes(state);
 
-function BehaviorRun({experiment,jobId}: {experiment:OpenFieldExperiment;jobId:string}) {
+function BehaviorRun({experiment,jobId,savedCandidates}: {experiment:OpenFieldExperiment;jobId:string;savedCandidates:NonNullable<LocalJob["report"]["rearing"]>["candidates"]}) {
   const {updateExperiment}=useAppStore();
-  const [tab,setTab]=useState("annotate"), [model,setModel]=useState<BehaviorModelStatus|null>(null), [jobs,setJobs]=useState<BehaviorJob[]>([]);
-  const [loadedResult,setResult]=useState<{jobId:string;value:BehaviorResult}|null>(null), [reviews,setReviews]=useState<BehaviorReview[]>([]);
+  const cachedJobs=cachedBehaviorJobs(experiment.id,jobId)??[];
+  const cachedRun=selectedBehaviorRun(cachedJobs,experiment.video.sha256!,experiment.behaviorSelections?.[jobId]);
+  const [tab,setTab]=useState("annotate"), [model,setModel]=useState<BehaviorModelStatus|null>(()=>cachedBehaviorModelStatus()??null), [jobs,setJobs]=useState<BehaviorJob[]>(()=>cachedJobs.filter(job=>job.videoSha256===experiment.video.sha256));
+  const [loadedResult,setResult]=useState<{jobId:string;value:BehaviorResult}|null>(()=>{
+    const value=cachedBehaviorResult(cachedRun);
+    if(!value)return null;
+    try{assertBehaviorSource(value,experiment.id,jobId,experiment.video.sha256!);}catch{return null;}
+    return {jobId:cachedRun,value};
+  }), [reviews,setReviews]=useState<BehaviorReview[]>(()=>cachedBehaviorReviews(cachedRun)??[]);
   const [busy,setBusy]=useState(false),[error,setError]=useState<string|null>(null),[modelError,setModelError]=useState<string|null>(null),[modelPath,setModelPath]=useState("");
-  const [context,setContext]=useState<Awaited<ReturnType<typeof annotationContext>>|null>(null),[time,setTime]=useState(0);
+  const [context,setContext]=useState<Awaited<ReturnType<typeof annotationContext>>|null>(()=>cachedAnnotationContext(experiment.id,jobId,experiment.video.sha256!)??null),[time,setTime]=useState(0);
   const [auditVideo,setAuditVideo]=useState<string|null>(null);
   const [exportUrl,setExportUrl]=useState<string|null>(null);
   const [exportPath,setExportPath]=useState<string|null>(null);
@@ -33,10 +42,6 @@ function BehaviorRun({experiment,jobId}: {experiment:OpenFieldExperiment;jobId:s
   const video=useRef<HTMLVideoElement>(null);
   const studioDialog=useRef<HTMLDialogElement>(null);
   const [studioOpen,setStudioOpen]=useState(false);
-  const [apexModelPath,setApexModelPath]=useState("");
-  const [apexInstalled,setApexInstalled]=useState(false);
-  const [apexPreview,setApexPreview]=useState<ApexPreview|null>(null);
-  const [apexFocus,setApexFocus]=useState<number>();
   useEffect(()=>{if(studioOpen&&tab==="annotate"&&!studioDialog.current?.open)studioDialog.current?.showModal();},[studioOpen,tab]);
   const active=jobs.find(job=>!terminal(job.state));
   const digest=experiment.video.sha256!;
@@ -53,11 +58,29 @@ function BehaviorRun({experiment,jobId}: {experiment:OpenFieldExperiment;jobId:s
   useEffect(()=>{let live=true;void getBehaviorModelStatus().then(value=>{if(live)setModel(value);}).catch(reason=>{if(live)setModelError(String(reason));});return()=>{live=false;};},[]);
   useEffect(()=>{
     let live=true;
-    const refresh=()=>void listBehaviorJobs(experiment.id,jobId).then(value=>{if(live)setJobs(value.filter(job=>job.videoSha256===digest));}).catch(reason=>{if(live)setError(String(reason));});
-    refresh();const timer=window.setInterval(refresh,2000);return()=>{live=false;clearInterval(timer);};
+    const refresh=(fresh=false)=>void listBehaviorJobs(experiment.id,jobId,fresh).then(value=>{
+      if(!live)return;
+      setJobs(value.filter(job=>job.videoSha256===digest));
+    }).catch(reason=>{if(live)setError(String(reason));});
+    const onFocus=()=>refresh(true);
+    refresh();window.addEventListener("focus",onFocus);
+    return()=>{live=false;window.removeEventListener("focus",onFocus);};
   },[experiment.id,jobId,digest]);
+  // Starting a run updates jobs locally, so polling also starts after a mutation.
   useEffect(()=>{
-    let live=true;setResult(null);setReviews([]);setAuditVideo(null);setExportUrl(null);setExportPath(null);
+    if(!active)return;
+    let live=true;
+    let timer:number;
+    const refresh=()=>void listBehaviorJobs(experiment.id,jobId,true)
+      .then(value=>{if(live)setJobs(value.filter(job=>job.videoSha256===digest));})
+      .catch(reason=>{if(live)setError(String(reason));})
+      .finally(()=>{if(live)timer=window.setTimeout(refresh,2000);});
+    timer=window.setTimeout(refresh,2000);
+    return()=>{live=false;clearTimeout(timer);};
+  },[active?.jobId,experiment.id,jobId,digest]);
+  useEffect(()=>{
+    let live=true;setAuditVideo(null);setExportUrl(null);setExportPath(null);
+    setResult(old=>old?.jobId===shown?old:null);setReviews(cachedBehaviorReviews(shown)??[]);
     if(!shown||jobs.find(job=>job.jobId===shown)?.state!=="succeeded")return;
     void Promise.all([loadBehaviorResult(shown),listBehaviorReviews(shown),annotationContext(experiment.id,jobId,digest)])
       .then(([value,history,ctx])=>{if(live){assertBehaviorSource(value,experiment.id,jobId,digest);setResult({jobId:shown,value});setReviews(history);setContext(ctx);}})
@@ -69,34 +92,12 @@ function BehaviorRun({experiment,jobId}: {experiment:OpenFieldExperiment;jobId:s
   const events=result?reviewedEvents(result.events,reviews):[];
   async function review(event:BehaviorReview){await appendBehaviorReview(shown,event);setReviews(old=>[...old,event]);}
   useEffect(()=>{if(tab!=="review")video.current?.pause();},[tab]);
-  return <>
-    <div className="behavior-subtabs" role="tablist" aria-label="Trabalho com rearing">{[["annotate","1. Anotar vídeo"],["detect","2. Detecção automática"],["review","3. Resultados e revisão"]].map(([value,label])=><button key={value} type="button" id={`behavior-${value}-tab`} role="tab" aria-selected={tab===value} aria-controls={`behavior-${value}-panel`} onClick={()=>setTab(value)}>{label}</button>)}</div>
-    {error&&<p role="alert" className="validation-box invalid">{error}</p>}
-    <div role="tabpanel" id="behavior-annotate-panel" aria-labelledby="behavior-annotate-tab" hidden={tab!=="annotate"} className="behavior-studio-entry">
-      <h3>Marque os episódios diretamente no vídeo</h3><p>Pressione R no ápice do rearing, escolha o tipo à direita e salve. Você também pode avançar por frame ou anotar intervalos completos. O estúdio abre em uma área ampla para manter vídeo e controles juntos.</p>
-      <Button onClick={()=>{studioDialog.current?.showModal();setStudioOpen(true);}}>Abrir estúdio de anotação</Button>
-      <p className="behavior-help">As anotações são salvas neste computador e podem ser exportadas para treinamento. Você pode começar sem instalar um modelo de rearing.</p>
-      <dialog ref={studioDialog} className="behavior-studio-modal" aria-labelledby="behavior-studio-title" onClose={()=>setStudioOpen(false)}>
-        <header><div><div className="eyebrow">Campo aberto · anotação humana</div><h2 id="behavior-studio-title">Estúdio de rearing</h2></div><Button variant="secondary" size="sm" onClick={()=>studioDialog.current?.close()}>Fechar estúdio</Button></header>
-        <BehaviorAnnotationEditor key={`${experiment.id}:${jobId}:${digest}`} experimentId={experiment.id} trackingJobId={jobId} videoSha256={digest} videoId={experiment.id} width={experiment.video.width} height={experiment.video.height} animalId={experiment.subjectId} active={studioOpen} focusTime={apexFocus}/>
-      </dialog>
-    </div>
-    {tab==="detect"&&<div role="tabpanel" id="behavior-detect-panel" aria-labelledby="behavior-detect-tab" className="behavior-detection">
-      <section aria-label="Detecção local de ápices"><h3>Localizar ápices com o modelo local</h3>
-        <p>Modelo experimental treinado com ápices humanos. As propostas exigem revisão e preservam a incerteza do tracking. A entrada do pesquisador encerra as propostas.</p>
-        <label>Pasta do modelo de ápices<input value={apexModelPath} onChange={e=>{setApexModelPath(e.target.value);setApexInstalled(false);}} placeholder="Pasta model com manifest.json e peak_model.json"/></label>
-        <Button variant="secondary" loading={busy} disabled={Boolean(active)||!apexModelPath.trim()} onClick={()=>void operation(async()=>{setApexPreview(null);setApexPreview(await previewLocalRearingPeaks(experiment.id,jobId,digest,apexModelPath));})}>Detectar ápices com modelo local</Button>
-        <Button variant="secondary" loading={busy} disabled={Boolean(active)||!apexModelPath.trim()} onClick={()=>void operation(async()=>{await installLocalRearingApexModel(apexModelPath);setApexInstalled(true);})}>Usar nas próximas análises locais e Colab</Button>
-        {apexInstalled&&<p role="status">Modelo selecionado para novas análises de Campo Aberto. As propostas de rearing continuam pendentes de revisão.</p>}
-        {apexPreview&&<><p role="status">{apexPreview.candidates.length} propostas · {apexPreview.message}</p>
-          {apexPreview.sameTrainingVideo&&<p>Este vídeo participou do treinamento. As propostas abaixo não medem precisão em um vídeo independente.</p>}
-          {apexPreview.trackingTermination&&<p>Propostas encerradas em {apexPreview.trackingTermination.timestampSec.toFixed(2)} s: entrada do pesquisador.</p>}
-          <details><summary>Revisar propostas de ápices</summary><div className="behavior-interval-list">{apexPreview.candidates.map(candidate=><Button variant="secondary" size="sm" key={candidate.frameIndex} onClick={()=>{setApexFocus(candidate.timestampSec);setTab("annotate");setStudioOpen(true);}}>{candidate.timestampSec.toFixed(3)} s · score {(candidate.score*100).toFixed(0)}%{candidate.observation!=="OBSERVED"?" · tracking incerto":""}</Button>)}</div></details>
-        </>}
-      </section>
+  const detectorOptions = <>
+      {error&&<p role="alert" className="validation-box invalid">{error}</p>}
       <details><summary>Classificador de episódios completos e duração</summary>
       <h3>Classificar rearing neste computador</h3><p>O classificador reutiliza o tracking selecionado e analisa imagem, geometria e movimento ao longo do tempo. O resultado é independente dos indicadores de locomoção.</p>
       {modelError&&<p role="alert">{modelError}</p>}
+      {modelError&&<Button variant="secondary" onClick={()=>void getBehaviorModelStatus().then(value=>{setModel(value);setModelError(null);}).catch(reason=>setModelError(String(reason)))}>Consultar modelo novamente</Button>}
       <div className="behavior-model-status"><strong>{model?.installed?`Modelo instalado · ${model.manifest.modelVersion}`:"Modelo supervisionado ainda não disponível"}</strong><p>{model?.installed?`${model.manifest.sampleRateHz} Hz · CPU · ${model.manifest.architecture}`:"Comece anotando o vídeo na primeira aba. As anotações serão usadas para treinar e validar o modelo."}</p></div>
       <details><summary>Preparar ambiente e instalar modelo</summary><p>O ambiente CPU é separado do rastreador. A primeira preparação baixa ONNX Runtime e OpenCV.</p>
         <Button variant="secondary" loading={busy} disabled={Boolean(active)} onClick={()=>void operation(async()=>{await setupBehaviorEnvironment();setModel(await getBehaviorModelStatus());setModelError(null);})}>Preparar ambiente CPU</Button>
@@ -108,7 +109,21 @@ function BehaviorRun({experiment,jobId}: {experiment:OpenFieldExperiment;jobId:s
       {active&&<div role="status"><p>{stateLabels[active.state]} · {active.report.framesProcessed??0} frames processados</p><Button variant="secondary" onClick={()=>void operation(()=>cancelBehavior(active.jobId))}>Cancelar classificação</Button></div>}
       <p className="behavior-help">Os pesos precisam ser treinados com anotações humanas. O estado experimental permanece visível até que a validação em vídeos independentes seja documentada.</p>
       </details>
-    </div>}
+  </>;
+  return <>
+    <div className="behavior-subtabs" role="tablist" aria-label="Trabalho com rearing">{[["annotate","1. Anotar vídeo"],["review","2. Resultados e revisão"]].map(([value,label])=><button key={value} type="button" id={`behavior-${value}-tab`} role="tab" aria-selected={tab===value} aria-controls={`behavior-${value}-panel`} onClick={()=>setTab(value)}>{label}</button>)}</div>
+    {error&&<p role="alert" className="validation-box invalid">{error}</p>}
+    <div role="tabpanel" id="behavior-annotate-panel" aria-labelledby="behavior-annotate-tab" hidden={tab!=="annotate"} className="behavior-studio-entry">
+      <h3>Marque os episódios diretamente no vídeo</h3><p>Complete o início e o fim dos ápices já marcados, registre exemplos de não rearing e marque pontos corporais clicando na imagem. O estúdio mantém vídeo e controles juntos e mostra o progresso das anotações.</p>
+      <Button onClick={()=>{studioDialog.current?.showModal();setStudioOpen(true);}}>Abrir estúdio de anotação</Button>
+      <p className="behavior-help">As anotações são salvas neste computador e podem ser exportadas para treinamento. Você pode começar sem instalar um modelo de rearing.</p>
+      <dialog ref={studioDialog} className="behavior-studio-modal" aria-labelledby="behavior-studio-title" onClose={()=>setStudioOpen(false)}>
+        <header><div><div className="eyebrow">Campo aberto · anotação humana</div><h2 id="behavior-studio-title">Estúdio de rearing</h2></div><Button variant="secondary" size="sm" onClick={()=>studioDialog.current?.close()}>Fechar estúdio</Button></header>
+        <BehaviorAnnotationEditor key={`${experiment.id}:${jobId}:${digest}`} experimentId={experiment.id} trackingJobId={jobId} videoSha256={digest} videoId={experiment.id} width={experiment.video.width} height={experiment.video.height} animalId={experiment.subjectId} active={studioOpen}
+          renderDetection={({disabled,...controls})=><RearingDetectionPanel experimentId={experiment.id} trackingJobId={jobId} videoSha256={digest}
+            savedCandidates={savedCandidates} disabled={disabled||busy||Boolean(active)} {...controls} advancedContent={detectorOptions}/>}/>
+      </dialog>
+    </div>
     {tab==="review"&&<div role="tabpanel" id="behavior-review-panel" aria-labelledby="behavior-review-tab">
       <SelectMenu label="Execução comportamental" value={shown} onChange={selectRun} options={[{value:"",label:"Execução concluída mais recente"},...jobs.map(job=>({value:job.jobId,label:`${new Date(job.createdAt).toLocaleString("pt-BR")} · ${job.modelVersion} · ${stateLabels[job.state]}`}))]}/>
       {experiment.behaviorSelections?.[jobId]&&!shown&&<div role="status"><p>A execução salva não está disponível para este vídeo. Selecione uma execução do histórico.</p><Button size="sm" variant="secondary" onClick={()=>selectRun("")}>Usar execução concluída mais recente</Button></div>}
@@ -132,15 +147,15 @@ function BehaviorRun({experiment,jobId}: {experiment:OpenFieldExperiment;jobId:s
 }
 
 export function BehaviorAnalysisPanel({experiment,onSelect}: {experiment:OpenFieldExperiment;onSelect:(selection:TrackingSelection)=>Promise<boolean>}) {
-  const [jobs,setJobs]=useState<LocalJob[]>([]),[error,setError]=useState<string|null>(null);
+  const [jobs,setJobs]=useState<LocalJob[]>(()=>rearingTrackingJobs(cachedLocalJobs(experiment.id)??[],experiment.video.sha256)),[error,setError]=useState<string|null>(null);
   const selected=experiment.trackingSelection?.engine==="opencv"?experiment.trackingSelection.jobId:"";
-  useEffect(()=>{if(!isTauriRuntime())return;let live=true;void listLocalJobs(experiment.id).then(value=>{if(live)setJobs(value.filter(job=>job.state==="succeeded"&&job.config.protocol==="open_field"&&job.videoSha256===experiment.video.sha256&&job.config.strategy!=="wistar_hrnet"));}).catch(reason=>{if(live)setError(String(reason));});return()=>{live=false;};},[experiment.id,selected,experiment.video.sha256]);
+  useEffect(()=>{if(!isTauriRuntime())return;let live=true;void listLocalJobs(experiment.id,false).then(value=>{if(live)setJobs(rearingTrackingJobs(value,experiment.video.sha256));}).catch(reason=>{if(live)setError(String(reason));});return()=>{live=false;};},[experiment.id,selected,experiment.video.sha256]);
   return <section className="panel behavior-panel" aria-label="Rearing no campo aberto"><div className="behavior-heading"><div className="eyebrow">Campo aberto · câmera superior</div><h2>Rearing e exploração vertical</h2><p>Prepare as anotações, execute o modelo treinado e revise cada episódio.</p></div>
     {!isTauriRuntime()?<p>Abra o aplicativo desktop para anotar o vídeo original e executar a classificação local.</p>:<>
       {error&&<p role="alert">{error}</p>}
       <SelectMenu label="Tracking usado na análise comportamental" value={jobs.some(j=>j.jobId===selected)?selected:""} onChange={jobId=>void onSelect({engine:"opencv",jobId})} placeholder="Selecione um tracking OpenCV concluído" options={jobs.map(job=>({value:job.jobId,label:`${new Date(job.createdAt).toLocaleString("pt-BR")} · OpenCV · ${job.jobId.slice(0,8)}`}))}/>
       {!jobs.length&&<p>Execute primeiro o OpenCV rápido na aba Análise para este vídeo.</p>}
-      {selected&&jobs.some(j=>j.jobId===selected)&&experiment.video.sha256&&<BehaviorRun key={`${experiment.id}:${selected}:${experiment.video.sha256}`} experiment={experiment} jobId={selected}/>}
+      {selected&&jobs.some(j=>j.jobId===selected)&&experiment.video.sha256&&<BehaviorRun key={`${experiment.id}:${selected}:${experiment.video.sha256}`} experiment={experiment} jobId={selected} savedCandidates={jobs.find(job=>job.jobId===selected)?.report.rearing?.candidates??[]}/>}
     </>}
   </section>;
 }

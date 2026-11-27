@@ -844,7 +844,7 @@ function TrackingReviewEditor({ experimentId }: { experimentId: string }) {
                   showLabel={experiment.testType!=="open_field"}
                   width={experiment.video.width} height={experiment.video.height} drawing={false} editable={false} predicted={sample.source==="predicted"} manual={sample.source==="manual"}
                   onStart={()=>{}} onCancel={()=>{}} onCommit={()=>{}}/>)}
-                {macroMode&&<BoxOverlay key={`${trackingSourceKey(experiment.trackingSelection)}:${currentFrame}`} box={drawablePose(currentReference)?currentReference.bbox:undefined}
+                {macroMode&&<BoxOverlay key={`${trackingSourceKey(experiment.trackingSelection)}:${currentFrame}`} box={currentReference?.oftLayers?.visualization?currentReference.oftLayers.visualization.box??undefined:drawablePose(currentReference)?currentReference.bbox:undefined}
                   showLabel={experiment.testType!=="open_field"}
                   width={experiment.video.width} height={experiment.video.height} drawing={drawingBox} editable={!positionLocked&&workspaceTab==="review"}
                   predicted={currentReference?.source==="predicted"} manual={currentReference?.source==="manual"}

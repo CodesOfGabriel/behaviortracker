@@ -23,6 +23,83 @@ def frame(x=100, y=110, color=(200, 200, 200), axes=(12, 8), background=40):
 
 
 class PrecisionTests(unittest.TestCase):
+    def test_wall_head_uses_current_torso_shading_without_learning_a_new_identity(self):
+        from test_arena import quad
+        background=frame(None);background[:100]=80
+        cfg=settings(protocol='open_field')
+        cfg['arena']={'cornersPx':quad(40,100,280,220),'rimCornersPx':quad(20,15,300,225)}
+        detector=RobustSegmenter(cfg,background)
+        first=background.copy();cv2.ellipse(first,(160,135),(12,23),0,0,360,(110,)*3,-1)
+        detector.process(first,0);detector.process(first,.04);reference=detector.appearance.copy()
+        image=background.copy();cv2.ellipse(image,(160,135),(12,23),0,0,360,(90,)*3,-1)
+        cv2.rectangle(image,(157,77),(163,130),(70,)*3,-1)
+        cv2.ellipse(image,(160,77),(7,10),0,0,360,(70,)*3,-1)
+        result=detector.process(image,.08)
+        self.assertLess(result['bbox']['y'],80)
+        np.testing.assert_array_equal(detector.appearance,reference)
+
+    def test_shadowed_real_head_is_retained_even_when_its_colour_is_closer_to_the_wall(self):
+        from test_arena import quad
+        background=frame(None);background[:100]=80
+        cfg=settings(protocol='open_field')
+        cfg['arena']={'cornersPx':quad(40,100,280,220),'rimCornersPx':quad(20,15,300,225)}
+        detector=RobustSegmenter(cfg,background)
+        image=background.copy();cv2.ellipse(image,(160,135),(12,23),0,0,360,(90,)*3,-1)
+        detector.process(image,0);detector.process(image,.04)
+        cv2.rectangle(image,(157,77),(163,130),(70,)*3,-1)
+        cv2.ellipse(image,(160,77),(7,10),0,0,360,(70,)*3,-1)
+        result=detector.process(image,.08)
+        self.assertLess(result['bbox']['y'],80)
+        self.assertGreater(result['wallExtension']['addedAreaPx'],0)
+
+    def test_connected_shadow_is_split_before_body_box_and_skeleton_are_built(self):
+        background=frame(None,background=100)
+        detector=RobustSegmenter(settings(),background)
+        image=frame(160,140,axes=(13,25),background=100)
+        detector.process(image,0);detector.process(image,.04)
+        image=background.copy()
+        cv2.ellipse(image,(160,65),(14,21),0,0,360,(35,)*3,-1)
+        cv2.rectangle(image,(156,80),(164,119),(35,)*3,-1)
+        cv2.ellipse(image,(160,140),(13,25),0,0,360,(200,)*3,-1)
+        result=detector.process(image,.08)
+        self.assertGreaterEqual(result['bbox']['y'],112)
+        self.assertLessEqual(result['bbox']['y'],117)
+        self.assertTrue(result['trackingAccepted'])
+
+    def test_dark_wall_reflection_cannot_extend_a_light_body_but_low_contrast_head_can(self):
+        from test_arena import quad
+        background=frame(None);background[:100]=170
+        cfg=settings(protocol="open_field")
+        cfg['arena']={'cornersPx':quad(40,100,280,220),'rimCornersPx':quad(20,15,300,225)}
+        detector=RobustSegmenter(cfg,background)
+        first=background.copy()
+        cv2.ellipse(first,(160,135),(12,23),0,0,360,(200,)*3,-1)
+        detector.process(first,0);self.assertTrue(detector.process(first,.04)['trackingAccepted'])
+        image=first.copy()
+        cv2.rectangle(image,(157,77),(163,130),(185,)*3,-1)
+        cv2.ellipse(image,(160,77),(7,10),0,0,360,(185,)*3,-1)
+        # Dark reflected motion is joined to the nose by a weak shadow bridge.
+        cv2.ellipse(image,(160,42),(12,15),0,0,360,(130,)*3,-1)
+        cv2.line(image,(160,55),(160,70),(150,)*3,4)
+        result=detector.process(image,.08)
+        self.assertGreaterEqual(result['bbox']['y'],64)
+        self.assertLess(result['bbox']['y'],80)
+        self.assertGreater(result['wallExtension']['addedAreaPx'],0)
+        self.assertNotEqual(result['localQuality']['geometry'],'floor')
+
+    def test_background_motion_cannot_replace_body_identity_for_both_contrasts(self):
+        for body,floor,ghost in [(200,100,65),(35,160,195)]:
+            with self.subTest(body=body):
+                background=frame(None,background=floor)
+                detector=RobustSegmenter(settings(),background)
+                image=frame(150,120,color=(body,)*3,axes=(15,25),background=floor)
+                detector.process(image,0);self.assertTrue(detector.process(image,.04)['trackingAccepted'])
+                shadow=frame(150,120,color=(ghost,)*3,axes=(15,25),background=floor)
+                result=detector.process(shadow,.08)
+                self.assertEqual(result['status'],'missing')
+                self.assertFalse(result['trackingAccepted'])
+                self.assertEqual(detector.tracker.last[2],.04)
+
     def test_small_floor_fragment_recovers_wall_head_after_tracking_gap(self):
         from test_arena import quad
         background=frame(None)

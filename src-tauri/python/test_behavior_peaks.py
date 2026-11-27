@@ -7,7 +7,7 @@ import unittest
 import cv2 as cv
 import numpy as np
 from behavior.intervention import InterventionGuard
-from behavior.export_dataset import export_annotations
+from behavior.export_dataset import active_annotations, export_annotations
 from behavior.observation_quality import behavior_observation_quality
 from behavior.peak_model import features, match_peaks, predict_forest, proposals
 
@@ -107,6 +107,28 @@ class PeakModelTests(unittest.TestCase):
 
 
 class NativeAnnotationExportTests(unittest.TestCase):
+    def test_proposal_decisions_export_human_peaks_and_rejections_only_in_history(self):
+        peak=dict(id="p",type="PEAK",timestampSec=.125,frameIndex=3,label="REARING_UNSPECIFIED",annotatorId="A",videoSha256="a"*64,trackingJobId="t")
+        review=dict(id="r",type="PROPOSAL_REVIEW",decision="accept",frameIndex=3,timestampSec=.125,peakId="p",annotatorId="A")
+        rejected=dict(id="n",type="PROPOSAL_REVIEW",decision="reject",frameIndex=4,timestampSec=.17,annotatorId="A")
+        events=[peak,review,dict(id="tag",type="LABEL_PEAK",targetId="p",label="REARING_SUPPORTED",annotatorId="B"),rejected]
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);source=root/"request.json"
+            source.write_text(json.dumps(dict(experimentId="v",annotations=events)))
+            export_annotations(source,root/"peaks.csv","peaks")
+            with self.assertRaisesRegex(ValueError,"Não há marcações"):
+                export_annotations(source,root/"intervals.csv","intervals")
+            export_annotations(source,root/"history.jsonl","history")
+            with (root/"peaks.csv").open(encoding="utf-8-sig",newline="") as stream: rows=list(csv.DictReader(stream))
+            self.assertEqual(len(rows),1);self.assertEqual(rows[0]["label"],"REARING_SUPPORTED")
+            self.assertEqual(active_annotations(events)[0],[])
+            self.assertEqual([json.loads(line) for line in (root/"history.jsonl").read_text().splitlines()],events)
+            events.extend([dict(id="u",type="UNDO",targetId="p"),{**review,"id":"r2","decision":"reject"}])
+            source.write_text(json.dumps(dict(experimentId="v",annotations=events)))
+            with self.assertRaisesRegex(ValueError,"Não há marcações"):
+                export_annotations(source,root/"peaks.csv","peaks")
+            self.assertEqual(active_annotations(events),([],[]))
+
     def test_apex_only_csv_resolves_edits_undo_and_preserves_unicode(self):
         peak=dict(id="p",type="PEAK",timestampSec=.125,frameIndex=3,label="REARING_SUPPORTED",annotatorId="Observação",videoSha256="a"*64,trackingJobId="t")
         events=[peak,{**peak,"id":"deleted"},dict(type="LABEL_PEAK",targetId="p",label="REARING_UNSUPPORTED",annotatorId="Revisão"),dict(type="UNDO",targetId="deleted")]

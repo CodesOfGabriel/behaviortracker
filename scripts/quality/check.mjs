@@ -1,9 +1,9 @@
 import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
-import { delimiter, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { command, runChecks } from "./core.mjs";
+import { command, prependPath, runChecks } from "./core.mjs";
 
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const frontendOnly = process.argv.slice(2).join(" ") === "--frontend";
@@ -16,7 +16,7 @@ const cli = (name, executable = name) => {
 };
 const nodeStep = (title, script, ...args) => ({ title, program: process.execPath, args: [script, ...args] });
 const tools = mkdtempSync(join(tmpdir(), "behavetracker-test-tools-"));
-const env = { ...process.env };
+let env = { ...process.env };
 try {
   const steps = [
     nodeStep("Testes da própria barreira de commit e dos workflows", "--test", "scripts/quality/core.test.mjs", "scripts/quality/workflows.test.mjs", "scripts/quality/tauri-dev.test.mjs"),
@@ -39,7 +39,7 @@ try {
       if (process.platform === "win32") copyFileSync(binary, join(tools, name + suffix));
       else symlinkSync(binary, join(tools, name + suffix));
     }
-    env.PATH = tools + delimiter + join(homedir(), ".cargo/bin") + delimiter + (env.PATH ?? "");
+    env = prependPath(env, [tools, join(homedir(), ".cargo/bin")]);
     steps.push(
       nodeStep("Credenciais Google obrigatórias no instalador", "--test", "scripts/quality/google-oauth-build.test.mjs"),
       nodeStep("Integridade do registro de modelos", "scripts/check-release-models.mjs"),

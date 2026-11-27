@@ -2,7 +2,7 @@ import { existsSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { attachLocalDependencies, command, stagedSnapshot } from "./core.mjs";
+import { attachLocalDependencies, command, prependPath, stagedSnapshot } from "./core.mjs";
 
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 let snapshot;
@@ -13,13 +13,13 @@ try {
   }
   attachLocalDependencies(root, snapshot);
   console.log("Verificando o conteúdo exato preparado para commit em um diretório temporário.");
-  const env = { ...process.env };
+  let env = { ...process.env };
   // Git exports these variables when invoking hooks. Child tests must not
   // accidentally operate on the user's repository or alternate index.
   for (const key of Object.keys(env)) if (key.startsWith("GIT_")) delete env[key];
   env.BEHAVETRACKER_TEST_PYTHON ??= join(root, ".venv-test", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
   env.CARGO_TARGET_DIR ??= join(root, "src-tauri/target");
-  if (!env.PATH?.includes(join(homedir(), ".cargo/bin"))) env.PATH = join(homedir(), ".cargo/bin") + (process.platform === "win32" ? ";" : ":") + (env.PATH ?? "");
+  env = prependPath(env, [join(homedir(), ".cargo/bin")]);
   try {
     command(process.execPath, [join(snapshot, "scripts/quality/check.mjs")], { cwd: snapshot, env });
   } finally {

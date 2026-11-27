@@ -203,9 +203,19 @@ export type BodyAxisObservation={schemaVersion:"body-axis-2";frameIndex:number;t
 export interface PoseSample {
   oftLayers?: {
     version: "oft-layers-1";
+    visualization?: {version:"image_flow_and_mask_v1";state:"estimated"|"unavailable"|"suspended"|"stopped";
+      source:"observed_geometry"|"current_silhouette"|"optical_flow"|"held_estimate"|null;
+      points:Point[];head:Point|null;tailBase:Point|null;box:BoundingBox|null;
+      orientationSource:"current_tail"|"flow_direction"|"previous_direction"|"future_direction"|"bidirectional_recovery"|"unknown";
+      directionAnchorFrameIndex?:number;
+      temporal?:{version:"offline_pose_v1"|"offline_pose_v2";orientationState:"estimated"|"unknown";margin:number;uncertaintyPx:number|null;anchorFrameIndex?:number;metricEligible:false};
+      ageSec:number|null;supportScore:number;metricEligible:false};
     orientation: {state:"estimated"|"ambiguous"|"missing";reason:string;head:Point|null;tailBase:Point|null;tailTip:Point|null;headRegion?:"floor"|"wall_projection"|"unknown";
       confidence:number;source:"tail_silhouette"|"temporal_estimate"|null;metricEligible:false};
-    rearing:{classification:string;reviewStatus:"pending";metricEligible:false;score?:number|null;scoreKind?:"model_score"};
+    rearing:{classification:string;reviewStatus:"pending";metricEligible:false;score?:number|null;scoreKind?:"model_score"|"heuristic_score";
+      verification?:"consistent"|"limited"|"insufficient";reasons?:string[];modelScore?:number;
+      evidence?:{axisLengthRatio:number|null;silhouetteLengthRatio:number;silhouetteAreaRatio:number;aspectRatio:number;
+        speedBodyLengthsSec:number;headOnWall:boolean;floorOverlap:number|null}};
   };
   bodyAxis?: BodyAxisObservation;
   bodyAxisContour?: Point[];

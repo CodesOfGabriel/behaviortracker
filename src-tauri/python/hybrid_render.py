@@ -12,7 +12,7 @@ import sys
 
 
 SOURCE = "behavetracker-hybrid-df-v2"
-SKELETON_VIDEO_VERSION = "oft-layered-video-4"
+SKELETON_VIDEO_VERSION = "oft-layered-video-8"
 VISUAL_LIKELIHOOD = .50
 METRIC_LIKELIHOOD = .60
 MAX_PAIR_GAP_SEC = .5
@@ -258,7 +258,9 @@ def render(video, output_dir, arena, *, job_id=None, ffmpeg_path=None, progress=
         layer_root, layer_prefix = root, prefix
         layer_source = "saved_layers" if layered else None
         if legacy_oft and (not layered or manifest.get("layers", {}).get("trackingBox") != TRACKING_BOX_POLICY
-                           or manifest.get("layers", {}).get("headTracking") != POLICY["headTracking"]):
+                           or manifest.get("layers", {}).get("headTracking") != POLICY["headTracking"]
+                           or manifest.get("layers", {}).get("temporalRefinement") != POLICY["temporalRefinement"]
+                           or manifest.get("layers", {}).get("silhouetteSupport") != POLICY["silhouetteSupport"]):
             from oft_layered_pipeline import run as reconstruct_layers
             layer_root, layer_prefix = root / f"{prefix}video-layers", ""
             reconstruct_layers(video, detections, layer_root, arena, fps, width, height, ffmpeg=ffmpeg)
@@ -292,6 +294,7 @@ def render(video, output_dir, arena, *, job_id=None, ffmpeg_path=None, progress=
             stdin=subprocess.PIPE, stderr=subprocess.PIPE)
         colors = {"cornersPx": (80, 195, 35), "rimCornersPx": (65, 185, 245)}
         skeleton_frames = 0
+        inferred_skeleton_frames = 0
         for index in range(expected):
             if progress is not None:
                 progress(index, expected)
@@ -308,7 +311,8 @@ def render(video, output_dir, arena, *, job_id=None, ffmpeg_path=None, progress=
                 raise ValueError("Detecções fora de ordem")
             stopped = body_overlay and layer_rows[index].get("reason") in ["researcher_intervention", "researcher_intervention_pending"]
             if body_overlay and not stopped:
-                box=tracking_box(layer_rows[index])
+                visual=(layer_rows[index].get("oftLayers") or {}).get("visualization")
+                box=visual.get("box") if visual else tracking_box(layer_rows[index])
                 if box:
                     x,y,w,h=(round(box[key]) for key in ("x","y","width","height"))
                     color=(45,185,245) if layer_rows[index].get("boxSource")=="recovered" else (248,189,56)
@@ -323,8 +327,10 @@ def render(video, output_dir, arena, *, job_id=None, ffmpeg_path=None, progress=
             if body_overlay:
                 draw_overlay(frame, layer_rows[index], layer_predictions[index])
                 axis = layer_rows[index].get("bodyAxis") or {}
-                skeleton_count = len(axis.get("points") or []) if not stopped and axis.get("state") == "reliable" else 0
+                visual=(layer_rows[index].get("oftLayers") or {}).get("visualization")
+                skeleton_count = len(visual["points"]) if visual and not stopped else len(axis.get("points") or []) if not stopped and axis.get("state") == "reliable" else 0
                 skeleton_frames += skeleton_count == 7
+                inferred_skeleton_frames += bool(skeleton_count==7 and visual and visual.get("source")!="observed_geometry")
             # The shared skeleton already draws its seven nodes and estimated
             # endpoints. Do not cover it with a second, incompatible pose.
             for pose in ([] if body_overlay or stopped else poses[index]):
@@ -383,6 +389,7 @@ def render(video, output_dir, arena, *, job_id=None, ffmpeg_path=None, progress=
                       visualization={"version": SKELETON_VIDEO_VERSION if body_overlay else "scientific-video-3", "reference": "mouse_center",
                                      "skeletonMethod": "body-axis-2" if body_overlay else None,
                                      "skeletonSource": layer_source, "skeletonFrames": skeleton_frames,
+                                     "inferredSkeletonFrames":inferred_skeleton_frames,
                                      "trackingBoxPolicy": TRACKING_BOX_POLICY if body_overlay else None,
                                      "textOverlay":not body_overlay,"headMarker":"hollow_triangle" if body_overlay else None,
                                      "anatomicalPose": False if body_overlay else None,

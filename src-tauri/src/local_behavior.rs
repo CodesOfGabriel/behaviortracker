@@ -19,8 +19,14 @@ const MODULES: &[(&str, &str)] = &[
     ("arena.py", include_str!("../python/arena.py")),
     ("layer_video.py", include_str!("../python/layer_video.py")),
     ("oft_layers.py", include_str!("../python/oft_layers.py")),
+    ("oft_continuity.py", include_str!("../python/oft_continuity.py")),
+    ("temporal_pose/__init__.py", include_str!("../python/temporal_pose/__init__.py")),
+    ("temporal_pose/orientation_viterbi.py", include_str!("../python/temporal_pose/orientation_viterbi.py")),
+    ("temporal_pose/kalman_smoother.py", include_str!("../python/temporal_pose/kalman_smoother.py")),
+    ("temporal_pose/gap_recovery.py", include_str!("../python/temporal_pose/gap_recovery.py")),
     ("oft_layered_pipeline.py", include_str!("../python/oft_layered_pipeline.py")),
     ("body_axis.py", include_str!("../python/body_axis.py")),
+    ("behavior/rearing_evidence.py", include_str!("../python/behavior/rearing_evidence.py")),
     (
         "behavior/export_dataset.py",
         include_str!("../python/behavior/export_dataset.py"),
@@ -130,6 +136,9 @@ fn folder(app: &AppHandle, id: &str) -> CommandResult<PathBuf> {
 fn materialize(path: &Path) -> CommandResult<()> {
     fs::create_dir_all(path.join("behavior")).map_err(|_| "Módulo comportamental indisponível")?;
     for (name, body) in MODULES {
+        if let Some(parent) = path.join(name).parent() {
+            fs::create_dir_all(parent).map_err(|_| "Diretório Python indisponível")?;
+        }
         fs::write(path.join(name), body)
             .map_err(|_| format!("Módulo Python indisponível: {name}"))?;
     }
@@ -139,14 +148,17 @@ pub(crate) fn materialize_tracking_quality(path: &Path) -> CommandResult<()> {
     fs::create_dir_all(path.join("behavior"))
         .map_err(|_| "Qualidade comportamental indisponível")?;
     for (name, body) in layered_modules() {
+        if let Some(parent) = path.join(name).parent() {
+            fs::create_dir_all(parent).map_err(|_| "Diretório Python indisponível")?;
+        }
         fs::write(path.join(name), body).map_err(|_| "Qualidade comportamental indisponível")?;
     }
     Ok(())
 }
 pub(crate) fn layered_modules() -> Vec<(&'static str, &'static str)> {
     MODULES.iter().copied().filter(|(name,_)| matches!(*name,
-        "arena.py" | "engine.py" | "local_audit_video.py" | "layer_video.py" | "oft_layers.py" | "oft_layered_pipeline.py" | "body_axis.py" | "behavior/__init__.py" |
-        "behavior/observation_quality.py" | "behavior/intervention.py" | "behavior/peak_model.py" |
+        "arena.py" | "engine.py" | "local_audit_video.py" | "layer_video.py" | "oft_layers.py" | "oft_continuity.py" | "oft_layered_pipeline.py" | "body_axis.py" | "temporal_pose/__init__.py" | "temporal_pose/orientation_viterbi.py" | "temporal_pose/kalman_smoother.py" | "temporal_pose/gap_recovery.py" | "behavior/__init__.py" |
+        "behavior/rearing_evidence.py" | "behavior/observation_quality.py" | "behavior/intervention.py" | "behavior/peak_model.py" |
         "behavior/export_dataset.py" | "behavior/contracts.py")).collect()
 }
 pub(crate) fn apex_model_path(app: &AppHandle) -> CommandResult<Option<PathBuf>> {
@@ -392,19 +404,27 @@ fn tracking(
 }
 fn extent(samples: &Path) -> CommandResult<(Vec<f64>, f64)> {
     use std::io::{BufRead, BufReader};
+    // Ignore bulky contour/feature arrays while validating the original clock.
+    // This still parses the complete JSON and retains frame/PTS integrity checks.
+    #[derive(serde::Deserialize)]
+    struct ClockRow {
+        #[serde(rename = "frameIndex")]
+        frame_index: Option<u64>,
+        #[serde(rename = "timestampSec")]
+        timestamp_sec: Option<f64>,
+    }
     let mut times = Vec::new();
     for (index, line) in
         BufReader::new(File::open(samples).map_err(|_| "Observações indisponíveis")?)
             .lines()
             .enumerate()
     {
-        let row: Value = serde_json::from_str(&line.map_err(|_| "Observação ilegível")?)
+        let row: ClockRow = serde_json::from_str(&line.map_err(|_| "Observação ilegível")?)
             .map_err(|_| "Observação inválida")?;
-        let time = row["timestampSec"]
-            .as_f64()
+        let time = row.timestamp_sec
             .filter(|n| n.is_finite() && *n >= 0.)
             .ok_or("PTS inválido")?;
-        if row["frameIndex"].as_u64() != Some(index as u64)
+        if row.frame_index != Some(index as u64)
             || times.last().is_some_and(|old| *old >= time)
         {
             return Err("Relógio do tracking inválido".into());
@@ -511,11 +531,16 @@ pub async fn start_local_behavior_analysis(
     }).await.map_err(|_| "Inicialização interrompida".to_string())?
 }
 #[tauri::command]
-pub fn list_local_behavior_jobs(
+pub async fn list_local_behavior_jobs(
     app: AppHandle,
     experiment_id: String,
     tracking_job_id: String,
 ) -> CommandResult<Vec<Value>> {
+    tauri::async_runtime::spawn_blocking(move || read_local_behavior_jobs(app, experiment_id, tracking_job_id))
+        .await.map_err(|_| "Carregamento do histórico interrompido".to_string())?
+}
+
+fn read_local_behavior_jobs(app: AppHandle, experiment_id: String, tracking_job_id: String) -> CommandResult<Vec<Value>> {
     validate_local_id(&experiment_id, "Experimento")?;
     validate_local_id(&tracking_job_id, "Tracking")?;
     let db = open_database(&app)?;
@@ -565,7 +590,12 @@ pub fn get_local_behavior_status(app: AppHandle, job_id: String) -> CommandResul
     Ok(report)
 }
 #[tauri::command]
-pub fn get_local_behavior_result(app: AppHandle, job_id: String) -> CommandResult<Value> {
+pub async fn get_local_behavior_result(app: AppHandle, job_id: String) -> CommandResult<Value> {
+    tauri::async_runtime::spawn_blocking(move || read_local_behavior_result(app, job_id))
+        .await.map_err(|_| "Carregamento do resultado interrompido".to_string())?
+}
+
+fn read_local_behavior_result(app: AppHandle, job_id: String) -> CommandResult<Value> {
     let db = open_database(&app)?;
     let state: String = db
         .query_row(
@@ -622,10 +652,15 @@ pub(crate) fn recover(app: &AppHandle) -> CommandResult<()> {
     Ok(())
 }
 #[tauri::command]
-pub fn list_behavior_annotations(
+pub async fn list_behavior_annotations(
     app: AppHandle,
     tracking_job_id: String,
 ) -> CommandResult<Vec<Value>> {
+    tauri::async_runtime::spawn_blocking(move || read_behavior_annotations(app, tracking_job_id))
+        .await.map_err(|_| "Carregamento das anotações interrompido".to_string())?
+}
+
+fn read_behavior_annotations(app: AppHandle, tracking_job_id: String) -> CommandResult<Vec<Value>> {
     validate_local_id(&tracking_job_id, "Tracking")?;
     let db = open_database(&app)?;
     let mut query=db.prepare("SELECT annotation_json FROM behavior_annotations WHERE tracking_job_id=?1 ORDER BY sequence").map_err(|_| "Anotações indisponíveis")?;
@@ -691,6 +726,142 @@ fn validate_peak(value: &Value, times: &[f64], history: &[Value]) -> CommandResu
     }
     Ok(())
 }
+fn validate_training_interval(value: &Value, history: &[Value]) -> CommandResult<()> {
+    if let Some(kind) = value.get("exampleKind") {
+        if !["walking","grooming","turning","wall","reflection","intervention","other"].contains(&kind.as_str().unwrap_or(""))
+            || !["NON_REARING","UNKNOWN"].contains(&value["label"].as_str().unwrap_or("")) {
+            return Err("Tipo de exemplo incompatível com o intervalo".into());
+        }
+    }
+    if let Some(id) = value.get("peakId") {
+        let target = history.iter().find(|e| e["type"] == "PEAK" && e["id"] == *id)
+            .filter(|_| !history.iter().any(|e| e["type"] == "UNDO" && e["targetId"] == *id))
+            .ok_or("Ápice de origem inexistente ou desfeito")?;
+        let time = target["timestampSec"].as_f64().ok_or("Instante do ápice inválido")?;
+        if !value["label"].as_str().is_some_and(|s| s.starts_with("REARING_"))
+            || !value["startSec"].as_f64().is_some_and(|s| s <= time)
+            || !value["endSec"].as_f64().is_some_and(|e| e > time) {
+            return Err("O intervalo deve conter o ápice e ter um tipo de rearing".into());
+        }
+    }
+    Ok(())
+}
+fn validate_pose_annotation(value: &Value, times: &[f64], width: u64, height: u64) -> CommandResult<()> {
+    let frame = value["frameIndex"].as_u64().and_then(|n| usize::try_from(n).ok()).ok_or("Frame inválido")?;
+    let time = value["timestampSec"].as_f64().ok_or("Instante inválido")?;
+    if !time.is_finite() || !times.get(frame).is_some_and(|pts| (pts-time).abs()<=1e-6) {
+        return Err("Os pontos devem pertencer ao timestamp original do quadro".into());
+    }
+    if width==0 || height==0 || value["imageWidth"]!=width || value["imageHeight"]!=height {
+        return Err("As dimensões dos pontos divergem do vídeo original".into());
+    }
+    let points = value["pose"].as_object().ok_or("Pontos corporais ausentes")?;
+    let keys = ["nose","left_ear","right_ear","body_center","hip","tail_base"];
+    if points.len()!=keys.len() || keys.iter().any(|key| !points.contains_key(*key)) {
+        return Err("Marque os seis pontos ou identifique os que não estão visíveis".into());
+    }
+    let mut visible = 0;
+    for point in points.values() {
+        match point["visibility"].as_str() {
+            Some("visible") => {
+                if !point["x"].as_f64().is_some_and(|x| x.is_finite() && x>=0. && x<(width as f64))
+                    || !point["y"].as_f64().is_some_and(|y| y.is_finite() && y>=0. && y<(height as f64)) {
+                    return Err("Ponto fora das dimensões da imagem".into());
+                }
+                visible+=1;
+            }
+            Some("occluded" | "out_of_frame") if point.get("x").is_some_and(Value::is_null) && point.get("y").is_some_and(Value::is_null) => {},
+            _ => return Err("Pontos ocultos devem ficar sem coordenadas estimadas".into()),
+        }
+    }
+    if visible==0 { return Err("Anote pelo menos um ponto visível neste quadro".into()); }
+    Ok(())
+}
+
+// One human decision can create/edit/remove a peak and record the proposal review.
+// Both records must commit together; a rejected instant has no invented duration.
+fn proposal_review_entries(base: &Value, review: &Value, times: &[f64], history: &[Value]) -> CommandResult<Vec<Value>> {
+    let frame = review["frameIndex"].as_u64().and_then(|n| usize::try_from(n).ok()).ok_or("Frame inválido")?;
+    let time = review["timestampSec"].as_f64().ok_or("Instante inválido")?;
+    if !time.is_finite() || !times.get(frame).is_some_and(|pts| (pts-time).abs()<=1e-6) {
+        return Err("A proposta deve coincidir com um frame original do vídeo".into());
+    }
+    let annotator = review["annotatorId"].as_str().map(str::trim).filter(|s| !s.is_empty() && s.len()<=200)
+        .ok_or("Identifique o anotador")?;
+    if review.get("startSec").is_some() || review.get("endSec").is_some() {
+        return Err("A revisão confirma um instante; anote início e fim separadamente".into());
+    }
+    let decision = review["decision"].as_str().filter(|s| ["accept","reject"].contains(s)).ok_or("Decisão inválida")?;
+    let label = review["label"].as_str().unwrap_or("REARING_UNSPECIFIED");
+    if decision=="accept" && !["REARING_SUPPORTED","REARING_UNSUPPORTED","REARING_UNSPECIFIED"].contains(&label) {
+        return Err("Tag de rearing inválida".into());
+    }
+    let active = |id: &Value| !history.iter().any(|e| e["type"]=="UNDO" && e["targetId"]==*id);
+    let existing = history.iter().find(|e| e["type"]=="PEAK" && e["frameIndex"]==review["frameIndex"] && active(&e["id"]));
+    let make_entry = |kind: &str| {
+        let mut entry = base.clone();
+        entry["id"]=json!(new_uuid_v4());entry["type"]=json!(kind);entry["annotatorId"]=json!(annotator);
+        entry
+    };
+    let mut entries=Vec::new();
+    let mut decision_entry=make_entry("PROPOSAL_REVIEW");
+    decision_entry["frameIndex"]=json!(frame);decision_entry["timestampSec"]=json!(time);decision_entry["decision"]=json!(decision);
+    if decision=="accept" {
+        let mut peak=make_entry(if existing.is_some(){"LABEL_PEAK"}else{"PEAK"});
+        peak["label"]=json!(label);
+        if let Some(original)=existing {
+            peak["targetId"]=original["id"].clone();
+            // Changing a tag must not erase a manually entered observation.
+            if let Some(note)=history.iter().rev().find(|e| e["type"]=="LABEL_PEAK" && e["targetId"]==original["id"]).unwrap_or(original).get("note") {
+                peak["note"]=note.clone();
+            }
+            decision_entry["peakId"]=original["id"].clone();
+        } else {
+            peak["frameIndex"]=json!(frame);peak["timestampSec"]=json!(time);
+            decision_entry["peakId"]=peak["id"].clone();
+        }
+        validate_peak(&peak,times,history)?;
+        decision_entry["label"]=json!(label);
+        entries.push(peak);
+    } else if let Some(peak)=existing {
+        if history.iter().any(|e| e["type"]=="INTERVAL" && e["peakId"]==peak["id"] && active(&e["id"])) {
+            return Err("Este ápice já tem um episódio anotado. Revise e desfaça o intervalo na aba Anotação antes de rejeitá-lo".into());
+        }
+        let mut undo=make_entry("UNDO");undo["targetId"]=peak["id"].clone();entries.push(undo);
+    }
+    entries.push(decision_entry);
+    Ok(entries)
+}
+
+fn save_proposal_review(db: &mut rusqlite::Connection, base: &Value, review: &Value, times: &[f64]) -> CommandResult<Vec<Value>> {
+    let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|_| "Gravação da revisão indisponível")?;
+    let history={
+        let mut query=tx.prepare("SELECT annotation_json FROM behavior_annotations WHERE tracking_job_id=?1 ORDER BY sequence").map_err(|_| "Histórico indisponível")?;
+        let rows=query.query_map([base["trackingJobId"].as_str().ok_or("Tracking ausente")?],|r|r.get::<_,String>(0)).map_err(|_| "Histórico indisponível")?;
+        rows.map(|row| serde_json::from_str::<Value>(&row.map_err(|_| "Histórico ilegível")?).map_err(|_| "Histórico inválido"))
+            .collect::<Result<Vec<_>,_>>()?
+    };
+    let entries=proposal_review_entries(base,review,times,&history)?;
+    for entry in &entries {
+        tx.execute("INSERT INTO behavior_annotations(id,tracking_job_id,video_sha256,annotation_json) VALUES (?1,?2,?3,?4)",
+            params![entry["id"].as_str(),base["trackingJobId"].as_str(),base["videoSha256"].as_str(),entry.to_string()])
+            .map_err(|_| "Não foi possível salvar a revisão; tente novamente")?;
+    }
+    tx.commit().map_err(|_| "Não foi possível concluir a revisão")?;
+    Ok(entries)
+}
+
+#[tauri::command]
+pub async fn review_behavior_proposal(app: AppHandle, experiment_id: String, tracking_job_id: String, video_sha256: String, review: Value) -> CommandResult<Vec<Value>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (directory,_,_)=tracking(&app,&experiment_id,&tracking_job_id,&video_sha256)?;
+        let (times,_)=extent(&directory.join("samples.jsonl"))?;
+        let mut db=open_database(&app)?;
+        let created_at:String=db.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ','now')",[],|r|r.get(0)).map_err(|_| "Relógio indisponível")?;
+        let base=json!({"schemaVersion":1,"source":"human","experimentId":experiment_id,"trackingJobId":tracking_job_id,"videoSha256":video_sha256,"createdAt":created_at});
+        save_proposal_review(&mut db,&base,&review,&times)
+    }).await.map_err(|_| "Gravação da revisão interrompida".to_string())?
+}
 #[tauri::command]
 pub async fn append_behavior_annotation(
     app: AppHandle,
@@ -710,7 +881,7 @@ fn append_annotation_blocking(
     video_sha256: String,
     mut annotation: Value,
 ) -> CommandResult<()> {
-    let (directory, _, video_path) =
+    let (directory, config, video_path) =
         tracking(&app, &experiment_id, &tracking_job_id, &video_sha256)?;
     let id = annotation["id"]
         .as_str()
@@ -724,8 +895,8 @@ fn append_annotation_blocking(
             .ok_or("Anotação de origem ausente")?;
         let body:String=db.query_row("SELECT annotation_json FROM behavior_annotations WHERE tracking_job_id=?1 AND id=?2",params![tracking_job_id,target],|r|r.get(0)).map_err(|_| "Anotação de outra execução ou inexistente")?;
         let original = serde_json::from_str::<Value>(&body).map_err(|_| "Anotação inválida")?;
-        if original["type"] != "INTERVAL" && original["type"] != "PEAK" {
-            return Err("Apenas intervalos e ápices podem ser desfeitos".into());
+        if original["type"] != "INTERVAL" && original["type"] != "PEAK" && original["type"] != "POSE_FRAME" {
+            return Err("Apenas intervalos, ápices e quadros anotados podem ser desfeitos".into());
         }
     } else if annotation["type"] == "INTERVAL" {
         let (times, estimate) = extent(&directory.join("samples.jsonl"))?;
@@ -739,7 +910,8 @@ fn append_annotation_blocking(
         {
             return Err("Identifique o anotador".into());
         }
-        let history = list_behavior_annotations(app.clone(), tracking_job_id.clone())?;
+        let history = read_behavior_annotations(app.clone(), tracking_job_id.clone())?;
+        validate_training_interval(&annotation, &history)?;
         let undone: std::collections::HashSet<&str> = history
             .iter()
             .filter(|e| e["type"] == "UNDO")
@@ -758,11 +930,17 @@ fn append_annotation_blocking(
                     .into(),
             );
         }
+    } else if annotation["type"] == "POSE_FRAME" {
+        if annotation["annotatorId"].as_str().is_none_or(|s| s.trim().is_empty() || s.len()>200) {
+            return Err("Identifique o anotador".into());
+        }
+        let (times, _) = extent(&directory.join("samples.jsonl"))?;
+        validate_pose_annotation(&annotation, &times, config["width"].as_u64().ok_or("Largura ausente")?, config["height"].as_u64().ok_or("Altura ausente")?)?;
     } else if annotation["type"] == "PEAK" || annotation["type"] == "LABEL_PEAK" {
         if annotation["annotatorId"].as_str().is_none_or(|s| s.trim().is_empty() || s.len() > 200) {
             return Err("Identifique o anotador".into());
         }
-        let history = list_behavior_annotations(app.clone(), tracking_job_id.clone())?;
+        let history = read_behavior_annotations(app.clone(), tracking_job_id.clone())?;
         let (times, _) = extent(&directory.join("samples.jsonl"))?;
         validate_peak(&annotation, &times, &history)?;
     } else {
@@ -777,7 +955,12 @@ fn append_annotation_blocking(
     Ok(())
 }
 #[tauri::command]
-pub fn list_behavior_review_events(app: AppHandle, job_id: String) -> CommandResult<Vec<Value>> {
+pub async fn list_behavior_review_events(app: AppHandle, job_id: String) -> CommandResult<Vec<Value>> {
+    tauri::async_runtime::spawn_blocking(move || read_behavior_review_events(app, job_id))
+        .await.map_err(|_| "Carregamento das revisões interrompido".to_string())?
+}
+
+fn read_behavior_review_events(app: AppHandle, job_id: String) -> CommandResult<Vec<Value>> {
     validate_local_id(&job_id, "Execução")?;
     let db = open_database(&app)?;
     let mut query = db
@@ -798,7 +981,7 @@ pub fn append_behavior_review_event(
     job_id: String,
     mut event: Value,
 ) -> CommandResult<()> {
-    let result = get_local_behavior_result(app.clone(), job_id.clone())?;
+    let result = read_local_behavior_result(app.clone(), job_id.clone())?;
     let id = event["id"].as_str().ok_or("ID ausente")?.to_owned();
     validate_local_id(&id, "Revisão")?;
     let target = event["eventId"].as_str().ok_or("Episódio ausente")?;
@@ -825,7 +1008,7 @@ pub fn append_behavior_review_event(
     }
     validate_review_overlap(
         &result["events"],
-        &list_behavior_review_events(app.clone(), job_id.clone())?,
+        &read_behavior_review_events(app.clone(), job_id.clone())?,
         &event,
     )?;
     event["schemaVersion"] = json!(1);
@@ -897,9 +1080,95 @@ fn validate_review_overlap(
 mod tests {
     use super::*;
     #[test]
+    fn proposal_reviews_validate_source_pts_author_and_decision() {
+        let base=json!({"trackingJobId":"t","videoSha256":"hash","source":"human"});
+        let review=json!({"frameIndex":2,"timestampSec":0.17,"decision":"accept","annotatorId":" Reviewer "});
+        let entries=proposal_review_entries(&base,&review,&[0.,0.04,0.17],&[]).unwrap();
+        assert_eq!(entries.len(),2);
+        assert_eq!(entries[0]["type"],"PEAK");
+        assert_eq!(entries[0]["label"],"REARING_UNSPECIFIED");
+        assert_eq!(entries[0]["annotatorId"],"Reviewer");
+        assert_eq!(entries[1]["peakId"],entries[0]["id"]);
+        assert_eq!(entries[1]["type"],"PROPOSAL_REVIEW");
+        for (field,value) in [("timestampSec",json!(0.16)),("frameIndex",json!(99)),("frameIndex",json!(-1)),("annotatorId",json!(" ")),
+            ("decision",json!("automatic")),("label",json!("UNKNOWN")),("label",json!("NON_REARING")),("startSec",json!(0.))] {
+            let mut invalid=review.clone();invalid[field]=value;
+            assert!(proposal_review_entries(&base,&invalid,&[0.,0.04,0.17],&[]).is_err(),"{field}");
+        }
+    }
+    #[test]
+    fn proposal_edits_reuse_human_peak_and_rejection_preserves_history() {
+        let base=json!({"trackingJobId":"t","videoSha256":"hash","source":"human"});
+        let accept=json!({"frameIndex":0,"timestampSec":0.,"decision":"accept","label":"REARING_SUPPORTED","annotatorId":"B"});
+        let peak=json!({"id":"original","type":"PEAK","frameIndex":0,"timestampSec":0.,"label":"REARING_UNSPECIFIED","annotatorId":"A","note":"Original note"});
+        let mut history=vec![peak.clone()];
+        let edit=proposal_review_entries(&base,&accept,&[0.],&history).unwrap();
+        assert_eq!(edit[0]["type"],"LABEL_PEAK");assert_eq!(edit[0]["targetId"],"original");
+        assert_eq!(edit[0]["note"],"Original note");assert_eq!(peak["annotatorId"],"A");
+        history.extend(edit);
+        // Build an explicit rejection rather than a negative interval or UNKNOWN peak.
+        let mut reject=accept.clone();reject["decision"]=json!("reject");
+        let rejected=proposal_review_entries(&base,&reject,&[0.],&history).unwrap();
+        assert_eq!(rejected[0]["type"],"UNDO");assert_eq!(rejected[0]["targetId"],"original");
+        assert_eq!(rejected[1]["decision"],"reject");assert!(rejected[1].get("label").is_none());
+        history.extend(rejected);
+        let restored=proposal_review_entries(&base,&accept,&[0.],&history).unwrap();
+        assert_eq!(restored[0]["type"],"PEAK");assert_ne!(restored[0]["id"],"original");
+        let negative=proposal_review_entries(&base,&reject,&[0.],&[]).unwrap();
+        assert_eq!(negative.len(),1);assert!(negative[0].get("startSec").is_none());assert!(negative[0].get("endSec").is_none());
+    }
+    #[test]
+    fn rejecting_a_proposal_cannot_orphan_an_annotated_episode() {
+        let peak=json!({"id":"p","type":"PEAK","frameIndex":0,"timestampSec":0.});
+        let interval=json!({"id":"i","type":"INTERVAL","peakId":"p"});
+        let review=json!({"decision":"reject","frameIndex":0,"timestampSec":0.,"annotatorId":"A"});
+        assert!(proposal_review_entries(&json!({}),&review,&[0.],&[peak.clone(),interval.clone()]).unwrap_err().contains("episódio"));
+        assert!(proposal_review_entries(&json!({}),&review,&[0.],&[peak,interval,json!({"type":"UNDO","targetId":"i"})]).is_ok());
+    }
+    #[test]
+    fn proposal_decision_and_peak_commit_atomically_and_survive_reload() {
+        let mut db=rusqlite::Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE behavior_annotations(sequence INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE,tracking_job_id TEXT,video_sha256 TEXT,annotation_json TEXT);
+            CREATE TRIGGER fail_review BEFORE INSERT ON behavior_annotations WHEN json_extract(NEW.annotation_json,'$.type')='PROPOSAL_REVIEW' BEGIN SELECT RAISE(ABORT,'disk error'); END;").unwrap();
+        let base=json!({"trackingJobId":"t","videoSha256":"h","source":"human"});
+        let review=json!({"frameIndex":0,"timestampSec":0.,"decision":"accept","annotatorId":"A"});
+        assert!(save_proposal_review(&mut db,&base,&review,&[0.]).is_err());
+        assert_eq!(db.query_row("SELECT count(*) FROM behavior_annotations",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+        db.execute_batch("DROP TRIGGER fail_review").unwrap();
+        save_proposal_review(&mut db,&base,&review,&[0.]).unwrap();
+        let mut retag=review.clone();retag["label"]=json!("REARING_UNSUPPORTED");
+        let entries=save_proposal_review(&mut db,&base,&retag,&[0.]).unwrap();
+        assert_eq!(entries[0]["type"],"LABEL_PEAK");
+        assert_eq!(db.query_row("SELECT count(*) FROM behavior_annotations WHERE json_extract(annotation_json,'$.type')='PEAK'",[],|r|r.get::<_,i64>(0)).unwrap(),1);
+        let mut reject=review;reject["decision"]=json!("reject");
+        let entries=save_proposal_review(&mut db,&base,&reject,&[0.]).unwrap();
+        assert_eq!(entries[0]["type"],"UNDO");
+        let other=json!({"trackingJobId":"other","videoSha256":"otherhash","source":"human"});
+        let entries=save_proposal_review(&mut db,&other,&retag,&[0.]).unwrap();
+        assert_eq!(entries[0]["type"],"PEAK"); // Never reuse a peak from another tracking run.
+    }
+    #[test]
+    fn annotation_clock_ignores_features_but_rejects_broken_timing_and_json() {
+        let path = std::env::temp_dir().join(format!("behavior-clock-{}.jsonl", new_uuid_v4()));
+        let valid = "{\"frameIndex\":0,\"timestampSec\":0,\"features\":{\"contour\":[[1,2],[3,4]]}}\n{\"frameIndex\":1,\"timestampSec\":0.04}\n";
+        fs::write(&path, valid).unwrap();
+        assert_eq!(extent(&path).unwrap(), (vec![0., 0.04], 0.08));
+        for invalid in [
+            valid.replace("\"frameIndex\":1", "\"frameIndex\":2"),
+            valid.replace("\"timestampSec\":0.04", "\"timestampSec\":0"),
+            valid.replace("\"timestampSec\":0.04", "\"timestampSec\":-1"),
+            valid.replace("\"timestampSec\":0.04", "\"timestampSec\":null"),
+            valid.replace("[[1,2],[3,4]]", "[broken]"),
+        ] {
+            fs::write(&path, invalid).unwrap();
+            assert!(extent(&path).is_err());
+        }
+        fs::remove_file(path).unwrap();
+    }
+    #[test]
     fn layered_modules_are_shared_and_apex_import_checks_exact_bytes_and_schema() {
         let names:Vec<_>=layered_modules().iter().map(|(name,_)|*name).collect();
-        for name in ["arena.py","layer_video.py","oft_layers.py","oft_layered_pipeline.py","body_axis.py","behavior/peak_model.py","behavior/intervention.py"] {
+        for name in ["arena.py","layer_video.py","oft_layers.py","oft_continuity.py","temporal_pose/__init__.py","temporal_pose/orientation_viterbi.py","temporal_pose/kalman_smoother.py","oft_layered_pipeline.py","body_axis.py","behavior/rearing_evidence.py","behavior/peak_model.py","behavior/intervention.py"] {
             assert!(names.contains(&name));
         }
         let directory=std::env::temp_dir().join(format!("behavior-apex-integrity-{}",new_uuid_v4()));
@@ -976,6 +1245,41 @@ mod tests {
         assert!(validate_peak(&moved, &times, &[peak]).is_err());
     }
     #[test]
+    fn guided_intervals_require_a_live_apex_inside_the_human_interval() {
+        let peak=json!({"type":"PEAK","id":"p","timestampSec":0.17});
+        let interval=json!({"startSec":0.04,"endSec":0.2,"label":"REARING_SUPPORTED","peakId":"p"});
+        assert!(validate_training_interval(&interval,std::slice::from_ref(&peak)).is_ok());
+        assert!(validate_training_interval(&interval,&[]).is_err());
+        assert!(validate_training_interval(&interval,&[peak.clone(),json!({"type":"UNDO","targetId":"p"})]).is_err());
+        for (key,value) in [("startSec",json!(0.18)),("endSec",json!(0.17)),("label",json!("NON_REARING"))] {
+            let mut invalid=interval.clone();invalid[key]=value;
+            assert!(validate_training_interval(&invalid,std::slice::from_ref(&peak)).is_err());
+        }
+        assert!(validate_training_interval(&json!({"label":"NON_REARING","exampleKind":"reflection"}),&[]).is_ok());
+        assert!(validate_training_interval(&json!({"label":"REARING_SUPPORTED","exampleKind":"reflection"}),&[]).is_err());
+    }
+    #[test]
+    fn human_pose_requires_source_pts_original_dimensions_and_no_guessed_hidden_points() {
+        let mut value=json!({"type":"POSE_FRAME","frameIndex":2,"timestampSec":0.17,"imageWidth":640,"imageHeight":480,"pose":{}});
+        for key in ["nose","left_ear","right_ear","body_center","hip","tail_base"] {
+            value["pose"][key]=json!({"visibility":"visible","x":100.,"y":120.});
+        }
+        let times=[0.,0.04,0.17,0.2];
+        assert!(validate_pose_annotation(&value,&times,640,480).is_ok());
+        for (key,wrong) in [("timestampSec",json!(0.16)),("frameIndex",json!(10)),("imageWidth",json!(320))] {
+            let mut invalid=value.clone();invalid[key]=wrong;
+            assert!(validate_pose_annotation(&invalid,&times,640,480).is_err());
+        }
+        for point in [json!({"visibility":"visible","x":640.,"y":120.}),json!({"visibility":"visible","x":-1.,"y":120.}),json!({"visibility":"occluded","x":100.,"y":120.})] {
+            let mut invalid=value.clone();invalid["pose"]["nose"]=point;
+            assert!(validate_pose_annotation(&invalid,&times,640,480).is_err());
+        }
+        value["pose"]["nose"]=json!({"visibility":"occluded","x":null,"y":null});
+        assert!(validate_pose_annotation(&value,&times,640,480).is_ok());
+        value["pose"].as_object_mut().unwrap().remove("tail_base");
+        assert!(validate_pose_annotation(&value,&times,640,480).is_err());
+    }
+    #[test]
     fn reviewed_episodes_cannot_overlap_or_reintroduce_a_rejected_duplicate() {
         let events = json!([
             {"eventId":"first","startSec":1.,"endSec":2.,"behavior":"REARING_UNSPECIFIED","reviewStatus":"pending"},
@@ -999,7 +1303,7 @@ pub async fn render_behavior_audit_video(app: AppHandle, job_id: String) -> Comm
     let operation = Operation::acquire()?;
     tauri::async_runtime::spawn_blocking(move || {
         let _operation=operation;
-        let result=get_local_behavior_result(app.clone(),job_id.clone())?;
+        let result=read_local_behavior_result(app.clone(),job_id.clone())?;
         let manifest=&result["manifest"];
         let experiment=manifest["experimentId"].as_str().ok_or("Experimento ausente")?;
         let tracking_id=manifest["trackingJobId"].as_str().ok_or("Tracking ausente")?;
@@ -1023,6 +1327,33 @@ pub async fn render_behavior_audit_video(app: AppHandle, job_id: String) -> Comm
         Ok(json!({"videoPath":destination}))
     }).await.map_err(|_| "Renderização interrompida".to_string())?
 }
+#[tauri::command]
+pub async fn preview_local_rearing_geometry(
+    app: AppHandle, experiment_id: String, tracking_job_id: String, video_sha256: String,
+) -> CommandResult<Value> {
+    let operation = Operation::acquire()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _operation = operation;
+        let (tracking_dir, config, _) = tracking(&app, &experiment_id, &tracking_job_id, &video_sha256)?;
+        let directory = root(&app)?.join(format!("geometry-preview-{}", new_uuid_v4()));
+        materialize(&directory)?;
+        // Analyze immutable observations only; no video decoding or model download.
+        let request = json!({"config":config, "videoSha256":video_sha256,
+            "trackingJobId":tracking_job_id,
+            "annotations":read_behavior_annotations(app.clone(), tracking_job_id.clone())?,
+            "samples":tracking_dir.join("samples.jsonl")});
+        let saved = directory.join("request.json");
+        fs::write(&saved, request.to_string()).map_err(|_| "Solicitação indisponível")?;
+        let output = Command::new(crate::local_tracking::python(&app)?).current_dir(&directory)
+            .args(["-X", "utf8", "-c", "import sys; from behavior.rearing_evidence import run; run(*sys.argv[1:])"])
+            .arg(saved).arg(directory.join("candidates.json")).output().map_err(|_| "Análise geométrica indisponível; prepare o ambiente local")?;
+        if !output.status.success() { return Err(String::from_utf8_lossy(&output.stderr).chars().take(1500).collect()); }
+        let mut result = read(&directory.join("candidates.json"))?;
+        result["resultDirectory"] = json!(directory);
+        Ok(result)
+    }).await.map_err(|_| "Análise geométrica interrompida".to_string())?
+}
+
 #[tauri::command]
 pub async fn preview_local_rearing_peaks(
     app: AppHandle, experiment_id: String, tracking_job_id: String,
@@ -1060,13 +1391,13 @@ pub async fn export_behavior_annotations(
     video_sha256: String, kind: String,
 ) -> CommandResult<Value> {
     let extension = match kind.as_str() {
-        "peaks" | "intervals" => "csv",
+        "peaks" | "intervals" | "poses" => "csv",
         "history" => "jsonl",
         _ => return Err("Formato de exportação desconhecido".into()),
     };
     tauri::async_runtime::spawn_blocking(move || {
         tracking(&app, &experiment_id, &tracking_job_id, &video_sha256)?;
-        let annotations = list_behavior_annotations(app.clone(), tracking_job_id)?;
+        let annotations = read_behavior_annotations(app.clone(), tracking_job_id)?;
         if annotations.is_empty() { return Err("Salve uma marcação antes de exportar".into()); }
         let directory = root(&app)?.join(format!("export-{}", new_uuid_v4()));
         materialize(&directory)?;
@@ -1111,17 +1442,17 @@ pub async fn export_behavior_training_package(
     include_video: bool,
 ) -> CommandResult<Value> {
     tauri::async_runtime::spawn_blocking(move || {
-        let (tracking_dir,_,path)=tracking(&app,&experiment_id,&tracking_job_id,&video_sha256)?;
+        let (tracking_dir,config,path)=tracking(&app,&experiment_id,&tracking_job_id,&video_sha256)?;
         if video::sha256(Path::new(&path))? != video_sha256 {return Err("Vídeo original alterado".into());}
         for key in ["animalId","sessionId","arenaId"] {
             if metadata[key].as_str().is_none_or(|v|v.trim().is_empty()||v.len()>200) {return Err(format!("Identificação ausente: {key}"));}
         }
-        let annotations=list_behavior_annotations(app.clone(),tracking_job_id.clone())?;
+        let annotations=read_behavior_annotations(app.clone(),tracking_job_id.clone())?;
         let directory=root(&app)?.join(format!("export-{}",new_uuid_v4()));
         materialize(&directory)?;
         let request=json!({"experimentId":experiment_id,"trackingJobId":tracking_job_id,"videoSha256":video_sha256,"video":path,"trackingDirectory":tracking_dir,
             "animalId":metadata["animalId"],"sessionId":metadata["sessionId"],"arenaId":metadata["arenaId"],"condition":metadata["condition"],
-            "annotations":annotations,"includeVideo":include_video,"annotationProtocol":include_str!("../../docs/OFT_REARING_ANNOTATION_PROTOCOL.md")});
+            "annotations":annotations,"includeVideo":include_video,"config":config,"ffmpeg":video::binary("ffmpeg").ok_or("FFmpeg ausente")?,"annotationProtocol":include_str!("../../docs/OFT_REARING_ANNOTATION_PROTOCOL.md")});
         fs::write(directory.join("request.json"),request.to_string()).map_err(|_| "Solicitação indisponível")?;
         let results=app.path().app_data_dir().map_err(|_| "Dados indisponíveis")?.join("results");fs::create_dir_all(&results).map_err(|_| "Pasta de exportação indisponível")?;
         let destination=results.join(format!("{}-oft-training.zip",new_uuid_v4()));
@@ -1140,9 +1471,9 @@ pub async fn export_behavior_training_package(
 #[tauri::command]
 pub async fn export_behavior_results(app: AppHandle, job_id: String) -> CommandResult<Value> {
     tauri::async_runtime::spawn_blocking(move || {
-        get_local_behavior_result(app.clone(),job_id.clone())?;
+        read_local_behavior_result(app.clone(),job_id.clone())?;
         let directory=folder(&app,&job_id)?;
-        let reviews=list_behavior_review_events(app.clone(),job_id)?;
+        let reviews=read_behavior_review_events(app.clone(),job_id)?;
         let work=root(&app)?.join(format!("result-export-{}",new_uuid_v4()));materialize(&work)?;
         let review_file=work.join("reviews.json");fs::write(&review_file,json!(reviews).to_string()).map_err(|_| "Revisões indisponíveis")?;
         let results=app.path().app_data_dir().map_err(|_| "Dados indisponíveis")?.join("results");fs::create_dir_all(&results).map_err(|_| "Pasta indisponível")?;

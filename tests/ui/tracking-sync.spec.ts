@@ -2,6 +2,38 @@ import {test,expect,openExperiment} from "./desktop";
 import {sampleFixture} from "../fixtures/experiment";
 import type {PoseSample} from "../../src/types";
 
+test("Visual estimates fill axis and box gaps without resuming after intervention",async({page})=>{
+  const samples:PoseSample[]=sampleFixture().map(row=>{
+    const stopped=row.frameIndex>=30,gap=row.frameIndex===20||row.frameIndex===21,unknown=row.frameIndex===23;
+    const path=Array.from({length:7},(_,i)=>({x:row.xPx!-22+i*7,y:row.yPx!}));
+    return {...row,...(gap?{status:"missing" as const,xPx:null,yPx:null,bbox:undefined,trackingAccepted:false}:{}),
+      ...(stopped?{status:"missing" as const,xPx:null,yPx:null,bbox:undefined,trackingAccepted:false,reason:"researcher_intervention"}:{}),
+      bodyAxis:{schemaVersion:"body-axis-2",frameIndex:row.frameIndex,timestampSec:row.timestampSec,points:gap||stopped?[]:path,
+        state:gap||stopped?"missing":"reliable",reason:gap?"no_contour":"ok",rawAngleRad:0,angleRad:0,anisotropy:4,filtered:false,anatomicalPose:false},
+      oftLayers:{version:"oft-layers-1",orientation:{state:"missing",reason:"head_tail_unresolved",head:null,tailBase:null,tailTip:null,confidence:0,source:null,metricEligible:false},
+        visualization:{version:"image_flow_and_mask_v1",state:stopped?"stopped":"estimated",source:stopped?null:gap?"optical_flow":"observed_geometry",
+          points:stopped?[]:path,head:stopped||unknown?null:path[6],tailBase:stopped||unknown?null:path[0],box:stopped?null:row.bbox!,
+          orientationSource:stopped||unknown?"unknown":"bidirectional_recovery",ageSec:stopped?null:gap?.08:0,supportScore:stopped||unknown?0:.2,metricEligible:false,
+          temporal:{version:"offline_pose_v1",orientationState:stopped||unknown?"unknown":"estimated",margin:unknown?0:4,uncertaintyPx:stopped?null:2,metricEligible:false,...(!stopped&&!unknown?{anchorFrameIndex:25}:{})}},
+        rearing:{classification:"UNKNOWN",reviewStatus:"pending",metricEligible:false}}};
+  });
+  await openExperiment(page,"idle",samples);
+  await page.getByRole("tab",{name:"Detalhes",exact:true}).click();
+  const video=page.locator(".tracking-details-player video");
+  for(const index of [19,20,21,22,23,21]){
+    await video.evaluate((v,t)=>{(v as HTMLVideoElement).currentTime=t;},index/25);
+    await expect(page.locator('.tracking-details-player rect[data-frame-index]')).toHaveAttribute('data-frame-index',String(index));
+    const overlay=page.locator('.tracking-details-player g[data-axis-state]');
+    await expect(overlay.locator('polyline')).toHaveCount(1);
+    await expect(overlay.locator('[data-head-marker="triangle"]')).toHaveCount(index===23?0:1);
+    if(index!==23)await expect(overlay.locator('[data-orientation-source="bidirectional_recovery"]')).toHaveCount(1);
+    await expect(overlay.locator('text')).toHaveCount(0);
+    if(index===20||index===21)await expect(overlay).toHaveAttribute('data-visual-source','optical_flow');
+  }
+  await video.evaluate(v=>{(v as HTMLVideoElement).currentTime=1.24;});
+  await expect(page.locator('.tracking-details-player svg')).toHaveCount(0);
+});
+
 test("Layered orientation stays identified and disappears after intervention",async({page})=>{
   const samples:PoseSample[]=sampleFixture().map(row=>{
     const stopped=row.frameIndex>=30;
