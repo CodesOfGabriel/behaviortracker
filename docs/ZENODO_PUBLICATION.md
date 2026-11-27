@@ -1,7 +1,9 @@
 # Zenodo publication metadata
 
-Status on 2026-11-27: **0.1.7 prepared for final review; publication pending**. This
-preparation does not create a release, tag, DOI, or Zenodo deposit. The
+Edition: **0.1.7 software source release**. The exact source-archive candidate
+and study-material decisions are recorded in
+[the source review](releases/v0.1.7-source-review.md). Creating or publishing
+the release follows the maintainer's approval of that content. The
 GitHub–Zenodo integration is already enabled, as reported by the maintainer.
 
 ## Metadata and consistency
@@ -109,17 +111,22 @@ original experimental videos, or complete training data.
 
 - Review final author metadata/order; add Thiago's ORCID only if supplied and
   confirmed. Names, affiliations and the project license are already recorded.
-- Resolve custom-weight and media provenance/permissions described in
-  [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md); preserve upstream terms.
+- Confirm rights for the materials actually included in the source archive.
+  Review the explicit study-material list in
+  [the archive plan](releases/v0.1.7-archive-plan.json); retain all original
+  application artwork and synthetic UI illustrations. Preserve the separate
+  custom-weight, data and upstream-license limitations described in
+  [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
   Consult the root [model](../MODEL_CARD.md), [dataset](../DATASET_CARD.md)
   and [asset](../ASSET_LICENSES.md) cards. The maintainer declares authorship
   of application images/icons; no visual replacement is authorized.
 - Approve the scientific description and the documented reproducibility limits.
 - Match the application version, both metadata files, and the source snapshot
   selected for the release; run the repository's existing release checks.
-- Decide how to preserve required weights and their permitted reuse alongside
-  the source. Existing GitHub model assets must not be assumed to be included
-  in the Zenodo source archive.
+- Keep neural checkpoints, datasets and installers as independent components;
+  do not attach them to this source release or assume existing GitHub release
+  assets are included in Zenodo's code archive. Their unresolved rights and
+  incomplete lineage remain documented; no unrestricted grant is inferred.
 - Address the remaining FST weight pinning and Python environment capture gaps
   before claiming complete inference reproducibility. No scientific runtime
   was silently changed to make an archival claim.
@@ -130,13 +137,16 @@ original experimental videos, or complete training data.
 These are review steps; no automatic publication barrier has been added to the
 existing workflows.
 
-All original images, icons and audiovisual assets are retained, as explicitly
-requested by the maintainer, who states they created the images and icons.
-No archive exclusions were added. Study-derived diagnostics and tables still
-require a redistribution review independent of application-artwork authorship.
-The [preparation report](releases/v0.1.7-preparation.md) records
-the exact checks and remaining decisions. The maintainer controls commit,
-push, release creation and publication; no such operation was performed.
+All original application images, icons and audiovisual assets are retained,
+as explicitly requested by the maintainer, who states they created them. The
+archive candidate proposes individual `export-ignore` paths for study-derived
+frames, tables and mixed reports, keeping those files in Git and requiring
+approval of the selection. There is no blanket exclusion of images or all of
+`artifacts/`/`docs/reports/`. The [preparation report](releases/v0.1.7-preparation.md)
+is the historical record of the earlier review; the current exact selection
+is in [the source review](releases/v0.1.7-source-review.md). No DOI or publication
+date is assumed. The desktop publishing workflow is not used for this
+source-only release.
 
 ## Metadata checks
 

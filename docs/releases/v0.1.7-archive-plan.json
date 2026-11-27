@@ -1,0 +1,971 @@
+{
+  "version": "0.1.7",
+  "baseCommit": "77eef2bff01330d3843d52c829dbfb2b88b50f63",
+  "purpose": "Proposed source archive selection for final maintainer review. No file is deleted, replaced or removed from Git by this plan.",
+  "protectedPaths": [
+    "public/",
+    "src-tauri/icons/"
+  ],
+  "entries": [
+    {
+      "path": "artifacts/colab-precision-2026-11-26/saved-r2-quality-audit.json",
+      "bytes": 1524,
+      "sha256": "45efd1f52c8bec21bd30a10734aa28aeab7d7c020e59fc33b6dbf2273db374bf",
+      "classification": "study_material",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Saved Colab R2 diagnostics and study-derived quality data."
+    },
+    {
+      "path": "artifacts/colab-r2-diagnosis-2026-11-26/audit.json",
+      "bytes": 4516,
+      "sha256": "75cdccb3875939868f20e835f0eeef471ccad043e67cb14d2ffc607a31ef3114",
+      "classification": "study_material",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Saved Colab R2 diagnostics and study-derived quality data."
+    },
+    {
+      "path": "artifacts/colab-r2-diagnosis-2026-11-26/saved-colab-overlay.png",
+      "bytes": 766103,
+      "sha256": "c48e637eddd24f427b25ebbcbc09ea92f349d52fb63c277370481176078095bd",
+      "classification": "study_material",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection."
+    },
+    {
+      "path": "artifacts/google-login-bundled-2026-11-25/chromium-1440x900.png",
+      "bytes": 588599,
+      "sha256": "25e040dee98951645da18adaba581bf2f89e5fa66a36e8e5f4add2d283131271",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/google-login-bundled-2026-11-25/chromium-980x620.png",
+      "bytes": 26763,
+      "sha256": "39541cf1bfd055358754560b168b1c198587c517531d926079eeca9fa47b8fcb",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/google-login-bundled-2026-11-25/webkit-1440x900.png",
+      "bytes": 883946,
+      "sha256": "2605b8c81d85fd096f890b96ee83daa795399e465b657ec0ba1745aa1cf0c28a",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/google-login-bundled-2026-11-25/webkit-980x620.png",
+      "bytes": 40705,
+      "sha256": "7bb99ef9eea3889385cedb17fd9db1f7d5f9970582a3fd40759d4ffc68407556",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/google-login-regression-2026-11-25/before-disabled-button.png",
+      "bytes": 443254,
+      "sha256": "03865081f2620543b8a11eae0394f51a63e2c5425812d3c7660c4b7f651ee10b",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/google-login-regression-2026-11-25/before-error-context.md",
+      "bytes": 7709,
+      "sha256": "13d6acb4a5594b697d6ed500055303c2cb235d52a0f43d19c8fc0322fa7b7925",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/google-login-regression-2026-11-25/before-result.json",
+      "bytes": 252,
+      "sha256": "0431c51693665f47d10c60b6cfc500f678bd6a724cdfd85a50c0f361d38299ec",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/google-login-regression-2026-11-25/chromium-1440x900.png",
+      "bytes": 616238,
+      "sha256": "aa3358c9a6f4e6d6b499951c2e131fa60500ea14f5b8be00beae83307afad906",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/google-login-regression-2026-11-25/chromium-980x620.png",
+      "bytes": 46533,
+      "sha256": "311a727f002bd7d5ed14d88077587479fa8517308b8ce03322b1d3754b281b2b",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/google-login-regression-2026-11-25/webkit-1440x900.png",
+      "bytes": 906780,
+      "sha256": "ba8d031611e9e6cf38d029c6d7960ef673a55b75c4b99f1672db848a696312f6",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/google-login-regression-2026-11-25/webkit-980x620.png",
+      "bytes": 63583,
+      "sha256": "fce7d24a6b6428e24853375e032e2a5fe3b72dc949fdd32a0bd024c3561f93da",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/ui-selects-gpu-fallback-2026-11-26/empty-chromium-1440.png",
+      "bytes": 11029,
+      "sha256": "90c617eed16b63b1f6e3043c7f923cac0458d3b5249ae850bb1dede000a1f81f",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/ui-selects-gpu-fallback-2026-11-26/empty-chromium-980.png",
+      "bytes": 10467,
+      "sha256": "33bed054c74f1520582ff95396edba09f7a81b0e0a507c24481b57c2f0b09a79",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/ui-selects-gpu-fallback-2026-11-26/empty-webkit-1440.png",
+      "bytes": 15082,
+      "sha256": "bf3bcec7573fc862d4cd4e459e3da7c2a363ae8decbcaf2f5a5c0b1b1f2f2512",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/ui-selects-gpu-fallback-2026-11-26/empty-webkit-980.png",
+      "bytes": 13667,
+      "sha256": "954394850ff9eb4d0f468260f12ec299511586dfedb352f78a70c8bab030da43",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/ui-selects-gpu-fallback-2026-11-26/menu-chromium.png",
+      "bytes": 94710,
+      "sha256": "59deab6665eb167d1e395657ec6432ed6c2ae2ea7f3292431ba255e6877d4df9",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/ui-selects-gpu-fallback-2026-11-26/menu-webkit.png",
+      "bytes": 128566,
+      "sha256": "77c7d97db3100e29f1bcd43b6717043b9dd7dfdfeb9be05b57b0211423a7e4b7",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/ui-selects-gpu-fallback-2026-11-26/rearing-chromium-1440.png",
+      "bytes": 31366,
+      "sha256": "f5abf9627baf561ac31414839322fd7ad6755176829e41f64502d07c7c339592",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/ui-selects-gpu-fallback-2026-11-26/rearing-chromium-980.png",
+      "bytes": 30227,
+      "sha256": "4bacd0875c53de9b5f03045ea6f620e9449d0e8495c14da88c9dd3f97f5f3cf0",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/ui-selects-gpu-fallback-2026-11-26/rearing-webkit-1440.png",
+      "bytes": 40628,
+      "sha256": "2f1c5c64fc1e44caddc647d18bc1f421db1967eaef45a781156eff90b6763336",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/ui-selects-gpu-fallback-2026-11-26/rearing-webkit-980.png",
+      "bytes": 36398,
+      "sha256": "7ff6c1b03298e7aa70d2ff016c6159ad4c528f89638939be76f29fb542c0737e",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/web-logos-2026-11-26/chromium-1440.png",
+      "bytes": 17461,
+      "sha256": "dacbc21d4c26e5f51d7aba9d65d32ac1949c040d5759f5a0ddc4c2b47ad76404",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/web-logos-2026-11-26/chromium-320.png",
+      "bytes": 11015,
+      "sha256": "65cdf234ebfc904c6f922f769b74aabb9d52a22abd932146a2d705a9f5f7d060",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/web-logos-2026-11-26/chromium-390.png",
+      "bytes": 12360,
+      "sha256": "c99f4cb334ad62db05d295fcf5b7cdbd7a6e56e2aaac0e2f9762624187828ac6",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/web-logos-2026-11-26/verification.json",
+      "bytes": 4723,
+      "sha256": "9d05e8071ef152c633d6ec8f2587dca3cc6049e555d8a20bdd4b158cfdbabc8c",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/web-logos-2026-11-26/webkit-1440.png",
+      "bytes": 21992,
+      "sha256": "e1cff32eb03662386868d4cce18451117243f9df7d1ec71a9c0a4f72c7084e2d",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/web-logos-2026-11-26/webkit-320.png",
+      "bytes": 13394,
+      "sha256": "a281bfd9c11cac62afbb9099d3cd4a2cf5d893152b510f0e725ff8bab9e5947f",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "artifacts/web-logos-2026-11-26/webkit-390.png",
+      "bytes": 15549,
+      "sha256": "33e0cc369872f577b72a6138ff573aebcb2a40e5387b05a897209e3479145aac",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/LOCAL_BENCHMARK_2026-11-18.md",
+      "bytes": 8758,
+      "sha256": "af2279d197adf2da9f310a785949fc16940cb8e6c8594975d1ce1e6353a278de",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+    },
+    {
+      "path": "docs/reports/VALIDATION_GUIDE_2026-11-18.md",
+      "bytes": 6960,
+      "sha256": "8e3edddd05f126ce0f856336e82d1688eaa5a394cc5b303d575290e08bea5439",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+    },
+    {
+      "path": "docs/reports/benchmark-classical-local-2026-11-24.json",
+      "bytes": 16364,
+      "sha256": "f89bf1328b3622fdc64db74882ff3601fea60673b3ff9dc006498e329aeb4eeb",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+    },
+    {
+      "path": "docs/reports/benchmark-classical-precision-2026-11-24.json",
+      "bytes": 5911,
+      "sha256": "805001b7bbfa6b3887afa4ca882921a7c2d552fb4e192d0802daa414943b4d17",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+    },
+    {
+      "path": "docs/reports/benchmark-configs/oft03.json",
+      "bytes": 1108,
+      "sha256": "20cdaf6d5cc9285820c1f05da2ad266b6e4baa7bf27ff1e727d5731ea3f3f58e",
+      "classification": "study_material",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration."
+    },
+    {
+      "path": "docs/reports/benchmark-configs/openfield01.json",
+      "bytes": 1125,
+      "sha256": "59168294eb86c88443cbbef748f01d3e39ae04014410773767f93260672d5251",
+      "classification": "study_material",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration."
+    },
+    {
+      "path": "docs/reports/benchmark-configs/openfield02.json",
+      "bytes": 1123,
+      "sha256": "20b43d2750d1d853655666a51a2fe2091e65f450cec6b692a0513ecb7503de55",
+      "classification": "study_material",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration."
+    },
+    {
+      "path": "docs/reports/benchmark-dd2-reflections-2026-11-24.json",
+      "bytes": 11041,
+      "sha256": "3250a0778c462f85b56a33d0929fd2c73b04f4607aadc61b1fd87f84d184d1f0",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+    },
+    {
+      "path": "docs/reports/classical-precision-review-queue-2026-11-24.json",
+      "bytes": 70127,
+      "sha256": "bdc4c7d0d085f1194f1dda66e813745ed8b704df93c42663d3c5a424b576d2f9",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+    },
+    {
+      "path": "docs/reports/colab-continuity-2026-11-26.md",
+      "bytes": 47026,
+      "sha256": "5e1433c51586bbc955b45c49b8e453199a9fe35da63898c8283d5011efbacf79",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+    },
+    {
+      "path": "docs/reports/colab-precision-2026-11-26.md",
+      "bytes": 7515,
+      "sha256": "216e2929ccf0e9907a0b6639bf0c09e8fdb83a0cef1e3eb3a5ab0653b953c375",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+    },
+    {
+      "path": "docs/reports/colab-r2-diagnosis-2026-11-26.md",
+      "bytes": 5130,
+      "sha256": "ad2fc4962f626b8634c22fc94e9e910ccb5799d4a742231abd52a23bccd2c6f2",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+    },
+    {
+      "path": "docs/reports/dd2-box-center-trajectory-2026-11-24.svg",
+      "bytes": 141185,
+      "sha256": "d25ed2448aa9c7241d95d47518b9ae6146742a7c413d85f4bc8c6cdc89e8050d",
+      "classification": "study_material",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection."
+    },
+    {
+      "path": "docs/reports/dd2-reflections-before-after-2026-11-24.jpg",
+      "bytes": 442916,
+      "sha256": "f26533a53640375aae725d10d1064445778fde86d2b13e5c5d40f33efa101958",
+      "classification": "study_material",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection."
+    },
+    {
+      "path": "docs/reports/dd2-reflections-before-after-2026-11-24.json",
+      "bytes": 19427,
+      "sha256": "80b584b5e3da2b3aeffb3a97de8631f0ba62bcf0bf1cd3482a7f8959781c0e2f",
+      "classification": "study_material",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection."
+    },
+    {
+      "path": "docs/reports/dd2-reflections-review-queue-2026-11-24.json",
+      "bytes": 70338,
+      "sha256": "834a693c1ca013db8f4e39cbc5b9b30c5c8bce7b4ed5b80a154b19d39ec5351b",
+      "classification": "study_material",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection."
+    },
+    {
+      "path": "docs/reports/google-login-dev-2026-11-26.md",
+      "bytes": 3351,
+      "sha256": "a5d5fb32c4c5e67964ba1be0179163fc32c98f87bfa810a60291453a900fb630",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/google-login-disabled-2026-11-25.md",
+      "bytes": 5366,
+      "sha256": "fb31af1d1337ee89ba34f5efba036398697f989dc467b7da3a39c1d40654c504",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/local-analysis-modal-2026-11-25.md",
+      "bytes": 2780,
+      "sha256": "3d8e33211f2f71985abd5a1fa30ed9c4e9210ad2a4cddd4802a0533d5cb42b8b",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/local-axis-displacement-preview-2026-11-24.jpg",
+      "bytes": 54101,
+      "sha256": "1bdea98f937658547257dc5bd01c8e6e4695cb44997bfae1023943653df27729",
+      "classification": "study_material",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection."
+    },
+    {
+      "path": "docs/reports/local-axis-displacement-validation-2026-11-24.json",
+      "bytes": 1534,
+      "sha256": "4af6f7c9d37140b9ff1aa8ba6dde2f5beafada38ddb5123775b0543d7ef32952",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+    },
+    {
+      "path": "docs/reports/local-box-trajectories-validation-2026-11-24.json",
+      "bytes": 24603,
+      "sha256": "affc59fa98fcbffb097a1f1d3c832ffac71bf5afe6c10417eb9b1b9bca7349f1",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+    },
+    {
+      "path": "docs/reports/local-engine-controlled-occlusion-2026-11-18.json",
+      "bytes": 2472,
+      "sha256": "8c58afa8d4268bd0558d43b1b9071eba78101509498943c91236d9d168ddd7ab",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+    },
+    {
+      "path": "docs/reports/local-engine-controlled-shift-2026-11-18.json",
+      "bytes": 2495,
+      "sha256": "7ae0fa0de9e84af92ccbfa36d3942ea668cf7cbf2129189919b399f65d9170e0",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+    },
+    {
+      "path": "docs/reports/local-engine-real-20s-2026-11-18.json",
+      "bytes": 2493,
+      "sha256": "6ca7278d96cd3cb9620e9b7393fbe4436dceece68450e95a3a7d0b82f13cd5ee",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+    },
+    {
+      "path": "docs/reports/local-engine-real-full-2026-11-18.json",
+      "bytes": 2507,
+      "sha256": "9d130eafc91ae8242ecf102b8bd8667c1475f6d9d0a99f5e4d8bcc3af90fa113",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+    },
+    {
+      "path": "docs/reports/local-engine-real-full-before-guard-fix-2026-11-18.json",
+      "bytes": 2501,
+      "sha256": "0507dd1fc4c983688a40f62db2ad1ebcef3a388f36f49128b5e8035fea55ba09",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+    },
+    {
+      "path": "docs/reports/local-engine-real-tail-2026-11-18.json",
+      "bytes": 2474,
+      "sha256": "b1f435d94da0d7e8613c783554dbd444868d7bb3769336bcdb5bffdc8a2fc92e",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+    },
+    {
+      "path": "docs/reports/local-filter-comparison-2026-11-18.json",
+      "bytes": 42231,
+      "sha256": "7dd11fcda28555a0a0718d64032bf70b70f141af2c05b49488d15891fcb71d37",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+    },
+    {
+      "path": "docs/reports/local-filter-comparison-beta-0.01-2026-11-18.json",
+      "bytes": 42231,
+      "sha256": "0bb872203f7f7f54b419b902891878a41d2e89ad0629f2107eb6ad6ef23b58e4",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+    },
+    {
+      "path": "docs/reports/local-floor-box-metrics-2026-11-24.json",
+      "bytes": 7831,
+      "sha256": "dc7929a193be976c14a4c002d68e37d33b8e9d69099d3f1bc8dc68198d478dc5",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+    },
+    {
+      "path": "docs/reports/local-floor-box-metrics-2026-11-24.png",
+      "bytes": 135706,
+      "sha256": "6c2ced7280518281cb9477d8331fcbfcf9648cd9cea891dcc0904a128fe1ea17",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/local-forced_swim-skeleton-motion-2026-11-24.jpg",
+      "bytes": 43650,
+      "sha256": "3cbb4d82e3a4366de383b28fb36486ada76c5baae12b6890c0a5567a9ea01393",
+      "classification": "study_material",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection."
+    },
+    {
+      "path": "docs/reports/local-open_field-skeleton-motion-2026-11-24.jpg",
+      "bytes": 37061,
+      "sha256": "658a3ffdff36e4338d4f69d1420f156e6a67280780585c89039963e3fd20b214",
+      "classification": "study_material",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection."
+    },
+    {
+      "path": "docs/reports/local-radial_arm_maze-skeleton-motion-2026-11-24.jpg",
+      "bytes": 52530,
+      "sha256": "52efb8db1fb2cd5490372047a92c1a385254a15bf2bf12fc80f5998d93068e9f",
+      "classification": "study_material",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection."
+    },
+    {
+      "path": "docs/reports/local-reflection-tracking-research-2026-11-24.md",
+      "bytes": 10065,
+      "sha256": "dcc803d0d806fbd66d5d851366e660fe7ffbb2c26f00bd33f20f6a11d66120aa",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+    },
+    {
+      "path": "docs/reports/local-results-analysis-2026-11-24.png",
+      "bytes": 151798,
+      "sha256": "774a0fa0abfa5320e67baeb5230d5641f067ff677d323b4947eecd4238206e6a",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/local-results-dashboard-2026-11-24.png",
+      "bytes": 94080,
+      "sha256": "d79cd91ecaca9c7832a1ab51949b8834193c49c5502ada6155948a39097dd7e8",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/local-results-history-ui-2026-11-24.json",
+      "bytes": 13661,
+      "sha256": "5a7ede876f0e5b9a241887c68d0e15340f004eac4030220470a18105d7ef206f",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/local-results-summary-2026-11-24.png",
+      "bytes": 102454,
+      "sha256": "6c71eead3895416cc702402731574b6e8426aaceee57902dcb1c8f582c2ac748",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/local-results-videos-2026-11-24.png",
+      "bytes": 116535,
+      "sha256": "a28646a2faf649e0827b898382762aada5b8a0eacab4286043a41737ba90d76d",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/local-reviewed-metrics-explanation-2026-11-24.png",
+      "bytes": 131481,
+      "sha256": "4ab5ec5a142e7a9d47dee7715f6d964396e9c1b164b8734d7d2846e7c7c8bfa9",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/local-skeleton-continuity-2026-11-24.jpg",
+      "bytes": 37046,
+      "sha256": "f01015a15e1b09582c600698144771f7ea0bbe546aaf9f2b9effaf62e6bd42ee",
+      "classification": "study_material",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Experimental frame/overlay or study-derived trajectory; filename and representative visual inspection."
+    },
+    {
+      "path": "docs/reports/local-tabs-fst-2026-11-24.png",
+      "bytes": 72208,
+      "sha256": "fb37257afaac2c22aaf9e2c2983fb79deb304cf56e6f3f8f602823027fc20cd2",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/local-ui-continuity-zones-2026-11-24.json",
+      "bytes": 7780,
+      "sha256": "38dd8731358140b740d015e4c14554f9bf0c139a88eec1798e3342af62298310",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+    },
+    {
+      "path": "docs/reports/local-zone-source-selection-2026-11-24.png",
+      "bytes": 93198,
+      "sha256": "55b72e80f7d206293cfd2cf9b0166e6844b7289256790a93660df9459685b66c",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/oft-head-wall-17s-2026-11-26.md",
+      "bytes": 5525,
+      "sha256": "c1ae7b59548b37767685c006ec5e74bd7abf607feb07343a428961fc7f7b15a8",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+    },
+    {
+      "path": "docs/reports/oft-rearing-studio-2026-11-25.png",
+      "bytes": 95763,
+      "sha256": "c4ad7b389c42a8d780527dca6fe854910d0a06e8a5ac28f228ddbc41624b6f28",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/oft-rearing-summary-2026-11-25.png",
+      "bytes": 194255,
+      "sha256": "5f2fabb03cc68d95670061c705386a8a8b151beebbaffef7fac5e1879f3e242b",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/oft-rearing-v1-2026-11-25.json",
+      "bytes": 12532,
+      "sha256": "b275021fe706aa6a916ed4c8d99dd1d6e6438b9dfa5816f7714d3b60e40eeecf",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+    },
+    {
+      "path": "docs/reports/oft-reflections-2026-11-26.md",
+      "bytes": 6917,
+      "sha256": "7ed90228ee5dc578e958411d53c5f93c2b1fc0e6d755e4bfa1985727fbd44f46",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+    },
+    {
+      "path": "docs/reports/oft-visual-continuity-2026-11-26.md",
+      "bytes": 12485,
+      "sha256": "74f356e5279262217d4ccc8e8be16fc67ca0e8e612360a1a3626ae262c3dbeef",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+    },
+    {
+      "path": "docs/reports/oft-wall-projection-2026-11-26.md",
+      "bytes": 4778,
+      "sha256": "e5d171b5e6e5ed64f76d5b41246e9e416eae01839a4c6a3127b252b5f0394a25",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+    },
+    {
+      "path": "docs/reports/pose-filters-synthetic-2026-11-18.json",
+      "bytes": 3120,
+      "sha256": "c65a8c03ef63a6c17ca267ae3aa216c527441632b6807fbdf3e38e52c43b3fbb",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/quality-gate-2026-11-25.md",
+      "bytes": 3506,
+      "sha256": "5794235e30304dfd0dc450d4a4983a0dbff725c3ba2e8e400581b09120993b2a",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/rearing-apex-2026-11-25.png",
+      "bytes": 88166,
+      "sha256": "2a61cf635c3b8d5049c4fb5cda9b50524c48662b781ecb7cbdca697161e623b9",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/rearing-evidence-2026-11-27.md",
+      "bytes": 8454,
+      "sha256": "319a6a7604582880c770c170625ea42228b104c7374673f3111f40b5df840fc3",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Manual text review: study-linked pose tables, recording/split manifest or retrospective real-video results."
+    },
+    {
+      "path": "docs/reports/rearing-export-local-training-2026-11-25.json",
+      "bytes": 3635,
+      "sha256": "9b23e2042e44947eae3d759024831effa0b65e2130607b87e97c4483275c4f33",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+    },
+    {
+      "path": "docs/reports/rearing-openfield-downloads-2026-11-25.md",
+      "bytes": 4339,
+      "sha256": "271081d39053c3c610860426049a6b8c9fc075c3c9c8258d9c635c87d8b168c3",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+    },
+    {
+      "path": "docs/reports/rearing-preload-2026-11-27.md",
+      "bytes": 4845,
+      "sha256": "4e7fc02eca647aa3e3f5b5b02ae63e1f7057ae602a10d477dfb65643bcda7845",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/rearing-studio-2026-11-27.md",
+      "bytes": 5636,
+      "sha256": "c065836458c5cb13f7e7e12490325877ee5b09f2ae33feadd832ba6acf215f19",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/shadcn-forced-swim-details-2026-11-24.png",
+      "bytes": 105792,
+      "sha256": "7a170135adc6190c63a687e085904f24484af1d34156d822b3118346d1b49d08",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/shadcn-narrow-details-2026-11-24.png",
+      "bytes": 65757,
+      "sha256": "d790938f858a1b2f8f0d5372a0dd464b00049657c711b9509d1b2ea8365d6483",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/shadcn-open-field-details-2026-11-24.png",
+      "bytes": 98338,
+      "sha256": "9cc9f273e2c4adb26403a39d5c106dddbf9a6d019a5e20c284f5e82371e7e215",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/shadcn-radial-arm-maze-details-2026-11-24.png",
+      "bytes": 117752,
+      "sha256": "550890b93aa4d5a33b79724819e269aab65af9a337da4921d20829b411aed2bd",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/shadcn-results-ui-2026-11-24.json",
+      "bytes": 9353,
+      "sha256": "699f34f97a227f8741112bbeeff311b6beb478ef595a4aa660f3e874cde19c81",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/shadcn-selector-2026-11-24.png",
+      "bytes": 122234,
+      "sha256": "2e327d01ca7d814b5f744072c9d3c24780eeb488e7bf50af4571eb7beff93867",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/shadcn-summary-2026-11-24.png",
+      "bytes": 108513,
+      "sha256": "7bab76e5cb38f497aefa1fad6bfa6c839b06235e7d27af2ef1095f6f7dc3ca85",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/skeleton-axis-filter-2026-11-25.md",
+      "bytes": 5284,
+      "sha256": "5aad67e98a706a8bed13011834392191a7e36513e570b26998f327d05d697462",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Manual text review: study-linked pose tables, recording/split manifest or retrospective real-video results."
+    },
+    {
+      "path": "docs/reports/ui-selects-gpu-fallback-2026-11-26.md",
+      "bytes": 4614,
+      "sha256": "008ffb35af5f71cfdea7f9432c5711081f488ee22a0ce75d9807b8142434414a",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/validation-engine-opencl-2026-11-18.csv",
+      "bytes": 63802,
+      "sha256": "879df65b637d406d601e9935852ff39aff9a35400ae544562cc715fb44eb7f91",
+      "classification": "study_material",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration."
+    },
+    {
+      "path": "docs/reports/validation-engine-opencl-2026-11-18.json",
+      "bytes": 74438,
+      "sha256": "46623e105c75d5ef47dc1c2ce1ab8bf2ad6ef499e204fad23ba830a2e4284e5c",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+    },
+    {
+      "path": "docs/reports/validation-engine-opencl-2026-11-18.md",
+      "bytes": 12569,
+      "sha256": "4d1f64f96a9f52067ca382ded8b86d9785186314b5eba38b427bbb2718245249",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+    },
+    {
+      "path": "docs/reports/validation-engine-opencl-2026-11-18.paired.csv",
+      "bytes": 5928,
+      "sha256": "8ed904ec2fdbcc8cfbfec302f93c4580dfda10c96758ba41902ff0091fdefe5c",
+      "classification": "study_material",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration."
+    },
+    {
+      "path": "docs/reports/validation-filter-comparison-2026-11-18.json",
+      "bytes": 60385,
+      "sha256": "6fa57ca2db18383697e971618aec43656b870ba459264af20d9e0ba234e33f39",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+    },
+    {
+      "path": "docs/reports/validation-filter-comparison-2026-11-18.md",
+      "bytes": 7930,
+      "sha256": "27d37566f33545109557f76d80142f0b2c83fdaa197367dc4a9aa19b57d41869",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Manual text review: study-linked pose tables, recording/split manifest or retrospective real-video results."
+    },
+    {
+      "path": "docs/reports/validation-filter-comparison-2026-11-18.paired.csv",
+      "bytes": 267,
+      "sha256": "710b95ddf86dbc81ac074a7c93542e69437cd893c4a8bef6980654b641098b64",
+      "classification": "study_material",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration."
+    },
+    {
+      "path": "docs/reports/validation-filter-comparison-2026-11-18.summary.csv",
+      "bytes": 22716,
+      "sha256": "c992fd302b23328c9497b55daf7d7eb02fe79df3288519ca50e2f145a7ae75f1",
+      "classification": "study_material",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration."
+    },
+    {
+      "path": "docs/reports/validation-filter-comparison-beta-0.01-2026-11-18.json",
+      "bytes": 60385,
+      "sha256": "2ae11db667b4d7f36bc7ef2a332231bc88686c8662189624bd575f41122144c7",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+    },
+    {
+      "path": "docs/reports/validation-filter-comparison-beta-0.01-2026-11-18.md",
+      "bytes": 7929,
+      "sha256": "7f4bbe9873083bf35306ad1b9eee346eabd14c0e73f26431320dcf3b68f95fce",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Manual text review: study-linked pose tables, recording/split manifest or retrospective real-video results."
+    },
+    {
+      "path": "docs/reports/validation-filter-comparison-beta-0.01-2026-11-18.paired.csv",
+      "bytes": 267,
+      "sha256": "710b95ddf86dbc81ac074a7c93542e69437cd893c4a8bef6980654b641098b64",
+      "classification": "study_material",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration."
+    },
+    {
+      "path": "docs/reports/validation-filter-comparison-beta-0.01-2026-11-18.summary.csv",
+      "bytes": 22636,
+      "sha256": "ea0f093775b18df972a032dfd47bd2c5b86329bd7ae26ff7d885f452a4e40c0f",
+      "classification": "study_material",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration."
+    },
+    {
+      "path": "docs/reports/validation-pilot-2026-11-18.csv",
+      "bytes": 56423,
+      "sha256": "b56d24f486c8e799ce9e7eb4f9974fef2f33e6215369480dfb4474f014ed1161",
+      "classification": "study_material",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Study-derived table, annotation-selection plan or experimental geometry configuration."
+    },
+    {
+      "path": "docs/reports/validation-pilot-2026-11-18.json",
+      "bytes": 238466,
+      "sha256": "7e85a7e38eab7b5ca027c33ecb190a5020203a66f75f6fa306c77217535c4ca7",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Run-level experimental diagnostics, selected study data or mixed synthetic/real-video audit."
+    },
+    {
+      "path": "docs/reports/validation-pilot-2026-11-18.md",
+      "bytes": 1250,
+      "sha256": "461640b4433e9710b05f8bdcf4a3a795b39237620afed60bfe341bdd7f001342",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Manual text review: study-linked pose tables, recording/split manifest or retrospective real-video results."
+    },
+    {
+      "path": "docs/reports/video-sync-rearing-apex-2026-11-25.md",
+      "bytes": 6327,
+      "sha256": "baa9a60ede9f9239f87255bc380437ebe3eed2d8666b5b4529dbdb7bea6a71c0",
+      "classification": "study_or_mixed",
+      "proposedArchiveAction": "omit_pending_data_permission",
+      "reason": "Development report includes experimental recording identifiers, derived results or a mixed real/synthetic audit."
+    },
+    {
+      "path": "docs/reports/web-downloads-desktop-2026-11-24.png",
+      "bytes": 102505,
+      "sha256": "9e9cf9da10450c09abdf972be600013407f6e36aca7da21a52ed50aae1559ecb",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/web-downloads-mobile-2026-11-24.png",
+      "bytes": 93656,
+      "sha256": "9b91562e62965e75b19e3368b2fe53f617635be2957520dea876d0bb4f8e3505",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    },
+    {
+      "path": "docs/reports/web-downloads-validation-2026-11-24.json",
+      "bytes": 4267,
+      "sha256": "e5ea42a38b1c46e7464c07edf79010f26be2fc9f5dfaad5921e80e3220f0fe29",
+      "classification": "software_or_synthetic",
+      "proposedArchiveAction": "retain",
+      "reason": "Software UI/documentation evidence, synthetic fixture or authored application presentation."
+    }
+  ]
+}
