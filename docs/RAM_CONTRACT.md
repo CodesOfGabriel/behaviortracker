@@ -14,7 +14,7 @@ O botão **Revisar geometria** cria uma nova revisão e guarda a configuração 
 
 ## Auditoria dos arquivos recebidos
 
-Os dados foram lidos em `/Users/gabrielsantos/Downloads/BehaviorTracker_V13_Integracao_Agente_2026-11-17`; o código não altera nem copia os originais para o repositório.
+Os dados foram lidos de um pacote local de integração V13 fornecido para auditoria; o código não altera nem copia os originais para o repositório.
 
 Para repetir a auditoria localmente: `python3 scripts/audit-ram-v13.py CAMINHO_DO_PACOTE --r2 CAMINHO_DO_R2.zip --r3 CAMINHO_DO_R3.zip`. O script lê os arquivos e imprime JSON; requer `ffprobe` e `ffmpeg` instalados.
 

@@ -1,7 +1,7 @@
 # Draft for author approval. Do not publish a release using these metadata yet.
-# Names and Gabriel's ORCID were supplied by the maintainer.
-# Confirm individual affiliations; Thiago's ORCID has not been supplied.
-# The maintainer confirms there is no project license; resolve before publication.
+# Names, affiliations and Gabriel's ORCID were supplied by the maintainer.
+# Apache-2.0 adoption was authorized by the rights holders per the maintainer.
+# External components and model assets retain their respective terms.
 # Review docs/ZENODO_PUBLICATION.md and keep .zenodo.json synchronized.
 # Metadata language: English; CFF 1.2.0 has no root-level language field.
 cff-version: 1.2.0
@@ -11,11 +11,14 @@ title: "Behavior Tracker: An Open-Source Computational Platform for Automated Be
 authors:
   - family-names: Santos
     given-names: Gabriel Silva
+    affiliation: "Department of Physiology and Pharmacology, Institute of Biology, Universidade Federal de Pelotas (UFPel), Brazil"
     orcid: "https://orcid.org/0009-0005-1967-0084"
   - family-names: Vargas
     given-names: Thiago Alves
+    affiliation: "Department of Physiology and Pharmacology, Institute of Biology, Universidade Federal de Pelotas (UFPel), Brazil"
     website: "https://www.researchgate.net/profile/Thiago-Vargas-5"
-version: "0.1.6"
+version: "0.1.7"
+license: Apache-2.0
 repository-code: "https://github.com/CodesOfGabriel/behaviortracker"
 url: "https://github.com/CodesOfGabriel/behaviortracker"
 keywords:

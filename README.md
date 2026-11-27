@@ -828,11 +828,15 @@ O desempenho varia conforme arena, câmera, linhagem, coloração, reflexos e oc
 
 ## Como citar
 
-Os metadados estão em [CITATION.cff](CITATION.cff) e [.zenodo.json](.zenodo.json), com o título científico e a versão atual `0.1.6`. Ambos aguardam aprovação dos autores. O ORCID de Gabriel Silva Santos e o nome completo de Thiago Alves Vargas foram informados pelo responsável; de Thiago, foi fornecido apenas o perfil ResearchGate. As afiliações individuais permanecem pendentes. O responsável confirmou que não existe licença do projeto; ela deve ser definida explicitamente antes da publicação. Consulte as [pendências para o Zenodo](docs/ZENODO_PUBLICATION.md).
+Os metadados estão em [CITATION.cff](CITATION.cff) e [.zenodo.json](.zenodo.json), com o título científico e a versão `0.1.7` em preparação. Ambos os autores estão afiliados ao Departamento de Fisiologia e Farmacologia, Instituto de Biologia, Universidade Federal de Pelotas (UFPel), conforme confirmação do responsável. O ORCID de Gabriel Silva Santos foi informado; de Thiago Alves Vargas, foi fornecido apenas o perfil ResearchGate. A publicação permanece sujeita à aprovação final. Consulte as [pendências para o Zenodo](docs/ZENODO_PUBLICATION.md) e o [CHANGELOG](CHANGELOG.md).
+
+O código próprio do projeto adota a [Apache License 2.0](LICENSE), com autorização dos titulares confirmada pelo responsável. Dependências, pesos, datasets, mídias e marcas mantêm seus termos específicos. SuperAnimal e CoTracker têm restrições de uso não comercial; veja a [auditoria de licenças](docs/THIRD_PARTY_LICENSES.md) e os [avisos de terceiros](THIRD_PARTY_NOTICES.md).
+
+A documentação modular está em [MODEL_CARD.md](MODEL_CARD.md), [DATASET_CARD.md](DATASET_CARD.md) e [ASSET_LICENSES.md](ASSET_LICENSES.md). O responsável declara a autoria das imagens e ícones da aplicação, que foram preservados integralmente. A autorização para redistribuir os vídeos experimentais e a linhagem exata dos checkpoints Wistar ainda estão em revisão; a licença do código não se estende automaticamente a esses materiais.
 
 Enquanto não houver DOI de software confirmado, cite o repositório e a versão/commit efetivamente utilizados, incluindo a data de acesso. Referência provisória, com autoria ainda sujeita a confirmação:
 
-> Santos, Gabriel Silva; Vargas, Thiago Alves. *Behavior Tracker: An Open-Source Computational Platform for Automated Behavioral Analysis in Rodent Experiments*. Version 0.1.6 [Software]. https://github.com/CodesOfGabriel/behaviortracker
+> Santos, Gabriel Silva; Vargas, Thiago Alves. *Behavior Tracker: An Open-Source Computational Platform for Automated Behavioral Analysis in Rodent Experiments*. Version 0.1.7 [Software, unreleased]. https://github.com/CodesOfGabriel/behaviortracker
 
 ## Referências
 

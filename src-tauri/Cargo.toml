@@ -1,9 +1,10 @@
 [package]
 name = "behavetracker"
-version = "0.1.6"
+version = "0.1.7"
 description = "Desktop behavioral tracking review for open field experiments"
 authors = ["BehaveTracker contributors"]
 edition = "2021"
+license = "Apache-2.0"
 
 [lib]
 name = "behavetracker_lib"

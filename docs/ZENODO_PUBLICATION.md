@@ -1,6 +1,6 @@
 # Zenodo publication metadata
 
-Status on 2026-11-27: **draft for author approval; publication pending**. This
+Status on 2026-11-27: **0.1.7 prepared for final review; publication pending**. This
 preparation does not create a release, tag, DOI, or Zenodo deposit. The
 GitHub–Zenodo integration is already enabled, as reported by the maintainer.
 
@@ -18,13 +18,14 @@ Approval and subsequent corrections must therefore cover both files.
 | Software resource | `type: software` | `upload_type: software` |
 | Ordered authors | `authors` | `creators` in the same order |
 | Scientific description | `abstract` | Identical text in `description` |
-| Current repository version | `version: "0.1.6"` | `version: "0.1.6"` |
+| Prepared repository version | `version: "0.1.7"` | `version: "0.1.7"` |
 | Repository | `repository-code` and `url` | `related_identifiers` |
 | English | English text and a language comment | `language: eng` |
 | Nine supplied keywords | `keywords` | Identical ordered `keywords` |
 | Gabriel's ORCID | Full URI in `authors[].orcid` | Identifier in `creators[].orcid` |
 | Thiago's ResearchGate profile | `authors[].website` | Attributed profile URL in `notes` |
-| Project license | Absent; maintainer confirms none exists | Absent; license decision pending |
+| Individual affiliations | Confirmed affiliation in `authors[].affiliation` | Identical affiliation in `creators[].affiliation` |
+| Project license | `license: Apache-2.0` | `license: Apache-2.0` |
 
 CFF 1.2.0 does not permit a root-level `language` or `languages` property.
 English is recorded in the text/comment in that file and explicitly encoded as
@@ -32,10 +33,11 @@ English is recorded in the text/comment in that file and explicitly encoded as
 
 The version matches `package.json`, `package-lock.json`,
 `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and
-`src-tauri/tauri.conf.json`. No version was incremented. When an approved future
-release changes the application version, update both metadata files to that
-version before preparing its tag. Do not reuse a version number for different
-released source snapshots.
+`src-tauri/tauri.conf.json`. The application was incremented from 0.1.6 to 0.1.7
+after confirming that tag `v0.1.7` was absent locally and remotely. No tag or
+release was created. The public download fallback intentionally remains at
+the verified 0.1.6 assets until new installers are actually published and
+verified. See [CHANGELOG.md](../CHANGELOG.md).
 
 Neither a DOI nor a publication date is invented. GitHub release archiving will
 provide the actual publication context. Once Zenodo assigns identifiers, record
@@ -50,8 +52,8 @@ Alves Vargas. The author order is preserved.
 
 | Supplied name | Full name confirmed | Individual affiliation | ORCID |
 | --- | --- | --- | --- |
-| Gabriel Silva Santos | Supplied by maintainer | Pending | `0009-0005-1967-0084`, supplied by maintainer |
-| Thiago Alves Vargas | Supplied by maintainer | Pending | Not supplied; ResearchGate only |
+| Gabriel Silva Santos | Supplied by maintainer | Confirmed, see below | `0009-0005-1967-0084`, supplied by maintainer |
+| Thiago Alves Vargas | Supplied by maintainer | Confirmed, see below | Not supplied; ResearchGate only |
 
 Gabriel's ORCID is recorded as a full `https://orcid.org/...` URI in CFF and as
 the bare identifier in JSON. Its format and check digit have been verified;
@@ -63,31 +65,31 @@ is recorded as his `website` in CFF and as an attributed URL in the Zenodo
 `notes`. It is not an ORCID. The absence of a supplied ORCID does not establish
 that he has none; his ORCID field remains absent unless confirmed later.
 
-Individual affiliations remain absent from both metadata files. The README
-mentions Neurocell, NeuroLab, and UFPel, but does not establish each author's
-approved affiliation. No affiliations have been inferred from the supplied
-profile links.
+The maintainer confirmed the Institute of Biology and Department of Physiology
+and Pharmacology in the UFPel affiliation context for both authors. Both files
+use the same English metadata string:
 
-## License unresolved
+> Department of Physiology and Pharmacology, Institute of Biology,
+> Universidade Federal de Pelotas (UFPel), Brazil
 
-The maintainer confirms that **no project license exists**. The source audit
-also found no license for Behavior Tracker itself:
-no root `LICENSE`/`COPYING` was found, and the application package manifests do
-not declare a project license. `docs/licenses/shadcn-ui-MIT.txt` concerns a
-third-party component; FFmpeg notices concern the bundled video tools. Neither
-establishes the license of this project or its trained weights.
+This is an academic affiliation, not an assertion of institutional copyright
+ownership, funding, or endorsement. No affiliation was inferred from a
+ResearchGate or ORCID name match.
 
-Consequently, no SPDX identifier, license text, or copyright owner has been
-invented. The requested title is preserved verbatim, including “Open-Source”,
-but the project's licensing still needs to be established before publication.
+## Authorized project license
 
-**Do not publish with the license fields absent.** The
-[Zenodo deposit documentation](https://developers.zenodo.org/#deposit-metadata)
-describes default licenses for omitted values; omission must not be treated as
-approval to apply a service default. Have the responsible authors establish
-the project license, then add its actual text
-and matching license identifiers to both metadata files. Check the applicable
-terms for weights and bundled components separately.
+After confirming that no previous project license existed, the maintainer
+explicitly confirmed rights-holder authorization for **Apache License 2.0**.
+The unmodified [official Apache text](https://www.apache.org/licenses/LICENSE-2.0.txt)
+is in [`LICENSE`](../LICENSE), and the SPDX identifier `Apache-2.0` is recorded
+in CFF, Zenodo JSON, npm and Cargo metadata. No copyright owner or patent
+ownership has been invented.
+
+The project license does not relicense external models, datasets, media or
+institutional marks. The [third-party review](THIRD_PARTY_LICENSES.md) records
+the non-commercial terms of SuperAnimal and CoTracker, and the separate
+GPL/LGPL/source obligations of dependencies and video binaries. The runtime
+model licenses and archive-media permissions require their own evidence.
 
 ## Scientific scope and reproducibility
 
@@ -105,22 +107,36 @@ original experimental videos, or complete training data.
 
 ## Required before an approved release
 
-- Confirm individual affiliations and final author metadata/order; record
-  Thiago's ORCID only if supplied and confirmed.
-- Resolve the project license and explicitly synchronize its identifiers;
-  remove draft comments/notes after the pending decisions are resolved.
+- Review final author metadata/order; add Thiago's ORCID only if supplied and
+  confirmed. Names, affiliations and the project license are already recorded.
+- Resolve custom-weight and media provenance/permissions described in
+  [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md); preserve upstream terms.
+  Consult the root [model](../MODEL_CARD.md), [dataset](../DATASET_CARD.md)
+  and [asset](../ASSET_LICENSES.md) cards. The maintainer declares authorship
+  of application images/icons; no visual replacement is authorized.
 - Approve the scientific description and the documented reproducibility limits.
 - Match the application version, both metadata files, and the source snapshot
   selected for the release; run the repository's existing release checks.
 - Decide how to preserve required weights and their permitted reuse alongside
   the source. Existing GitHub model assets must not be assumed to be included
   in the Zenodo source archive.
+- Address the remaining FST weight pinning and Python environment capture gaps
+  before claiming complete inference reproducibility. No scientific runtime
+  was silently changed to make an archival claim.
 - Obtain the maintainer's explicit approval before creating or publishing a
   release. Review the resulting Zenodo record and its actual identifiers after
   an authorized publication.
 
 These are review steps; no automatic publication barrier has been added to the
 existing workflows.
+
+All original images, icons and audiovisual assets are retained, as explicitly
+requested by the maintainer, who states they created the images and icons.
+No archive exclusions were added. Study-derived diagnostics and tables still
+require a redistribution review independent of application-artwork authorship.
+The [preparation report](releases/v0.1.7-preparation.md) records
+the exact checks and remaining decisions. The maintainer controls commit,
+push, release creation and publication; no such operation was performed.
 
 ## Metadata checks
 

@@ -1,0 +1,376 @@
+{
+  "reviewedOn": "2026-11-27",
+  "scope": "Public release API metadata and versioned installer configuration for all returned releases; direct archive inspection of two Linux .deb files. Other platform binaries and older Linux binaries were not unpacked. Embedded asset-name references do not prove exact media payload identity. No installers were executed and no remote release was changed.",
+  "releases": [
+    {
+      "tag": "v0.1.6",
+      "publishedAt": "2026-11-27T18:45:50Z",
+      "prerelease": false,
+      "assets": [
+        {
+          "name": "BehaviorTracker-v0.1.6-Linux-x64.AppImage",
+          "sizeBytes": 180537848,
+          "sha256Reported": "sha256:0d627f26e0ff4ce71304e2a7f1d8e0aa08bc2901d5af5a9a134476fa0a05b7d0",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.6/BehaviorTracker-v0.1.6-Linux-x64.AppImage"
+        },
+        {
+          "name": "BehaviorTracker-v0.1.6-Linux-x64.deb",
+          "sizeBytes": 97716532,
+          "sha256Reported": "sha256:b1e781ffeb72f74397eb9dc04efd7290d6537362d8e7b8c5da1ac3e951f843aa",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.6/BehaviorTracker-v0.1.6-Linux-x64.deb"
+        },
+        {
+          "name": "BehaviorTracker-v0.1.6-macOS-Apple-Silicon.dmg",
+          "sizeBytes": 74899876,
+          "sha256Reported": "sha256:710fa6623d4055cab3853f882f5575e46a69a81391794797aa7f03d9652be410",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.6/BehaviorTracker-v0.1.6-macOS-Apple-Silicon.dmg"
+        },
+        {
+          "name": "BehaviorTracker-v0.1.6-macOS-Intel.dmg",
+          "sizeBytes": 87116370,
+          "sha256Reported": "sha256:09a6d365b6dd23a3966922c71910f3b5c131ca6ed5a32001b23793d68f7be7f8",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.6/BehaviorTracker-v0.1.6-macOS-Intel.dmg"
+        },
+        {
+          "name": "BehaviorTracker-v0.1.6-Windows-x64.exe",
+          "sizeBytes": 76977156,
+          "sha256Reported": "sha256:3e7235b4ef412541907c3c645726f8da9b84ce26c89691c3f539a10bf42747eb",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.6/BehaviorTracker-v0.1.6-Windows-x64.exe"
+        }
+      ],
+      "sourceDeclaredResources": {
+        "binaries/VIDEO_TOOLS_LICENSE.txt": "licenses/VIDEO_TOOLS_LICENSE.txt",
+        "../models/wistar_df_v2/pytorch_config.yaml": "models/wistar_df_v2/pytorch_config.yaml",
+        "../models/wistar_df_v2/manifest.json": "models/wistar_df_v2/manifest.json"
+      }
+    },
+    {
+      "tag": "v0.1.5",
+      "publishedAt": "2026-11-24T22:47:00Z",
+      "prerelease": false,
+      "assets": [
+        {
+          "name": "BehaviorTracker-v0.1.5-Linux-x64.AppImage",
+          "sizeBytes": 169806328,
+          "sha256Reported": "sha256:3a8e28ca42ec1a79a0e1821ce977970f1084e8d0f3ff3980e47a3641e6269bc6",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.5/BehaviorTracker-v0.1.5-Linux-x64.AppImage"
+        },
+        {
+          "name": "BehaviorTracker-v0.1.5-Linux-x64.deb",
+          "sizeBytes": 86945892,
+          "sha256Reported": "sha256:9b4ec7aee29a2b3d1082e64bdc3f924b2737d4fb660c7dab221964a1887e6ccd",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.5/BehaviorTracker-v0.1.5-Linux-x64.deb"
+        },
+        {
+          "name": "BehaviorTracker-v0.1.5-macOS-Apple-Silicon.dmg",
+          "sizeBytes": 64058446,
+          "sha256Reported": "sha256:c2d055053e796f287101ff66637bf842e183018c26b65937a31700acf8ed933c",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.5/BehaviorTracker-v0.1.5-macOS-Apple-Silicon.dmg"
+        },
+        {
+          "name": "BehaviorTracker-v0.1.5-macOS-Intel.dmg",
+          "sizeBytes": 76347210,
+          "sha256Reported": "sha256:a9eaa08e026c83a904856b828b9c6d821b752f373c31f1bd86e0e582b6ee322c",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.5/BehaviorTracker-v0.1.5-macOS-Intel.dmg"
+        },
+        {
+          "name": "BehaviorTracker-v0.1.5-Windows-x64.exe",
+          "sizeBytes": 66246408,
+          "sha256Reported": "sha256:0910428e97f820c2c9c2057ba8184f3d08c96fff8872329d9790b7e82abaf40e",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.5/BehaviorTracker-v0.1.5-Windows-x64.exe"
+        }
+      ],
+      "sourceDeclaredResources": {
+        "binaries/VIDEO_TOOLS_LICENSE.txt": "licenses/VIDEO_TOOLS_LICENSE.txt",
+        "../models/wistar_df_v2/pytorch_config.yaml": "models/wistar_df_v2/pytorch_config.yaml",
+        "../models/wistar_df_v2/manifest.json": "models/wistar_df_v2/manifest.json"
+      }
+    },
+    {
+      "tag": "v0.1.4",
+      "publishedAt": "2026-11-14T21:26:45Z",
+      "prerelease": false,
+      "assets": [
+        {
+          "name": "BehaviorTracker-v0.1.4-Linux-x64.AppImage",
+          "sizeBytes": 437144056,
+          "sha256Reported": "sha256:309f5bc77211d2669c8525d0d737fdd773d434e39c0b70e9a0d6173267c7da8c",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.4/BehaviorTracker-v0.1.4-Linux-x64.AppImage"
+        },
+        {
+          "name": "BehaviorTracker-v0.1.4-Linux-x64.deb",
+          "sizeBytes": 354096258,
+          "sha256Reported": "sha256:fb1ac0d49c84a177d70c6a2d19c799b88b344022a1321b6072186743f972fc67",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.4/BehaviorTracker-v0.1.4-Linux-x64.deb"
+        },
+        {
+          "name": "BehaviorTracker-v0.1.4-macOS-Apple-Silicon.dmg",
+          "sizeBytes": 331507895,
+          "sha256Reported": "sha256:69c5c149962a4782096d38408fd81fdcabd75f180b90c820f95403f03223f6a6",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.4/BehaviorTracker-v0.1.4-macOS-Apple-Silicon.dmg"
+        },
+        {
+          "name": "BehaviorTracker-v0.1.4-macOS-Intel.dmg",
+          "sizeBytes": 343788479,
+          "sha256Reported": "sha256:7de4cc4d7736a2bc18811902542afa07e03d44c8b533f9d2c98ed905a52863e9",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.4/BehaviorTracker-v0.1.4-macOS-Intel.dmg"
+        },
+        {
+          "name": "BehaviorTracker-v0.1.4-Windows-x64.exe",
+          "sizeBytes": 331198168,
+          "sha256Reported": "sha256:d4b85e5cd2694577550070e9e416a0ea8cfeb39ffb0a243c2c469247e45ba2e0",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.4/BehaviorTracker-v0.1.4-Windows-x64.exe"
+        }
+      ],
+      "sourceDeclaredResources": {
+        "binaries/VIDEO_TOOLS_LICENSE.txt": "licenses/VIDEO_TOOLS_LICENSE.txt",
+        "../models/wistar_df_v2/best_detector.pth": "models/wistar_df_v2/best_detector.pth",
+        "../models/wistar_df_v2/snapshot-hrnet_w32-001.pt": "models/wistar_df_v2/snapshot-hrnet_w32-001.pt",
+        "../models/wistar_df_v2/pytorch_config.yaml": "models/wistar_df_v2/pytorch_config.yaml",
+        "../models/wistar_df_v2/manifest.json": "models/wistar_df_v2/manifest.json"
+      }
+    },
+    {
+      "tag": "v0.1.3",
+      "publishedAt": "2026-11-14T20:26:37Z",
+      "prerelease": false,
+      "assets": [
+        {
+          "name": "BehaviorTracker-v0.1.3-Linux-x64.AppImage",
+          "sizeBytes": 437139960,
+          "sha256Reported": "sha256:58a61c26793c02da0ed454da5e3af8c4f1ff11f3fffc72d4b7e5f688051cd77f",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.3/BehaviorTracker-v0.1.3-Linux-x64.AppImage"
+        },
+        {
+          "name": "BehaviorTracker-v0.1.3-Linux-x64.deb",
+          "sizeBytes": 354096132,
+          "sha256Reported": "sha256:397248c5c786c555068d339fe95313592afe4a548186d8aa18ad5e421c892297",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.3/BehaviorTracker-v0.1.3-Linux-x64.deb"
+        },
+        {
+          "name": "BehaviorTracker-v0.1.3-macOS-Apple-Silicon.dmg",
+          "sizeBytes": 331513873,
+          "sha256Reported": "sha256:bd39c9b5d35118e3580257f051f124bf653e0742681f591bbe6b389c78fa4203",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.3/BehaviorTracker-v0.1.3-macOS-Apple-Silicon.dmg"
+        },
+        {
+          "name": "BehaviorTracker-v0.1.3-macOS-Intel.dmg",
+          "sizeBytes": 343788184,
+          "sha256Reported": "sha256:160f994a014c4396bdc19d57002cb00642a2e395d5b2d2d45fb1c829da4107e0",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.3/BehaviorTracker-v0.1.3-macOS-Intel.dmg"
+        },
+        {
+          "name": "BehaviorTracker-v0.1.3-Windows-x64.exe",
+          "sizeBytes": 331197109,
+          "sha256Reported": "sha256:748ce47600432fe5bd8fd15b54b07e7028066258079f094fe2cd2cd0e4d37aa1",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.3/BehaviorTracker-v0.1.3-Windows-x64.exe"
+        }
+      ],
+      "sourceDeclaredResources": {
+        "binaries/VIDEO_TOOLS_LICENSE.txt": "licenses/VIDEO_TOOLS_LICENSE.txt",
+        "../models/wistar_df_v2/best_detector.pth": "models/wistar_df_v2/best_detector.pth",
+        "../models/wistar_df_v2/snapshot-hrnet_w32-001.pt": "models/wistar_df_v2/snapshot-hrnet_w32-001.pt",
+        "../models/wistar_df_v2/pytorch_config.yaml": "models/wistar_df_v2/pytorch_config.yaml",
+        "../models/wistar_df_v2/manifest.json": "models/wistar_df_v2/manifest.json"
+      }
+    },
+    {
+      "tag": "v0.1.2",
+      "publishedAt": "2026-11-14T19:57:31Z",
+      "prerelease": false,
+      "assets": [
+        {
+          "name": "BehaviorTracker-v0.1.2-Linux-x64.AppImage",
+          "sizeBytes": 437123576,
+          "sha256Reported": "sha256:fd7f2da5c41a7cf62fb80cf041b146ab1188e6b75f2e669f4642feda4af38c21",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.2/BehaviorTracker-v0.1.2-Linux-x64.AppImage"
+        },
+        {
+          "name": "BehaviorTracker-v0.1.2-Linux-x64.deb",
+          "sizeBytes": 354095348,
+          "sha256Reported": "sha256:693fb66329f17e410a40edb288be9645bc54312d812ca79f2818ed4b9f0fa404",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.2/BehaviorTracker-v0.1.2-Linux-x64.deb"
+        },
+        {
+          "name": "BehaviorTracker-v0.1.2-macOS-Apple-Silicon.dmg",
+          "sizeBytes": 331511985,
+          "sha256Reported": "sha256:04af689572912856da06008fdd002f756529ca5e87e27971dc60aece6c9b4339",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.2/BehaviorTracker-v0.1.2-macOS-Apple-Silicon.dmg"
+        },
+        {
+          "name": "BehaviorTracker-v0.1.2-macOS-Intel.dmg",
+          "sizeBytes": 343799668,
+          "sha256Reported": "sha256:93bf0a82bc3a06f5b1c279deb36b6c9709860effad6decbaf4657ef18c34bbba",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.2/BehaviorTracker-v0.1.2-macOS-Intel.dmg"
+        },
+        {
+          "name": "BehaviorTracker-v0.1.2-Windows-x64.exe",
+          "sizeBytes": 331164003,
+          "sha256Reported": "sha256:f67e17d21ec5a5b160db24c83e8857df9a4e81b0e30c563c968704cac4b1cb8a",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.2/BehaviorTracker-v0.1.2-Windows-x64.exe"
+        }
+      ],
+      "sourceDeclaredResources": {
+        "binaries/VIDEO_TOOLS_LICENSE.txt": "licenses/VIDEO_TOOLS_LICENSE.txt",
+        "../models/wistar_df_v2/best_detector.pth": "models/wistar_df_v2/best_detector.pth",
+        "../models/wistar_df_v2/snapshot-hrnet_w32-001.pt": "models/wistar_df_v2/snapshot-hrnet_w32-001.pt",
+        "../models/wistar_df_v2/pytorch_config.yaml": "models/wistar_df_v2/pytorch_config.yaml",
+        "../models/wistar_df_v2/manifest.json": "models/wistar_df_v2/manifest.json"
+      }
+    },
+    {
+      "tag": "v0.1.1",
+      "publishedAt": "2026-11-13T14:45:46Z",
+      "prerelease": false,
+      "assets": [
+        {
+          "name": "BehaviorTracker-v0.1.1-Linux-x64.AppImage",
+          "sizeBytes": 429554168,
+          "sha256Reported": "sha256:eefe2ad6ee738cebd1e967fc17a118d216cf462441b6f821dd0be1425acd9820",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.1/BehaviorTracker-v0.1.1-Linux-x64.AppImage"
+        },
+        {
+          "name": "BehaviorTracker-v0.1.1-Linux-x64.deb",
+          "sizeBytes": 346514536,
+          "sha256Reported": "sha256:a45d03639a41afae1c928d9defc24a8b03179ce94b3110c680db89508564bf41",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.1/BehaviorTracker-v0.1.1-Linux-x64.deb"
+        },
+        {
+          "name": "BehaviorTracker-v0.1.1-macOS-Apple-Silicon.dmg",
+          "sizeBytes": 323877570,
+          "sha256Reported": "sha256:a0c9e00f460089885db2f4a249a8a4ec976b5dd833f4d8cb93679855a0dd3dd2",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.1/BehaviorTracker-v0.1.1-macOS-Apple-Silicon.dmg"
+        },
+        {
+          "name": "BehaviorTracker-v0.1.1-macOS-Intel.dmg",
+          "sizeBytes": 336198511,
+          "sha256Reported": "sha256:8e6d1b202cc619d35b5e73b21ece97bcfeba235cc92b5aa26304b20817d33ae3",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.1/BehaviorTracker-v0.1.1-macOS-Intel.dmg"
+        },
+        {
+          "name": "BehaviorTracker-v0.1.1-Windows-x64.exe",
+          "sizeBytes": 323560400,
+          "sha256Reported": "sha256:69a9dc5c473a1b9838d2029e0363faa3105c9a44e71c0e022599eaa4f050d31f",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/v0.1.1/BehaviorTracker-v0.1.1-Windows-x64.exe"
+        }
+      ],
+      "sourceDeclaredResources": {
+        "binaries/VIDEO_TOOLS_LICENSE.txt": "licenses/VIDEO_TOOLS_LICENSE.txt",
+        "../models/wistar_df_v2/best_detector.pth": "models/wistar_df_v2/best_detector.pth",
+        "../models/wistar_df_v2/snapshot-hrnet_w32-001.pt": "models/wistar_df_v2/snapshot-hrnet_w32-001.pt",
+        "../models/wistar_df_v2/pytorch_config.yaml": "models/wistar_df_v2/pytorch_config.yaml",
+        "../models/wistar_df_v2/manifest.json": "models/wistar_df_v2/manifest.json"
+      }
+    },
+    {
+      "tag": "models-wistar-df-v2-r1",
+      "publishedAt": "2026-11-14T19:17:03Z",
+      "prerelease": true,
+      "assets": [
+        {
+          "name": "best_detector.pth",
+          "sizeBytes": 173392347,
+          "sha256Reported": "sha256:211891e0ec5f5b3f56d0f0be5b9255319ce9857284e72e558ccfc9f4ca93eef0",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/models-wistar-df-v2-r1/best_detector.pth"
+        },
+        {
+          "name": "snapshot-hrnet_w32-001.pt",
+          "sizeBytes": 118196193,
+          "sha256Reported": "sha256:d81c8f18ba0729263168b96eab3e09b6bc3d0ee194b131fb381d2526266ff215",
+          "url": "https://github.com/CodesOfGabriel/behaviortracker/releases/download/models-wistar-df-v2-r1/snapshot-hrnet_w32-001.pt"
+        }
+      ]
+    }
+  ],
+  "inspectedInstallers": [
+    {
+      "tag": "v0.1.4",
+      "format": "Linux deb",
+      "sha256": "fb1ac0d49c84a177d70c6a2d19c799b88b344022a1321b6072186743f972fc67",
+      "bytes": 354096258,
+      "modelFiles": [
+        {
+          "name": "usr/lib/Behavior Tracker/models/wistar_df_v2/snapshot-hrnet_w32-001.pt",
+          "bytes": 118196193,
+          "sha256": "d81c8f18ba0729263168b96eab3e09b6bc3d0ee194b131fb381d2526266ff215"
+        },
+        {
+          "name": "usr/lib/Behavior Tracker/models/wistar_df_v2/best_detector.pth",
+          "bytes": 173392347,
+          "sha256": "211891e0ec5f5b3f56d0f0be5b9255319ce9857284e72e558ccfc9f4ca93eef0"
+        }
+      ],
+      "assetFiles": [
+        {
+          "name": "usr/share/icons/hicolor/256x256@2/apps/behavetracker.png",
+          "bytes": 17787,
+          "sha256": "af0863c99795ed934cbb80a072b6be0e48cfc7d4327c4f05af3334abceac0c76"
+        },
+        {
+          "name": "usr/share/icons/hicolor/32x32/apps/behavetracker.png",
+          "bytes": 917,
+          "sha256": "de25a8cb5614c83b46e08f5dfad8cec5adfade6dc1cef6fa931d43ac4047f99d"
+        },
+        {
+          "name": "usr/share/icons/hicolor/128x128/apps/behavetracker.png",
+          "bytes": 5623,
+          "sha256": "a6533213bd2b3b8fa53ae12a0fa37dbc58c520180fc8cd6cbcd6d6a7985d52f8"
+        }
+      ],
+      "licenseFiles": [
+        {
+          "name": "usr/lib/Behavior Tracker/licenses/VIDEO_TOOLS_LICENSE.txt",
+          "bytes": 35301
+        }
+      ],
+      "fileCount": 12,
+      "embeddedAssetNameReferences": [
+        "rats_background.mp4",
+        "RatLogo_white.png",
+        "loading.gif",
+        "ufpel.png",
+        "neurocell.png",
+        "neurolab.png"
+      ]
+    },
+    {
+      "tag": "v0.1.6",
+      "format": "Linux deb",
+      "sha256": "b1e781ffeb72f74397eb9dc04efd7290d6537362d8e7b8c5da1ac3e951f843aa",
+      "bytes": 97716532,
+      "modelFiles": [],
+      "assetFiles": [
+        {
+          "name": "usr/share/icons/hicolor/128x128/apps/behavetracker.png",
+          "bytes": 5623,
+          "sha256": "a6533213bd2b3b8fa53ae12a0fa37dbc58c520180fc8cd6cbcd6d6a7985d52f8"
+        },
+        {
+          "name": "usr/share/icons/hicolor/256x256@2/apps/behavetracker.png",
+          "bytes": 17787,
+          "sha256": "af0863c99795ed934cbb80a072b6be0e48cfc7d4327c4f05af3334abceac0c76"
+        },
+        {
+          "name": "usr/share/icons/hicolor/32x32/apps/behavetracker.png",
+          "bytes": 917,
+          "sha256": "de25a8cb5614c83b46e08f5dfad8cec5adfade6dc1cef6fa931d43ac4047f99d"
+        }
+      ],
+      "licenseFiles": [
+        {
+          "name": "usr/lib/Behavior Tracker/licenses/VIDEO_TOOLS_LICENSE.txt",
+          "bytes": 35301
+        }
+      ],
+      "fileCount": 10,
+      "embeddedAssetNameReferences": [
+        "rats_background.mp4",
+        "RatLogo_white.png",
+        "loading.gif",
+        "ufpel.png",
+        "neurocell.png",
+        "neurolab.png"
+      ]
+    }
+  ]
+}

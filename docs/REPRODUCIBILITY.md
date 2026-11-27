@@ -1,6 +1,6 @@
 # Reproducing Behavior Tracker analyses
 
-This inventory describes the source at application version **0.1.6**, reviewed
+This inventory describes the source prepared for application version **0.1.7**, reviewed
 on 2026-11-27. It records implemented dependency choices and known gaps; it does
 not certify scientific accuracy or successful execution on every platform.
 
@@ -93,8 +93,10 @@ integrity check, `node scripts/check-release-models.mjs --remote` streams about
 
 During the 2026-11-27 metadata audit, the local check above passed. The public
 GitHub release API also reported asset URLs, sizes, and SHA-256 digests matching
-both manifest checkpoints. The remote payloads were not downloaded again;
-that API comparison is distinct from the full `--remote` streaming check.
+both manifest checkpoints. During the subsequent 0.1.7 preparation, the full
+`--remote` streaming check also passed for both assets; no new model release
+was created. This establishes retrieval and integrity at the check time,
+not permanent archival preservation or a license grant.
 
 The older `models/wistar_df_v1.manifest.json` identifies a different detector
 hash/size. Preserve the manifest actually used by an analysis rather than
@@ -132,9 +134,20 @@ The Wistar manifests document architectures and checkpoint identities, but the
 repository does not provide a complete public training-data/annotation archive,
 split manifest, and training history sufficient to recreate those trained
 weights. Inference reproducibility and retraining reproducibility therefore
-have different remaining requirements. The maintainer confirms that no project
-license exists; the source also lacks explicit reuse terms for the distributed Wistar weights;
-third-party notices must not be used to infer those permissions.
+have different remaining requirements. The maintainer has authorized Apache-2.0
+for the project code. Explicit reuse terms and upstream provenance for the
+distributed Wistar weights still require clarification; third-party notices
+must not be used to infer those permissions. See the
+[third-party license review](THIRD_PARTY_LICENSES.md), including SuperAnimal's
+non-commercial research terms and CoTracker's CC BY-NC 4.0 license.
+
+The optional CoTracker recovery assets already have immutable code/checkpoint
+revisions and expected sizes/SHA-256 in
+`src-tauri/python/hybrid/temporal_assets.py`. Both the code ZIP and checkpoint
+passed full remote size/SHA-256 streaming checks during the 0.1.7 preparation.
+FST/SuperAnimal remains the route without an equivalent committed immutable
+weight manifest. No inference engine has been changed merely to make a
+reproducibility claim.
 
 Before a scientific archive, resolve those licensing decisions, preserve the
 required model assets through an approved archival route, capture the actual
