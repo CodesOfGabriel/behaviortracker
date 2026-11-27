@@ -373,8 +373,16 @@ test("hard negatives record their category and unannotated time is never filled 
  const studio=page.getByRole("dialog",{name:"Estúdio de rearing",exact:true});
  await studio.getByLabel("Anotador",{exact:true}).fill("negative-reviewer");await studio.getByRole("button",{name:"Anotar intervalo",exact:true}).click();
  await studio.getByRole("radio",{name:"Não rearing",exact:true}).check();
- await studio.getByRole("combobox",{name:"Tipo de exemplo",exact:true}).click();await page.getByRole("option",{name:"Reflexo / sombra",exact:true}).click();
- await studio.getByLabel("Início (s)",{exact:true}).fill("0.4");await studio.getByLabel("Fim (s)",{exact:true}).fill("0.8");await studio.getByRole("button",{name:"Salvar intervalo",exact:true}).click();
+ const example=studio.getByRole("combobox",{name:"Tipo de exemplo",exact:true});
+ await example.click();await page.getByRole("option",{name:"Reflexo / sombra",exact:true}).click();
+ await expect(example).toHaveText("Reflexo / sombra");
+ // Radix restores trigger focus asynchronously on close. Wait for that before
+ // entering a different field, so it cannot steal focus during WebKit fill().
+ await expect(example).toBeFocused();
+ const start=studio.getByLabel("Início (s)",{exact:true}),end=studio.getByLabel("Fim (s)",{exact:true});
+ await start.fill("0.4");await expect(start).toHaveValue("0.4");
+ await end.fill("0.8");await expect(end).toHaveValue("0.8");
+ await studio.getByRole("button",{name:"Salvar intervalo",exact:true}).click();
  await expect(studio.getByText("Anotação salva neste computador.",{exact:true})).toBeVisible();
  expect(await page.evaluate(()=>window.__desktopTest.annotations)).toEqual([expect.objectContaining({type:"INTERVAL",startSec:.4,endSec:.8,label:"NON_REARING",exampleKind:"reflection"})]);
  await studio.getByRole("button",{name:"Exportar para treinamento",exact:true}).click();await studio.getByLabel("Arena",{exact:true}).fill("arena-01");
