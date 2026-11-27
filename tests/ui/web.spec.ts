@@ -1,10 +1,18 @@
 import { expect, test } from "@playwright/test";
+import { publishedDesktopRelease } from "../fixtures/desktop-release";
+
+const releaseApi = "https://api.github.com/repos/CodesOfGabriel/behaviortracker/releases/latest";
+test.beforeEach(async ({ page }) => {
+  await page.route(releaseApi, route => route.fulfill({ json: publishedDesktopRelease() }));
+});
 
 for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
   test(`website downloads and institutional images work at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await page.goto("/");
     await expect(page.getByRole("heading", { name: "Software para pesquisa" })).toBeVisible();
+    await expect(page.locator(".download-release")).toContainText("Versão 9.8.7");
+    await expect(page.getByRole("link", { name: "Notas da versão" })).toHaveAttribute("href", "https://github.com/CodesOfGabriel/behaviortracker/releases/tag/v9.8.7");
 
     const checkInstaller = async (name: string, suffix: string) => {
       const link = page.getByRole("link", { name, exact: true });
@@ -14,6 +22,7 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 
       const match = url.pathname.match(/^\/CodesOfGabriel\/behaviortracker\/releases\/download\/(v\d+\.\d+\.\d+)\/BehaviorTracker-(v\d+\.\d+\.\d+)-(.+)$/);
       expect(match).not.toBeNull();
       expect(match![1]).toBe(match![2]);
+      expect(match![1]).toBe("v9.8.7");
       expect(match![3]).toBe(suffix);
     };
     await checkInstaller("Baixar para macOS Apple Silicon", "macOS-Apple-Silicon.dmg");
@@ -47,6 +56,36 @@ test("browser login supports direct navigation, reload and returning to download
   await page.getByRole("link", { name: "Downloads", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Software para pesquisa" })).toBeVisible();
 });
+
+test("returning to the page refreshes the published version without rebuilding the website", async ({ page }) => {
+  let version = "9.8.7";
+  await page.unroute(releaseApi);
+  await page.route(releaseApi, route => route.fulfill({ json: publishedDesktopRelease(version) }));
+  await page.goto("/");
+  await expect(page.locator(".download-release")).toContainText("Versão 9.8.7");
+  version = "9.8.8";
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect(page.locator(".download-release")).toContainText("Versão 9.8.8");
+  await expect(page.getByRole("link", { name: "Notas da versão" })).toHaveAttribute("href", /\/tag\/v9\.8\.8$/);
+  await expect(page.getByRole("link", { name: "Baixar para Windows x64" })).toHaveAttribute("href", /\/v9\.8\.8\/BehaviorTracker-v9\.8\.8-Windows-x64\.exe$/);
+});
+
+for (const scenario of ["unavailable", "incomplete"] as const) {
+  test(`GitHub ${scenario} keeps verified downloads without claiming they are the latest`, async ({ page }) => {
+    await page.unroute(releaseApi);
+    await page.route(releaseApi, route => route.fulfill(scenario === "unavailable"
+      ? { status: 403, json: { message: "API rate limit exceeded" } }
+      : { json: { ...publishedDesktopRelease(), assets: [] } }));
+    await page.goto("/");
+    await expect(page.locator(".download-release")).toContainText("Última versão verificada: 0.1.6");
+    await expect(page.getByRole("link", { name: "Baixar para Windows x64" })).toHaveAttribute("href", /\/v0\.1\.6\/BehaviorTracker-v0\.1\.6-Windows-x64\.exe$/);
+    await page.getByRole("link", { name: "Entrar", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Entre na sua conta" })).toBeVisible();
+  });
+}
 
 test("website legal links serve the privacy and terms pages", async ({ page }) => {
   for (const [link, title, route] of [

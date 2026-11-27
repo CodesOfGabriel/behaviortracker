@@ -8,9 +8,11 @@ A identidade visual usa fundo grafite, cinzas neutros e botões em azul acinzent
 
 ## Atualizar os downloads
 
-Em `src/features/web/downloads.ts`, atualize `desktopRelease.version` somente depois de publicar e conferir os cinco instaladores da versão correspondente. O padrão de nomes é o mesmo de `.github/workflows/publish-desktop-release.yml`. A versão de desenvolvimento do `package.json` não é usada para anunciar um instalador ainda não publicado. A página não depende de consultas à API do GitHub durante a visita.
+Ao abrir a página e ao voltar para sua aba, o navegador consulta a release pública mais recente pela API do GitHub. Não é necessário alterar a versão no código ou refazer o deploy a cada release desktop. A versão de desenvolvimento do `package.json` não é usada para anunciar um instalador ainda não publicado.
 
-Os links correspondem à versão pública `v0.1.5`, cujos cinco assets foram conferidos via API do GitHub em 24/11/2026.
+A atualização só é aceita quando a release é estável, pública e contém os cinco instaladores publicados, com os nomes, tamanhos e URLs esperados. O padrão de nomes é o mesmo de `.github/workflows/publish-desktop-release.yml`. A versão, os downloads e as notas da versão são atualizados juntos. Tags de modelos, rascunhos, prévias e releases incompletas não substituem os downloads verificados.
+
+A consulta é pública, sem token, e tem limite de espera de cinco segundos. Se o GitHub estiver indisponível ou limitar as consultas, os links da última versão verificada continuam disponíveis com essa indicação na página. A versão de reserva embarcada é `v0.1.6`, cujos cinco instaladores foram conferidos via API em 27/11/2026. Ela não é usada para limitar a atualização automática de futuras versões.
 
 ## Build e serviço
 

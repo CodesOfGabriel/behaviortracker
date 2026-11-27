@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Download, LogIn } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
-import { desktopRelease, desktopReleaseUrl, installerUrl } from "./downloads";
+import { fallbackDesktopRelease, fetchLatestDesktopRelease } from "./downloads";
 
 function SystemIcon({ system }: { system: "mac" | "windows" | "linux" }) {
   if (system === "mac") return <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -22,6 +22,32 @@ function SystemIcon({ system }: { system: "mac" | "windows" | "linux" }) {
 
 export function DownloadPage() {
   const [macChip, setMacChip] = useState("silicon");
+  const [release, setRelease] = useState(fallbackDesktopRelease);
+  const [latestVerified, setLatestVerified] = useState(false);
+  useEffect(() => {
+    let controller: AbortController;
+    const refresh = () => {
+      controller?.abort();
+      const request = new AbortController();
+      controller = request;
+      setLatestVerified(false);
+      const timeout = window.setTimeout(() => request.abort(), 5000);
+      void fetchLatestDesktopRelease(request.signal).then(current => {
+        if (request.signal.aborted) return;
+        setRelease(current);
+        setLatestVerified(true);
+      }).catch(() => {
+        // Preserve working links and label them as the last verified version.
+      }).finally(() => window.clearTimeout(timeout));
+    };
+    const onVisibility = () => { if (document.visibilityState === "visible") refresh(); };
+    refresh();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      controller.abort();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
   return <div className="download-page">
     <a className="download-skip" href="#downloads">Ir para downloads</a>
     <header className="download-header">
@@ -51,7 +77,7 @@ export function DownloadPage() {
                 <TabsTrigger value="intel">Intel</TabsTrigger>
               </TabsList>
               {(["silicon", "intel"] as const).map(chip => <TabsContent key={chip} value={chip}>
-                <a className="download-button" href={installerUrl(chip === "intel" ? "mac-intel" : "mac-silicon")}
+                <a className="download-button" href={release.installers[chip === "intel" ? "mac-intel" : "mac-silicon"]}
                   aria-label={`Baixar para macOS ${chip === "intel" ? "Intel" : "Apple Silicon"}`}>
                   <Download size={17} aria-hidden="true" />Baixar para Mac<span>.dmg</span>
                 </a>
@@ -67,7 +93,7 @@ export function DownloadPage() {
           </CardHeader>
           <CardContent className="download-card-body">
             <div className="download-format">Instalador para Windows <span>x64</span></div>
-            <a className="download-button" href={installerUrl("windows")} aria-label="Baixar para Windows x64">
+            <a className="download-button" href={release.installers.windows} aria-label="Baixar para Windows x64">
               <Download size={17} aria-hidden="true" />Baixar para Windows<span>.exe</span>
             </a>
             <p className="download-card-note">Instale e abra o aplicativo no seu computador.</p>
@@ -80,14 +106,14 @@ export function DownloadPage() {
           </CardHeader>
           <CardContent className="download-card-body">
             <div className="download-format">Aplicativo para Linux <span>x64</span></div>
-            <a className="download-button" href={installerUrl("linux-appimage")} aria-label="Baixar para Linux x64 AppImage">
+            <a className="download-button" href={release.installers["linux-appimage"]} aria-label="Baixar para Linux x64 AppImage">
               <Download size={17} aria-hidden="true" />Baixar para Linux<span>.AppImage</span>
             </a>
-            <p className="download-card-note">Ubuntu ou Debian? <a href={installerUrl("linux-deb")}>Baixar .deb</a></p>
+            <p className="download-card-note">Ubuntu ou Debian? <a href={release.installers["linux-deb"]}>Baixar .deb</a></p>
           </CardContent>
         </Card>
       </div>
-      <p className="download-release">Versão {desktopRelease.version}<span aria-hidden="true">·</span><a href={desktopReleaseUrl} target="_blank" rel="noopener noreferrer">Notas da versão</a></p>
+      <p className="download-release">{latestVerified ? "Versão" : "Última versão verificada:"} {release.version}<span aria-hidden="true">·</span><a href={release.releaseUrl} target="_blank" rel="noopener noreferrer">Notas da versão</a></p>
       <div className="download-institutions" role="group" aria-label="Instituições">
         <span className="download-institution download-institution-ufpel"><img src="/ufpel.png" alt="Universidade Federal de Pelotas (UFPel)" width="72" height="72" /></span>
         <span className="download-institution"><img src="/neurocell.png" alt="NeuroCell" width="168" height="56" /></span>
