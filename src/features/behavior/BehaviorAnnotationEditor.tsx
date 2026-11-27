@@ -279,7 +279,7 @@ export function BehaviorAnnotationEditor({experimentId, trackingJobId, videoSha2
     {loaded&&context&&<>
       <div className="behavior-learning-path" aria-label="Preparação dos dados de treinamento">
         <Button size="sm" variant={mode==="peak"?"primary":"secondary"} onClick={()=>changeMode("peak")}>1. Ápices · {peaks.length}</Button>
-        <Button size="sm" aria-label={`2. Completar episódios · ${pending.length} ${pending.length===1?"pendente":"pendentes"}`} variant={episodePeak?"primary":"secondary"} disabled={!pending.length||saving} onClick={()=>completeEpisode()}>2. Episódios · {pending.length} {pending.length===1?"pendente":"pendentes"}</Button>
+        <Button size="sm" aria-label={`2. Completar episódios · ${pending.length} ${pending.length===1?"pendente":"pendentes"}`} variant={episodePeak?"primary":"secondary"} disabled={!pending.length||saving} onClick={()=>completeEpisode()}>2. Episódios · {pending.length}</Button>
         <Button size="sm" variant={mode==="interval"&&!episodePeak&&(label==="NON_REARING"||label==="UNKNOWN")?"primary":"secondary"} onClick={beginExamples}>3. Exemplos e incertezas</Button>
         <Button size="sm" aria-label={`4. Pontos corporais · ${poseFrames.length} ${poseFrames.length===1?"quadro":"quadros"}`} variant={mode==="pose"?"primary":"secondary"} onClick={()=>changeMode("pose")}>4. Pontos · {poseFrames.length}</Button>
       </div>

@@ -44,7 +44,7 @@ it("quick confirmation requires the current annotator and updates the timeline o
   finish([{...peak,id:"confirmed",annotatorId:"reviewer",label:"REARING_UNSPECIFIED"}]);
   expect(await screen.findByText("accept")).toBeTruthy();
   expect(screen.getByRole("button",{name:/^Ápice em/})).toBeTruthy();
-  expect(screen.getByRole("button",{name:/2. Completar episódios/}).textContent).toContain("1 pendente");
+  expect(screen.getByRole("button",{name:/2. Completar episódios/}).getAttribute("aria-label")).toContain("1 pendente");
 });
 
 it("quick review preserves drafts and a failed save leaves the proposal pending for retry",async()=>{
@@ -169,7 +169,7 @@ it("guides existing peaks into human intervals and advances without altering ori
  await user.click(screen.getByRole("button",{name:"Salvar episódio e próximo"}));
  await waitFor(()=>expect(appendAnnotation).toHaveBeenCalledWith(expect.objectContaining({type:"INTERVAL",peakId:"original",startSec:0,endSec:.3,annotatorId:"episode-reviewer"})));
  expect(screen.getByText("Completar episódio · ápice 0.400 s")).toBeTruthy();
- expect(screen.getByRole("button",{name:/2. Completar episódios/}).textContent).toContain("1 pendente");
+ expect(screen.getByRole("button",{name:/2. Completar episódios/}).getAttribute("aria-label")).toContain("1 pendente");
  expect(peak.annotatorId).toBe("original-observer");
 });
 

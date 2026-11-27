@@ -21,7 +21,12 @@ export default defineConfig({
   },
   projects: [
     { name: "chromium", use: { browserName: "chromium" } },
-    { name: "webkit", use: { browserName: "webkit" } },
+    // Windows desktop uses WebView2 (Edge). The Windows Playwright WebKit
+    // port cannot decode our MP4 fixture or provide video frame callbacks.
+    // Run the same complete suite in Edge there; keep WebKit on macOS/Linux.
+    process.platform === "win32"
+      ? { name: "edge", use: { browserName: "chromium", channel: "msedge" } }
+      : { name: "webkit", use: { browserName: "webkit" } },
   ],
   // Exercise the shipped frontend assets. Never reuse an unrelated dev server.
   webServer: {

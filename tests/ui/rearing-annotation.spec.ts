@@ -350,6 +350,7 @@ test(`guided episode queue preserves authors and timestamps at ${viewport.width}
  await studio.getByLabel("Anotador",{exact:true}).fill("interval-reviewer");
  await studio.getByRole("button",{name:/2. Completar episódios/}).click();
  const sidebar=studio.locator(".behavior-studio-sidebar");
+ for(const button of await studio.locator(".behavior-learning-path .button").all()) expect((await button.boundingBox())!.height).toBeLessThanOrEqual(34);
  expect(await sidebar.evaluate(el=>el.scrollHeight-el.clientHeight)).toBeLessThanOrEqual(1);
  await studio.getByLabel("Início (s)",{exact:true}).fill("0.4");await studio.getByLabel("Fim (s)",{exact:true}).fill("1.0");
  await studio.getByRole("button",{name:"Salvar episódio e próximo",exact:true}).click();

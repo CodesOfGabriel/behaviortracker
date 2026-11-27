@@ -1989,7 +1989,7 @@ body:has(.behavior-studio-modal[open]) { overflow: hidden; }
 .behavior-studio-modal .behavior-ethogram { margin: 0; }
 .behavior-studio-modal .behavior-shortcuts { display: none; }
 .behavior-studio-modal .behavior-learning-path { margin: 0; grid-template-columns: repeat(4,minmax(0,1fr)); gap: .4rem; }
-.behavior-studio-modal .behavior-learning-path .button { min-height: 32px; padding: .4rem; font-size: .68rem; }
+.behavior-studio-modal .behavior-learning-path .button { min-width: 0; min-height: 32px; height: 32px; white-space: nowrap; padding: .4rem; font-size: .68rem; }
 .behavior-studio-modal .behavior-annotation-footer { flex: none; display: grid; grid-template-columns: minmax(0,1fr) auto auto auto; align-items: center; margin: 0; gap: .4rem; }
 .behavior-studio-modal .behavior-annotation-footer .button { font-size: .68rem; }
 .behavior-studio-modal .behavior-annotation-footer strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .7rem; }

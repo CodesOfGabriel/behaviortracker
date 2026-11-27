@@ -24,7 +24,7 @@ try {
     nodeStep("TypeScript da aplicação", cli("typescript", "tsc"), "-b"),
     nodeStep("TypeScript dos testes de interface", cli("typescript", "tsc"), "-p", "tsconfig.tests.json"),
     nodeStep("Build de produção", cli("vite"), "build"),
-    nodeStep("Regressão de usabilidade em Chromium e WebKit", require.resolve("@playwright/test/cli"), "test"),
+    nodeStep("Regressão de usabilidade nos navegadores da plataforma", require.resolve("@playwright/test/cli"), "test"),
   ];
   if (!frontendOnly) {
     const python = env.BEHAVETRACKER_TEST_PYTHON ?? join(root, ".venv-test", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");

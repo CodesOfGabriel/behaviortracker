@@ -10,7 +10,7 @@ const python = join(root, ".venv-test", process.platform === "win32" ? "Scripts/
 try {
   if (!existsSync(python)) command(process.env.BEHAVETRACKER_SYSTEM_PYTHON ?? (process.platform === "win32" ? "python" : "python3"), ["-m", "venv", join(root, ".venv-test")], { cwd: root });
   command(python, ["-m", "pip", "install", "--only-binary=:all:", "-r", "scripts/quality/requirements.txt"], { cwd: root });
-  command(process.execPath, [require.resolve("@playwright/test/cli"), "install", "chromium", "webkit"], { cwd: root });
+  command(process.execPath, [require.resolve("@playwright/test/cli"), "install", "chromium", process.platform === "win32" ? "msedge" : "webkit"], { cwd: root });
   console.log("Ambiente de testes preparado. Execute npm run verify.");
 } catch (error) {
   console.error(error.message);
