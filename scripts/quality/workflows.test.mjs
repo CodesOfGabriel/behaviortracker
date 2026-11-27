@@ -68,7 +68,9 @@ test("website pushes match site sources and shared dependencies while unrelated 
 test("quality checks run the full gate on every supported desktop OS unless an installer build is verified", () => {
   const { on, jobs } = read("quality.yml");
   assert.equal(on.workflow_call.inputs.source_run_id.default, "");
-  assert.equal(jobs.quality.if, "inputs.source_run_id == ''");
+  assert.equal(on.workflow_call.inputs.website_only.default, false);
+  assert.equal(on.workflow_call.inputs.website_only.type, "boolean");
+  assert.equal(jobs.quality.if, "!inputs.website_only && inputs.source_run_id == ''");
   assert.equal(jobs.reuse.if, "inputs.source_run_id != ''");
   assert.equal(jobs.reuse["continue-on-error"], undefined);
   assert.deepEqual(new Set(jobs.quality.strategy.matrix.os), new Set(["ubuntu-22.04", "macos-15-intel", "windows-latest"]));
@@ -82,16 +84,47 @@ test("quality checks run the full gate on every supported desktop OS unless an i
 
 test("website can reuse installer quality and does not repeat the unit suite", () => {
   const web = read("deploy-web.yml");
+  assert.equal(web.jobs.quality.with.website_only, true);
   assert.equal(web.on.workflow_dispatch.inputs.source_run_id.default, "");
   assert.equal(web.jobs.quality.with.source_run_id, "${{ inputs.source_run_id || '' }}", "push events have no manual input and must run quality normally");
   assert.equal(read("build-installers.yml").jobs.quality.with?.source_run_id, undefined, "installer builds always run quality");
+  assert.equal(read("build-installers.yml").jobs.quality.with?.website_only, undefined, "installer builds retain the full desktop gate by default");
   for (const step of web.jobs.deploy.steps) {
     assert.doesNotMatch(step.run ?? "", /npm (?:test|run (?:test|verify))/);
   }
-  assert.ok(web.jobs.deploy.steps.some(step => step.run === "npm run build"));
+  for (const step of web.jobs.deploy.steps.filter(step => step.run === "npm ci" || step.run === "npm run build" || step.uses === "actions/setup-node@v6")) {
+    assert.equal(step.if, "inputs.source_run_id", "a build is only needed when reusing desktop validation instead of a web artifact");
+  }
+  const download = web.jobs.deploy.steps.find(step => step.uses === "actions/download-artifact@v4");
+  assert.equal(download.if, "${{ !inputs.source_run_id }}");
+  assert.equal(download.with.name, "website-dist");
+  assert.equal(download.with.path, "dist/");
   for (const file of ["quality.yml", "build-installers.yml", "deploy-web.yml"]) {
     assert.equal(read(file).permissions.actions, "read", `${file}: run verification requires Actions read access`);
   }
+});
+
+test("website quality runs only frontend checks on Linux and retains the tested build", () => {
+  const job = read("quality.yml").jobs.web;
+  assert.equal(job.if, "inputs.website_only && inputs.source_run_id == ''");
+  assert.equal(job["runs-on"], "ubuntu-22.04");
+  assert.equal(job.strategy, undefined, "website does not need a desktop OS matrix");
+  assert.equal(job["continue-on-error"], undefined);
+  const check = job.steps.findIndex(step => step.run === "npm run verify:web");
+  const upload = job.steps.findIndex(step => step.with?.name === "website-dist");
+  assert.ok(check >= 0 && upload > check, "artifact must come from a successful website gate");
+  assert.equal(job.steps[check].if, undefined);
+  assert.equal(job.steps[check]["continue-on-error"], undefined);
+  assert.equal(job.steps[upload].if, undefined);
+  assert.equal(job.steps[upload].with.path, "dist/");
+  assert.equal(job.steps[upload].with["if-no-files-found"], "error");
+  assert.ok(job.steps.some(step => step.run === "npx playwright install --with-deps chromium webkit"));
+  for (const step of job.steps) {
+    assert.doesNotMatch(step.uses ?? "", /setup-python|rust-toolchain|rust-cache/);
+    assert.doesNotMatch(step.run ?? "", /pip install|cargo |prepare-video-tools|ffmpeg-static|npm run verify$/);
+  }
+  const commands = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).scripts;
+  assert.equal(commands["verify:web"], "node scripts/quality/check.mjs --web");
 });
 
 test("reusing quality rejects failed builds, different commits and incomplete OS coverage", {

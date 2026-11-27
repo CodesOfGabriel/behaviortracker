@@ -53,6 +53,7 @@ jobs:
   quality:
     uses: ./.github/workflows/quality.yml
     with:
+      website_only: true
       source_run_id: ${{ inputs.source_run_id || '' }}
 
   deploy:
@@ -65,12 +66,21 @@ jobs:
       DEPLOY_ROOT: /srv/apps/.behaviortracker-deploy
     steps:
       - uses: actions/checkout@v7
+      - name: Download validated website
+        if: ${{ !inputs.source_run_id }}
+        uses: actions/download-artifact@v4
+        with:
+          name: website-dist
+          path: dist/
       - uses: actions/setup-node@v6
+        if: inputs.source_run_id
         with:
           node-version: 22
           cache: npm
       - run: npm ci
+        if: inputs.source_run_id
       - run: npm run build
+        if: inputs.source_run_id
       - name: Verify website files
         shell: bash
         run: |

@@ -17,6 +17,7 @@
     "test:setup": "node scripts/quality/setup.mjs",
     "verify": "node scripts/quality/check.mjs",
     "verify:frontend": "node scripts/quality/check.mjs --frontend",
+    "verify:web": "node scripts/quality/check.mjs --web",
     "verify:staged": "node scripts/quality/pre-commit.mjs",
     "prepare": "node scripts/quality/install-hooks.mjs",
     "test:regression-proof": "node scripts/quality/prove-modal-regression.mjs"

@@ -7,7 +7,8 @@ import { command, prependPath, runChecks } from "./core.mjs";
 
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const frontendOnly = process.argv.slice(2).join(" ") === "--frontend";
-if (process.argv.length > 2 && !frontendOnly) throw new Error("Opção desconhecida. Use sem argumentos ou --frontend.");
+const websiteOnly = process.argv.slice(2).join(" ") === "--web";
+if (process.argv.length > 2 && !frontendOnly && !websiteOnly) throw new Error("Opção desconhecida. Use sem argumentos, --frontend ou --web.");
 const require = createRequire(join(root, "package.json"));
 const cli = (name, executable = name) => {
   const manifest = require.resolve(`${name}/package.json`);
@@ -19,14 +20,14 @@ const tools = mkdtempSync(join(tmpdir(), "behavetracker-test-tools-"));
 let env = { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" };
 try {
   const steps = [
-    nodeStep("Testes das ferramentas de qualidade e dos workflows", "--test", "scripts/quality/core.test.mjs", "scripts/quality/workflows.test.mjs", "scripts/quality/tauri-dev.test.mjs"),
-    nodeStep("Testes unitários e de componentes", cli("vitest"), "run"),
+    nodeStep("Testes das ferramentas de qualidade e dos workflows", "--test", ...(websiteOnly ? ["scripts/quality/workflows.test.mjs"] : ["scripts/quality/core.test.mjs", "scripts/quality/workflows.test.mjs", "scripts/quality/tauri-dev.test.mjs"])),
+    nodeStep("Testes unitários e de componentes", cli("vitest"), "run", ...(websiteOnly ? ["src/features/web", "src/features/auth", "src/components/ui"] : [])),
     nodeStep("TypeScript da aplicação", cli("typescript", "tsc"), "-b"),
     nodeStep("TypeScript dos testes de interface", cli("typescript", "tsc"), "-p", "tsconfig.tests.json"),
     nodeStep("Build de produção", cli("vite"), "build"),
-    nodeStep("Regressão de usabilidade nos navegadores da plataforma", require.resolve("@playwright/test/cli"), "test"),
+    nodeStep("Regressão de usabilidade nos navegadores da plataforma", require.resolve("@playwright/test/cli"), "test", ...(websiteOnly ? ["tests/ui/web.spec.ts"] : [])),
   ];
-  if (!frontendOnly) {
+  if (!frontendOnly && !websiteOnly) {
     const python = env.BEHAVETRACKER_TEST_PYTHON ?? join(root, ".venv-test", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
     if (!existsSync(python)) throw new Error("Ambiente Python de testes ausente. Execute npm run test:setup.");
     command(python, ["-c", "import cv2,numpy,scipy,pandas,onnx,onnxruntime,sklearn"], { cwd: root, env });
